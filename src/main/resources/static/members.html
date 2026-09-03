@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GuildUp 커뮤니티 클랜원 관리">
+    <title>클랜원 목록 | GuildUp</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --background: #f4f5f9;
+            --surface: #ffffff;
+            --text: #1c1d24;
+            --muted: #717584;
+            --primary: #6558d3;
+            --primary-dark: #5044b8;
+            --border: #e5e6ed;
+            --error: #c23b3b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--background);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .header-inner,
+        main {
+            width: min(100% - 32px, 680px);
+            margin: 0 auto;
+        }
+
+        .header-inner {
+            padding: 20px 0;
+        }
+
+        .brand {
+            margin: 0;
+            color: var(--primary);
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.04em;
+        }
+
+        main {
+            padding: 48px 0;
+        }
+
+        .card {
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            background: var(--surface);
+            box-shadow: 0 14px 40px rgba(42, 39, 74, 0.07);
+        }
+
+        .card-header {
+            padding: 28px 28px 22px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .card-header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 26px;
+            letter-spacing: -0.03em;
+        }
+
+        .member-count {
+            margin: 0;
+            color: var(--muted);
+            font-size: 15px;
+        }
+
+        .add-member-form {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            padding: 22px 28px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .add-member-form label {
+            grid-column: 1 / -1;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        input,
+        button {
+            min-height: 46px;
+            border-radius: 10px;
+            font: inherit;
+        }
+
+        input {
+            min-width: 0;
+            border: 1px solid #d6d8e2;
+            padding: 0 14px;
+            color: var(--text);
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(101, 88, 211, 0.13);
+        }
+
+        button {
+            border: 0;
+            padding: 0 22px;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            font-weight: 700;
+        }
+
+        button:hover {
+            background: var(--primary-dark);
+        }
+
+        button:disabled {
+            cursor: wait;
+            opacity: 0.65;
+        }
+
+        .sync-button {
+            min-height: 40px;
+            padding: 0 16px;
+            background: #efedff;
+            color: var(--primary);
+            white-space: nowrap;
+        }
+
+        .sync-button:hover {
+            background: #e2dfff;
+        }
+
+        .message {
+            margin: 0;
+            padding: 18px 28px 0;
+            color: var(--error);
+            font-size: 14px;
+        }
+
+        .message.success {
+            color: #247a4d;
+        }
+
+        .member-list {
+            margin: 0;
+            padding: 8px 28px 20px;
+            list-style: none;
+        }
+
+        .member-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+            font-weight: 650;
+        }
+
+        .member-item:last-child {
+            border-bottom: 0;
+        }
+
+        .member-avatar {
+            display: grid;
+            flex: 0 0 38px;
+            width: 38px;
+            height: 38px;
+            place-items: center;
+            border-radius: 12px;
+            background: #efedff;
+            color: var(--primary);
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .empty-state {
+            margin: 0;
+            padding: 42px 28px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        @media (max-width: 520px) {
+            .header-inner,
+            main {
+                width: min(100% - 24px, 680px);
+            }
+
+            main {
+                padding: 24px 0;
+            }
+
+            .card-header,
+            .add-member-form {
+                padding-right: 20px;
+                padding-left: 20px;
+            }
+
+            .card-header-top {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .add-member-form {
+                grid-template-columns: 1fr;
+            }
+
+            .add-member-form label {
+                grid-column: auto;
+            }
+
+            .member-list {
+                padding-right: 20px;
+                padding-left: 20px;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="header-inner">
+        <p class="brand">GuildUp</p>
+    </div>
+</header>
+
+<main>
+    <section class="card" aria-labelledby="member-list-title">
+        <div class="card-header">
+            <div class="card-header-top">
+                <div>
+                    <h1 id="member-list-title">클랜원 목록</h1>
+                    <p id="member-count" class="member-count">불러오는 중...</p>
+                </div>
+                <button id="sync-button" class="sync-button" type="button">Discord 동기화</button>
+            </div>
+        </div>
+
+        <form id="add-member-form" class="add-member-form">
+            <label for="nickname">새 클랜원 추가</label>
+            <input id="nickname" name="nickname" type="text" placeholder="클랜원 이름 입력" autocomplete="off" required>
+            <button id="add-button" type="submit">추가</button>
+        </form>
+
+        <p id="message" class="message" role="alert" aria-live="polite" hidden></p>
+        <ul id="member-list" class="member-list"></ul>
+        <p id="empty-state" class="empty-state" hidden>등록된 클랜원이 없습니다.</p>
+    </section>
+</main>
+
+<script>
+    const communityId = new URLSearchParams(window.location.search).get("communityId");
+    const form = document.getElementById("add-member-form");
+    const nicknameInput = document.getElementById("nickname");
+    const addButton = document.getElementById("add-button");
+    const syncButton = document.getElementById("sync-button");
+    const memberCount = document.getElementById("member-count");
+    const memberList = document.getElementById("member-list");
+    const emptyState = document.getElementById("empty-state");
+    const message = document.getElementById("message");
+
+    function showError(text) {
+        message.textContent = text;
+        message.classList.remove("success");
+        message.hidden = false;
+    }
+
+    function showSuccess(text) {
+        message.textContent = text;
+        message.classList.add("success");
+        message.hidden = false;
+    }
+
+    function clearMessage() {
+        message.textContent = "";
+        message.classList.remove("success");
+        message.hidden = true;
+    }
+
+    function renderMembers(members) {
+        memberList.replaceChildren();
+        memberCount.textContent = `클랜원 ${members.length}명`;
+        emptyState.hidden = members.length !== 0;
+
+        for (const member of members) {
+            const item = document.createElement("li");
+            item.className = "member-item";
+
+            const avatar = document.createElement("span");
+            avatar.className = "member-avatar";
+            avatar.textContent = member.nickname.charAt(0).toUpperCase();
+            avatar.setAttribute("aria-hidden", "true");
+
+            const nickname = document.createElement("span");
+            nickname.textContent = member.nickname;
+
+            item.append(avatar, nickname);
+            memberList.append(item);
+        }
+    }
+
+    async function loadMembers() {
+        clearMessage();
+        memberCount.textContent = "불러오는 중...";
+
+        try {
+            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            renderMembers(await response.json());
+            return true;
+        } catch (error) {
+            memberCount.textContent = "클랜원 정보를 불러오지 못했습니다.";
+            memberList.replaceChildren();
+            emptyState.hidden = true;
+            showError("클랜원 목록 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+            return false;
+        }
+    }
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        clearMessage();
+
+        const nickname = nicknameInput.value.trim();
+        if (!nickname) {
+            showError("클랜원 이름을 입력해 주세요.");
+            nicknameInput.focus();
+            return;
+        }
+
+        addButton.disabled = true;
+        addButton.textContent = "추가 중...";
+
+        try {
+            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({nickname})
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            nicknameInput.value = "";
+            await loadMembers();
+            nicknameInput.focus();
+        } catch (error) {
+            showError("클랜원 추가에 실패했습니다. Community ID를 확인해 주세요.");
+        } finally {
+            addButton.disabled = false;
+            addButton.textContent = "추가";
+        }
+    });
+
+    syncButton.addEventListener("click", async () => {
+        clearMessage();
+        syncButton.disabled = true;
+        syncButton.textContent = "동기화 중...";
+
+        try {
+            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members/sync-discord`, {
+                method: "POST"
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const result = await response.json();
+            const refreshed = await loadMembers();
+            if (refreshed) {
+                showSuccess(
+                        `동기화 완료: 추가 ${result.added}명, 변경 ${result.updated}명, 제외 ${result.removed}명`
+                );
+            }
+        } catch (error) {
+            showError("Discord 동기화에 실패했습니다. Guild ID와 Role ID를 확인해 주세요.");
+        } finally {
+            syncButton.disabled = false;
+            syncButton.textContent = "Discord 동기화";
+        }
+    });
+
+    if (!communityId || !/^\d+$/.test(communityId)) {
+        form.hidden = true;
+        syncButton.hidden = true;
+        memberCount.textContent = "Community ID가 필요합니다.";
+        showError("주소에 올바른 communityId를 입력해 주세요.");
+    } else {
+        loadMembers();
+    }
+</script>
+</body>
+</html>
