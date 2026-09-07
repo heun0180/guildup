@@ -3,6 +3,7 @@ package com.guildup.community.service;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.repository.CommunityMemberRepository;
+import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.repository.CommunityRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,8 +19,9 @@ class CommunityMemberServiceTests {
 
     private final CommunityRepository communityRepository = mock(CommunityRepository.class);
     private final CommunityMemberRepository communityMemberRepository = mock(CommunityMemberRepository.class);
+    private final CommunityMemberAccountRepository accountRepository = mock(CommunityMemberAccountRepository.class);
     private final CommunityMemberService communityMemberService =
-            new CommunityMemberService(communityRepository, communityMemberRepository);
+            new CommunityMemberService(communityRepository, communityMemberRepository, accountRepository);
 
     @Test
     void addsManualMemberWithoutExternalAccountData() {

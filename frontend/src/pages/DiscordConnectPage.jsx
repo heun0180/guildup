@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, redirectToLogin } from "../api/http.js";
-import AppHeader from "../components/AppHeader.jsx";
 import Avatar from "../components/Avatar.jsx";
-import CommunityBackLink from "../components/CommunityBackLink.jsx";
+import DashboardLayout from "../components/DashboardLayout.jsx";
+import Icon from "../components/Icon.jsx";
 
 const installMessages = {
   400: "설치 요청 정보가 올바르지 않습니다. Discord 인증 다시 시작을 눌러주세요.",
@@ -115,16 +115,19 @@ export default function DiscordConnectPage() {
   }
 
   return (
-    <>
-      <AppHeader />
-      <main className="page-main compact-main">
-        <CommunityBackLink communityId={communityId} />
-        <section className="card connect-card" aria-labelledby="page-title">
+    <DashboardLayout active="roles" communityId={communityId} onError={setMessage}>
+      <div className="dashboard-content narrow-content">
+        <div className="page-heading">
+          <p className="eyebrow">Discord</p>
           <h1 id="page-title">Discord 연결</h1>
-          <p>Discord 서버와 GuildUp Community를 연결할 수 있습니다.</p>
+          <p>Discord 서버를 GuildUp 커뮤니티에 연결합니다.</p>
+        </div>
+        <section className="panel connect-panel" aria-labelledby="page-title">
 
           {(step === "start" || step === "loading") && (
-            <div>
+            <div className="connect-intro">
+              <span className="connect-icon"><Icon name="discord" size={26} /></span>
+              <div><h2>Discord 서버 연결</h2><p>관리 권한이 있는 Discord 서버를 선택하고 GuildUp 봇을 추가하세요.</p></div>
               <a className={`button-link connect-button${!validId ? " disabled-link" : ""}`} href={oauthUrl}
                  aria-disabled={!validId} onClick={(event) => !validId && event.preventDefault()}>
                 {step === "loading" ? "인증 결과 확인 중..." : "Discord 연결하기"}
@@ -134,12 +137,12 @@ export default function DiscordConnectPage() {
 
           {step === "guilds" && result && (
             <div>
-              <h2>로그인 계정</h2>
+              <div className="panel-section-heading"><span>1</span><div><h2>로그인 계정</h2><p>Discord 인증에 사용한 계정입니다.</p></div></div>
               <div className="account">
                 <Avatar src={result.user.avatarUrl} name={result.user.globalName || result.user.username} className="avatar" />
                 <div><div className="account-name">{result.user.globalName || result.user.username}</div><p>@{result.user.username}</p></div>
               </div>
-              <h2>연결할 서버를 선택하세요.</h2>
+              <div className="panel-section-heading"><span>2</span><div><h2>연결할 서버 선택</h2><p>소유자 또는 관리자인 서버만 표시됩니다.</p></div></div>
               <div className="guild-list">
                 {result.guilds.map((guild) => (
                   <div className="guild" key={guild.id}>
@@ -155,6 +158,7 @@ export default function DiscordConnectPage() {
 
           {step === "install" && selectedGuild && (
             <div className="install-view">
+              <span className="connect-icon"><Icon name="discord" size={26} /></span>
               <h2>선택한 서버</h2>
               <div className="selected-guild"><Avatar src={selectedGuild.iconUrl} name={selectedGuild.name} className="guild-icon" /><div className="guild-name">{selectedGuild.name}</div></div>
               <p>봇이 이미 있으면 바로 연결하고, 없으면 봇 설치 화면을 엽니다.</p>
@@ -172,7 +176,7 @@ export default function DiscordConnectPage() {
           )}
           {message && <p className="message" role="alert">{message}</p>}
         </section>
-      </main>
-    </>
+      </div>
+    </DashboardLayout>
   );
 }

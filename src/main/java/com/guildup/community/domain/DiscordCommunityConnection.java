@@ -12,9 +12,11 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
+import java.time.Instant;
+
 /**
  * GuildUp 커뮤니티와 Discord 서버의 1:1 연결 정보를 보관하는 JPA 엔티티다.
- * 멤버 역할 ID도 이 연결에 함께 설정할 수 있다.
+ * 마지막 Discord 멤버 동기화 시간도 함께 관리한다.
  */
 @Entity
 @Table(name = "discord_community_connections")
@@ -37,8 +39,8 @@ public class DiscordCommunityConnection {
     @Column(name = "discord_guild_name")
     private String discordGuildName;
 
-    @Column(name = "discord_member_role_id")
-    private String discordMemberRoleId;
+    @Column(name = "last_member_synced_at")
+    private Instant lastMemberSyncedAt;
 
     protected DiscordCommunityConnection() {
     }
@@ -65,8 +67,8 @@ public class DiscordCommunityConnection {
         return discordGuildName;
     }
 
-    public String getDiscordMemberRoleId() {
-        return discordMemberRoleId;
+    public Instant getLastMemberSyncedAt() {
+        return lastMemberSyncedAt;
     }
 
     /** 같은 연결의 서버 이름 등 최신 Discord 정보를 갱신한다. */
@@ -75,8 +77,8 @@ public class DiscordCommunityConnection {
         this.discordGuildName = discordGuildName;
     }
 
-    /** Discord 연결의 멤버 역할 ID를 설정한다. */
-    public void configureMemberRole(String discordMemberRoleId) {
-        this.discordMemberRoleId = discordMemberRoleId;
+    /** 성공한 Discord 클랜원 동기화 시간을 기록한다. */
+    public void markMembersSynced(Instant synchronizedAt) {
+        this.lastMemberSyncedAt = synchronizedAt;
     }
 }

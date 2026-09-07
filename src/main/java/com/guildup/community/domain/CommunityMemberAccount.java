@@ -16,16 +16,23 @@ import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
+import java.time.Instant;
 import java.util.Objects;
 
 /** 클랜원과 Discord, PUBG 등 외부 서비스 계정의 연결이다. */
 @Entity
 @Table(
         name = "community_member_accounts",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_community_member_account_provider",
-                columnNames = {"community_member_id", "provider"}
-        )
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_community_member_account_provider",
+                        columnNames = {"community_member_id", "provider"}
+                ),
+                @UniqueConstraint(
+                        name = "uk_community_member_account_community_provider_user",
+                        columnNames = {"community_id", "provider", "external_user_id"}
+                )
+        }
 )
 public class CommunityMemberAccount {
 
@@ -38,6 +45,11 @@ public class CommunityMemberAccount {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private CommunityMember communityMember;
 
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "community_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    private Community community;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ExternalAccountProvider provider;
@@ -47,6 +59,12 @@ public class CommunityMemberAccount {
 
     @Column(name = "external_username")
     private String externalUsername;
+
+    @Column(name = "external_display_name")
+    private String externalDisplayName;
+
+    @Column(name = "external_joined_at")
+    private Instant externalJoinedAt;
 
     protected CommunityMemberAccount() {
     }
@@ -58,9 +76,23 @@ public class CommunityMemberAccount {
             String externalUsername
     ) {
         this.communityMember = communityMember;
+        this.community = communityMember.getCommunity();
         this.provider = provider;
         this.externalUserId = externalUserId;
         this.externalUsername = externalUsername;
+    }
+
+    public CommunityMemberAccount(
+            CommunityMember communityMember,
+            ExternalAccountProvider provider,
+            String externalUserId,
+            String externalUsername,
+            String externalDisplayName,
+            Instant externalJoinedAt
+    ) {
+        this(communityMember, provider, externalUserId, externalUsername);
+        this.externalDisplayName = externalDisplayName;
+        this.externalJoinedAt = externalJoinedAt;
     }
 
     public Long getId() {
@@ -75,12 +107,24 @@ public class CommunityMemberAccount {
         return provider;
     }
 
+    public Community getCommunity() {
+        return community;
+    }
+
     public String getExternalUserId() {
         return externalUserId;
     }
 
     public String getExternalUsername() {
         return externalUsername;
+    }
+
+    public String getExternalDisplayName() {
+        return externalDisplayName;
+    }
+
+    public Instant getExternalJoinedAt() {
+        return externalJoinedAt;
     }
 
     /** 외부 서비스 사용자 이름이 실제로 달라졌을 때만 갱신한다. */
@@ -91,5 +135,18 @@ public class CommunityMemberAccount {
 
         this.externalUsername = externalUsername;
         return true;
+    }
+
+    /** Discord 계정의 화면 표시 정보를 한 번에 최신 상태로 갱신한다. */
+    public void synchronizeExternalProfile(
+            String externalUsername,
+            String externalDisplayName,
+            Instant externalJoinedAt
+    ) {
+        this.externalUsername = externalUsername;
+        this.externalDisplayName = externalDisplayName;
+        if (externalJoinedAt != null) {
+            this.externalJoinedAt = externalJoinedAt;
+        }
     }
 }

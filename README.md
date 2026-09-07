@@ -62,6 +62,12 @@ Community가 하나뿐이어도 자동으로 진입시키지 않고 사용자가
 - JDA `GUILD_MEMBERS` Intent 및 Member Cache 사용
 - Discord 멤버를 GuildUp DB에 무조건 복제하지 않고 필요한 정보는 실시간 조회
 
+### PUBG 클랜 활동
+- 저장된 인게임 닉네임 규칙으로 PUBG 계정을 배치 조회하고 Account ID를 클랜원 계정에 연결
+- CommunityGame의 shard와 활동 규칙을 사용해 기간과 최소 인원을 결정
+- 같은 게임이 아니라 같은 팀에 포함된 GuildUp 클랜원 수로 활동 인정
+- 클랜원 활동 요약 목록과 경기별 상세 화면 제공
+
 ## 기술 스택
 
 ### Backend
@@ -106,6 +112,7 @@ guildup/
 │   │   ├── exception/
 │   │   ├── oauth/
 │   │   └── service/
+│   ├── pubg/                       # PUBG 외부 API 클라이언트와 내부 모델
 │   └── user/                       # GuildUp 사용자 / 로그인
 │
 ├── src/main/resources/
@@ -167,8 +174,6 @@ Discord 역할·멤버 정보를 모두 DB에 복제하면 실제 Discord 상태
 ./mvnw test
 ```
 
-현재 문서화된 최종 테스트 기준으로 **63개 테스트가 통과**했으며, 다음과 같은 흐름을 검증하고 있습니다.
-
 - Community 0개 / 1개 / 여러 개 조회
 - Community 생성과 OWNER 연결 트랜잭션
 - 미로그인 요청 `401`
@@ -177,6 +182,8 @@ Discord 역할·멤버 정보를 모두 DB에 복제하면 실제 Discord 상태
 - Discord Guild 직접 조회 우회 차단
 - Bot 설치 확인 및 Discord 연결 흐름
 - 잘못된 데이터 발생 시 트랜잭션 롤백
+- PUBG Players 배치 조회와 Match 중복 제거
+- 같은 팀 클랜원 수와 Community 활동 규칙 기반 활동 판정
 
 ## 로컬 실행
 
@@ -195,6 +202,14 @@ export DISCORD_CLIENT_SECRET=...
 export DISCORD_REDIRECT_URI=...
 export DISCORD_BOT_TOKEN=...
 ```
+
+### PUBG 환경 변수
+
+```bash
+export PUBG_API_KEY=...
+```
+
+PUBG API Key는 백엔드 요청의 Bearer 인증에만 사용하며 프론트엔드로 전달하지 않습니다.
 
 PostgreSQL 접속 정보는 `src/main/resources/application.properties`에서 로컬 환경에 맞게 설정합니다.
 
@@ -234,8 +249,7 @@ Vite 개발 서버의 `/api` 요청은 `http://localhost:8080`으로 Proxy됩니
 - GuildUp 자체 클랜원 관리 고도화
 - Discord 사용자와 GuildUp 회원 연결
 - 게임 플랫폼 계정 연결
-- PUBG API 연동
-- 클랜원 활동 및 통계 기능
+- 클랜원 활동 통계 및 캐시 고도화
 - 이벤트 / 내전 관리
 
 단순 기능 구현보다 **외부 시스템 연동, 데이터 책임 분리, 접근 권한, 예외 처리와 테스트를 함께 고려하는 것**을 목표로 개발하고 있습니다.
