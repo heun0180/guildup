@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>내 커뮤니티 | GuildUp</title><link rel="stylesheet" href="/community.css"></head>
+<body><main><header><a class="brand" href="/communities.html">GuildUp</a><button id="logout" type="button">로그아웃</button></header>
+<h1>내 커뮤니티</h1><p>사용할 커뮤니티를 선택하세요.</p><p id="loading" role="status">커뮤니티를 불러오는 중입니다.</p><p id="message" class="error" role="alert"></p>
+<p id="empty" hidden>아직 참여한 커뮤니티가 없습니다. 새 커뮤니티를 만들어 시작하세요.</p><div id="communities" class="grid"></div>
+<section class="card"><h2>새 커뮤니티 만들기</h2><form id="create"><label for="name">커뮤니티 이름</label><input id="name" name="name" maxlength="255" required placeholder="치즈 클랜"><button id="create-button" type="submit">만들기</button></form></section>
+</main><script src="/community-ui.js"></script><script>
+async function loadCommunities() {
+    const list = await api("/api/auth/me/communities");
+    document.getElementById("loading").hidden = true;
+    document.getElementById("empty").hidden = list.length !== 0;
+    const container = document.getElementById("communities");
+    container.replaceChildren();
+    for (const community of list) {
+        const card = document.createElement("article"); card.className = "card";
+        const title = document.createElement("h2"); title.textContent = community.name;
+        const role = document.createElement("p"); role.textContent = community.role;
+        const link = document.createElement("a"); link.className = "button"; link.textContent = "들어가기";
+        link.href = `/community-dashboard.html?communityId=${encodeURIComponent(community.id)}`;
+        card.append(title, role, link); container.append(card);
+    }
+}
+document.getElementById("logout").addEventListener("click", logout);
+document.getElementById("create").addEventListener("submit", async event => {
+    event.preventDefault();
+    const name = document.getElementById("name").value.trim();
+    if (!name) { showError(new Error("커뮤니티 이름을 입력해 주세요.")); return; }
+    const button = document.getElementById("create-button"); button.disabled = true;
+    document.getElementById("message").textContent = "";
+    try {
+        await api("/api/communities", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name})});
+        document.getElementById("create").reset(); await loadCommunities();
+    } catch(error) { showError(error); } finally { button.disabled = false; }
+});
+loadCommunities().catch(error => { document.getElementById("loading").hidden = true; showError(error); });
+</script></body></html>

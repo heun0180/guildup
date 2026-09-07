@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>로그인 | GuildUp</title><link rel="stylesheet" href="/community.css"></head>
+<body><main><header><span class="brand">GuildUp</span></header><section class="card"><h1>GuildUp 로그인</h1><p>Discord 계정으로 로그인하고 내 커뮤니티를 선택하세요.</p><a class="button" href="/api/auth/discord/authorize">Discord로 로그인</a><p id="message" class="error" role="alert"></p></section></main>
+<script>
+fetch("/api/auth/me", {credentials:"same-origin"}).then(response => {
+    if (response.ok) location.replace("/communities.html");
+    else if (response.status !== 401) throw new Error("로그인 상태를 확인하지 못했습니다.");
+}).catch(error => { document.getElementById("message").textContent = error.message; });
+</script></body></html>

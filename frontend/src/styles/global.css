@@ -1,0 +1,258 @@
+:root {
+  color-scheme: light;
+  --background: #f4f5f9;
+  --surface: #ffffff;
+  --text: #1c1d24;
+  --muted: #717584;
+  --primary: #5865f2;
+  --primary-dark: #4752c4;
+  --border: #e5e6ed;
+  --success: #247a4d;
+  --error: #c23b3b;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: var(--background);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--background);
+}
+
+a { color: #4752c4; }
+p { color: var(--muted); line-height: 1.6; }
+h1 { margin: 0 0 10px; font-size: 28px; letter-spacing: -0.03em; }
+h2 { margin: 24px 0 12px; font-size: 20px; overflow-wrap: anywhere; }
+
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.header-inner,
+.page-main {
+  width: min(100% - 32px, 680px);
+  margin: 0 auto;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 0;
+}
+
+.header-inner nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  color: var(--primary);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  text-decoration: none;
+}
+
+.page-main { padding: 48px 0; }
+.wide-main { width: min(100% - 48px, 960px); }
+
+.card {
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 14px 40px rgba(42, 39, 74, 0.07);
+}
+
+.community-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 18px;
+  margin: 24px 0;
+}
+
+.community-grid .card h2:first-child { margin-top: 0; }
+
+button,
+.button-link {
+  display: inline-grid;
+  min-height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  padding: 0 18px;
+  background: var(--primary);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+button:hover,
+.button-link:hover { background: var(--primary-dark); }
+button:disabled,
+.disabled-link { cursor: not-allowed; opacity: 0.55; }
+
+input {
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid #d6d8e2;
+  border-radius: 10px;
+  padding: 0 14px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.13);
+}
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.message { color: var(--error); }
+
+.connect-button { margin-top: 16px; }
+.connect-card h2 { margin-top: 30px; font-size: 19px; }
+.account,
+.guild,
+.selected-guild {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f7f6ff;
+}
+
+.avatar,
+.guild-icon,
+.member-avatar {
+  display: grid;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 13px;
+  background: #e6e8ff;
+  color: var(--primary);
+  object-fit: cover;
+  font-weight: 800;
+}
+
+.account-name,
+.guild-name { color: var(--text); font-weight: 750; }
+.account p,
+.guild p { margin: 2px 0 0; }
+.guild-list { display: grid; gap: 12px; }
+
+.guild {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.guild-info { min-width: 0; flex: 1; }
+.guild button { min-height: 38px; }
+.install-view { text-align: center; }
+.selected-guild { justify-content: center; margin: 22px auto 12px; }
+.install-view > button { margin-top: 14px; }
+
+.confirm-install {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+
+.confirm-install p { margin: 0; }
+
+.members-card { overflow: hidden; padding: 0; }
+.card-header { padding: 28px 28px 22px; border-bottom: 1px solid var(--border); }
+.card-header h1 { margin-bottom: 8px; font-size: 26px; }
+.member-count { margin: 0; font-size: 15px; }
+
+.role-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.role-tab {
+  flex: 0 0 auto;
+  min-height: 40px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.role-tab:hover { border-color: var(--primary); background: #f7f6ff; }
+.role-tab[aria-selected="true"] { border-color: var(--primary); background: #6558d3; color: white; }
+
+.add-member-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  padding: 22px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.add-member-form label { grid-column: 1 / -1; font-size: 14px; font-weight: 700; }
+.padded-message { margin: 0; padding: 18px 28px 0; font-size: 14px; }
+.member-list { margin: 0; padding: 8px 28px 20px; list-style: none; }
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  font-weight: 650;
+}
+
+.member-item:last-child { border-bottom: 0; }
+.member-avatar { flex-basis: 38px; width: 38px; height: 38px; border-radius: 12px; background: #efedff; font-size: 15px; }
+.empty-state { margin: 0; padding: 42px 28px; text-align: center; }
+
+@media (max-width: 520px) {
+  .header-inner,
+  .page-main,
+  .wide-main { width: min(100% - 24px, 680px); }
+  .page-main { padding: 24px 0; }
+  .card { padding: 22px 20px; }
+  .members-card { padding: 0; }
+  .card-header,
+  .add-member-form,
+  .role-tabs { padding-right: 20px; padding-left: 20px; }
+  .add-member-form { grid-template-columns: 1fr; }
+  .add-member-form label { grid-column: auto; }
+  .member-list { padding-right: 20px; padding-left: 20px; }
+  .guild { align-items: flex-start; flex-wrap: wrap; }
+  .guild button,
+  .add-member-form button { width: 100%; }
+}

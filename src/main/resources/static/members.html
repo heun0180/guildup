@@ -70,6 +70,36 @@
             border-bottom: 1px solid var(--border);
         }
 
+        .role-tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            scrollbar-width: thin;
+        }
+
+        .role-tab {
+            flex: 0 0 auto;
+            min-height: 40px;
+            padding: 0 16px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .role-tab:hover {
+            border-color: var(--primary);
+            background: #f7f6ff;
+        }
+
+        .role-tab[aria-selected="true"] {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: white;
+        }
+
         .card-header-top {
             display: flex;
             align-items: center;
@@ -141,27 +171,11 @@
             opacity: 0.65;
         }
 
-        .sync-button {
-            min-height: 40px;
-            padding: 0 16px;
-            background: #efedff;
-            color: var(--primary);
-            white-space: nowrap;
-        }
-
-        .sync-button:hover {
-            background: #e2dfff;
-        }
-
         .message {
             margin: 0;
             padding: 18px 28px 0;
             color: var(--error);
             font-size: 14px;
-        }
-
-        .message.success {
-            color: #247a4d;
         }
 
         .member-list {
@@ -218,7 +232,8 @@
             }
 
             .card-header,
-            .add-member-form {
+            .add-member-form,
+            .role-tabs {
                 padding-right: 20px;
                 padding-left: 20px;
             }
@@ -244,10 +259,15 @@
             button {
                 width: 100%;
             }
+
+            .role-tab {
+                width: auto;
+            }
         }
     </style>
 </head>
 <body>
+<!-- GuildUp 공통 헤더 -->
 <header>
     <div class="header-inner">
         <p class="brand">GuildUp</p>
@@ -255,23 +275,29 @@
 </header>
 
 <main>
+    <p><a id="dashboard-back" href="/communities.html">내 커뮤니티</a></p>
     <section class="card" aria-labelledby="member-list-title">
+        <!-- 현재 목록 제목과 인원수를 표시한다. -->
         <div class="card-header">
             <div class="card-header-top">
                 <div>
                     <h1 id="member-list-title">클랜원 목록</h1>
                     <p id="member-count" class="member-count">불러오는 중...</p>
                 </div>
-                <button id="sync-button" class="sync-button" type="button">Discord 동기화</button>
             </div>
         </div>
 
+        <!-- Discord 역할 보기 모드에서 역할 선택 탭을 동적으로 채운다. -->
+        <div id="role-tabs" class="role-tabs" role="tablist" aria-label="Discord 역할" hidden></div>
+
+        <!-- 일반 커뮤니티 멤버 보기 모드에서만 사용하는 수동 추가 폼이다. -->
         <form id="add-member-form" class="add-member-form">
             <label for="nickname">새 클랜원 추가</label>
             <input id="nickname" name="nickname" type="text" placeholder="클랜원 이름 입력" autocomplete="off" required>
             <button id="add-button" type="submit">추가</button>
         </form>
 
+        <!-- 요청 결과 메시지, 멤버 목록, 빈 목록 안내를 공유하는 출력 영역이다. -->
         <p id="message" class="message" role="alert" aria-live="polite" hidden></p>
         <ul id="member-list" class="member-list"></ul>
         <p id="empty-state" class="empty-state" hidden>등록된 클랜원이 없습니다.</p>
@@ -279,34 +305,51 @@
 </main>
 
 <script>
-    const communityId = new URLSearchParams(window.location.search).get("communityId");
+    // URL 파라미터에 따라 일반 커뮤니티 멤버 모드 또는 Discord 역할 보기 모드를 결정한다.
+    const params = new URLSearchParams(window.location.search);
+    const backId = params.get("communityId");
+    if (backId && /^\d+$/.test(backId)) {
+        document.getElementById("dashboard-back").href = `/community-dashboard.html?communityId=${encodeURIComponent(backId)}`;
+        document.getElementById("dashboard-back").textContent = "커뮤니티 대시보드로";
+    }
+
+    const communityId = params.get("communityId");
+    const guildId = params.get("guildId");
+    const useCommunityDiscord = params.get("discordRoles") === "true";
+    // 화면 갱신과 이벤트 처리에서 사용할 DOM 요소를 미리 찾는다.
     const form = document.getElementById("add-member-form");
     const nicknameInput = document.getElementById("nickname");
     const addButton = document.getElementById("add-button");
-    const syncButton = document.getElementById("sync-button");
     const memberCount = document.getElementById("member-count");
     const memberList = document.getElementById("member-list");
     const emptyState = document.getElementById("empty-state");
     const message = document.getElementById("message");
+    const title = document.getElementById("member-list-title");
+    const roleTabs = document.getElementById("role-tabs");
+    // 비동기 역할 요청이 겹쳤을 때 마지막으로 선택한 역할만 화면에 반영하기 위한 상태다.
+    let selectedRoleId = null;
 
+    // 커뮤니티 연결을 통한 조회와 guildId 직접 조회에 맞는 역할 API 주소를 선택한다.
+    function discordRolesBaseUrl() {
+        if (useCommunityDiscord) {
+            return `/api/communities/${encodeURIComponent(communityId)}/discord/roles`;
+        }
+        return `/api/discord/guilds/${encodeURIComponent(guildId)}/roles`;
+    }
+
+    // 오류 메시지를 빨간색 상태로 표시한다.
     function showError(text) {
         message.textContent = text;
-        message.classList.remove("success");
         message.hidden = false;
     }
 
-    function showSuccess(text) {
-        message.textContent = text;
-        message.classList.add("success");
-        message.hidden = false;
-    }
-
+    // 다음 요청 전에 기존 메시지를 초기화한다.
     function clearMessage() {
         message.textContent = "";
-        message.classList.remove("success");
         message.hidden = true;
     }
 
+    // DB에 저장된 일반 커뮤니티 멤버를 목록으로 그린다.
     function renderMembers(members) {
         memberList.replaceChildren();
         memberCount.textContent = `클랜원 ${members.length}명`;
@@ -329,6 +372,108 @@
         }
     }
 
+    // 선택한 Discord 역할과 그 역할을 가진 사용자들을 목록으로 그린다.
+    function renderDiscordMembers(role, members) {
+        memberList.replaceChildren();
+        title.textContent = role.name;
+        memberCount.textContent = `${role.name} (${members.length}명)`;
+        emptyState.textContent = "이 역할을 가진 사용자가 없습니다.";
+        emptyState.hidden = members.length !== 0;
+
+        for (const member of members) {
+            const item = document.createElement("li");
+            item.className = "member-item";
+
+            const avatar = document.createElement("span");
+            avatar.className = "member-avatar";
+            avatar.textContent = member.displayName.charAt(0).toUpperCase();
+            avatar.setAttribute("aria-hidden", "true");
+
+            const displayName = document.createElement("span");
+            displayName.textContent = member.displayName;
+
+            item.append(avatar, displayName);
+            memberList.append(item);
+        }
+    }
+
+    // 역할 탭 선택 상태를 바꾸고 해당 역할의 Discord 멤버를 비동기로 가져온다.
+    async function selectRole(role) {
+        selectedRoleId = role.id;
+        clearMessage();
+        title.textContent = role.name;
+        memberCount.textContent = "불러오는 중...";
+        memberList.replaceChildren();
+        emptyState.hidden = true;
+
+        for (const tab of roleTabs.children) {
+            tab.setAttribute("aria-selected", String(tab.dataset.roleId === role.id));
+        }
+
+        try {
+            const response = await fetch(
+                `${discordRolesBaseUrl()}/${encodeURIComponent(role.id)}/members`
+            );
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const members = await response.json();
+            // 빠르게 탭을 바꾼 경우 늦게 도착한 이전 요청이 최신 화면을 덮지 않게 한다.
+            if (selectedRoleId === role.id) {
+                renderDiscordMembers(role, members);
+            }
+        } catch (error) {
+            if (selectedRoleId === role.id) {
+                memberCount.textContent = "멤버 정보를 불러오지 못했습니다.";
+                showError("선택한 Discord 역할의 멤버 목록 요청에 실패했습니다.");
+            }
+        }
+    }
+
+    // Discord 역할 목록을 조회해 탭을 만들고 첫 번째 역할을 자동 선택한다.
+    async function loadRoles() {
+        title.textContent = "Discord 역할별 멤버";
+        memberCount.textContent = "역할을 불러오는 중...";
+
+        try {
+            const response = await fetch(discordRolesBaseUrl());
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const roles = await response.json();
+            roleTabs.replaceChildren();
+            roleTabs.hidden = roles.length === 0;
+
+            for (const role of roles) {
+                const tab = document.createElement("button");
+                tab.className = "role-tab";
+                tab.type = "button";
+                tab.setAttribute("role", "tab");
+                tab.dataset.roleId = role.id;
+                tab.textContent = role.name;
+                tab.setAttribute("aria-selected", "false");
+                tab.addEventListener("click", () => selectRole(role));
+                roleTabs.append(tab);
+            }
+
+            // @everyone만 존재하는 등 표시 가능한 역할이 없으면 빈 상태를 보여준다.
+            if (roles.length === 0) {
+                memberCount.textContent = "표시할 Discord 역할이 없습니다.";
+                emptyState.textContent = "@everyone을 제외한 역할이 없습니다.";
+                emptyState.hidden = false;
+                return;
+            }
+
+            await selectRole(roles[0]);
+        } catch (error) {
+            memberCount.textContent = "Discord 역할을 불러오지 못했습니다.";
+            showError("Discord 서버 연결과 Guild ID를 확인해 주세요.");
+        }
+    }
+
+    // DB에 저장된 커뮤니티 클랜원 목록을 조회한다.
     async function loadMembers() {
         clearMessage();
         memberCount.textContent = "불러오는 중...";
@@ -350,7 +495,9 @@
         }
     }
 
+    // 닉네임을 입력해 일반 커뮤니티 멤버를 수동으로 추가한다.
     form.addEventListener("submit", async (event) => {
+        // 브라우저 기본 form 전송과 페이지 새로고침을 막고 fetch로 처리한다.
         event.preventDefault();
         clearMessage();
 
@@ -388,40 +535,16 @@
         }
     });
 
-    syncButton.addEventListener("click", async () => {
-        clearMessage();
-        syncButton.disabled = true;
-        syncButton.textContent = "동기화 중...";
-
-        try {
-            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members/sync-discord`, {
-                method: "POST"
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const result = await response.json();
-            const refreshed = await loadMembers();
-            if (refreshed) {
-                showSuccess(
-                        `동기화 완료: 추가 ${result.added}명, 변경 ${result.updated}명, 제외 ${result.removed}명`
-                );
-            }
-        } catch (error) {
-            showError("Discord 동기화에 실패했습니다. Guild ID와 Role ID를 확인해 주세요.");
-        } finally {
-            syncButton.disabled = false;
-            syncButton.textContent = "Discord 동기화";
-        }
-    });
-
-    if (!communityId || !/^\d+$/.test(communityId)) {
+    // 유효한 URL 파라미터에 맞춰 최초 화면 모드와 데이터를 선택한다.
+    if ((useCommunityDiscord && communityId && /^\d+$/.test(communityId))
+            || (!useCommunityDiscord && guildId && /^\d+$/.test(guildId))) {
         form.hidden = true;
-        syncButton.hidden = true;
-        memberCount.textContent = "Community ID가 필요합니다.";
-        showError("주소에 올바른 communityId를 입력해 주세요.");
+        roleTabs.hidden = false;
+        loadRoles();
+    } else if (!communityId || !/^\d+$/.test(communityId)) {
+        form.hidden = true;
+        memberCount.textContent = "Guild ID 또는 Community ID가 필요합니다.";
+        showError("주소에 올바른 guildId 또는 communityId를 입력해 주세요.");
     } else {
         loadMembers();
     }

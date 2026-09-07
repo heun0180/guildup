@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="GuildUp Discord 서버 연결">
+    <title>Discord 연결 | GuildUp</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --background: #f4f5f9;
+            --surface: #ffffff;
+            --text: #1c1d24;
+            --muted: #717584;
+            --primary: #5865f2;
+            --primary-dark: #4752c4;
+            --border: #e5e6ed;
+            --success: #247a4d;
+            --error: #c23b3b;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--background);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        .header-inner, main {
+            width: min(100% - 32px, 680px);
+            margin: 0 auto;
+        }
+
+        .header-inner { padding: 20px 0; }
+
+        .brand {
+            margin: 0;
+            color: var(--primary);
+            font-size: 24px;
+            font-weight: 800;
+        }
+
+        main { padding: 48px 0; }
+
+        .card {
+            padding: 28px;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            background: var(--surface);
+            box-shadow: 0 14px 40px rgba(42, 39, 74, 0.07);
+        }
+
+        h1 { margin: 0 0 10px; font-size: 28px; }
+        h2 { margin: 30px 0 14px; font-size: 19px; }
+        p { color: var(--muted); line-height: 1.6; }
+
+        button,
+        .button-link {
+            display: inline-grid;
+            align-items: center;
+            justify-content: center;
+            min-height: 44px;
+            border: 0;
+            border-radius: 10px;
+            padding: 0 18px;
+            background: var(--primary);
+            color: white;
+            cursor: pointer;
+            font: inherit;
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        button:hover, .button-link:hover { background: var(--primary-dark); }
+        button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+        .connect-button { margin-top: 16px; }
+
+        .account {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 14px;
+            border-radius: 12px;
+            background: #f7f6ff;
+        }
+
+        .avatar, .guild-icon {
+            display: grid;
+            width: 44px;
+            height: 44px;
+            flex: 0 0 44px;
+            place-items: center;
+            border-radius: 13px;
+            background: #e6e8ff;
+            color: var(--primary);
+            object-fit: cover;
+            font-weight: 800;
+        }
+
+        .account-name, .guild-name { color: var(--text); font-weight: 750; }
+        .account p, .guild p { margin: 2px 0 0; }
+
+        .guild-list { display: grid; gap: 12px; }
+
+        .guild {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+        }
+
+        .guild-info { min-width: 0; flex: 1; }
+        .guild button { min-height: 38px; }
+
+        .message { color: var(--error); }
+        .selected { color: var(--success); font-weight: 700; }
+        .install-view, .completion-view { text-align: center; }
+        .install-view .guild-icon { margin: 22px auto 12px; }
+        .install-view button, .completion-view .button-link { margin-top: 14px; }
+        .confirm-install {
+            margin-top: 26px;
+            padding-top: 22px;
+            border-top: 1px solid var(--border);
+        }
+        .confirm-install p { margin: 0; }
+        [hidden] { display: none !important; }
+
+        @media (max-width: 520px) {
+            main { padding: 24px 0; }
+            .card { padding: 22px 20px; }
+            .guild { align-items: flex-start; flex-wrap: wrap; }
+            .guild button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<!-- GuildUp 공통 헤더 -->
+<header>
+    <div class="header-inner"><p class="brand">GuildUp</p></div>
+</header>
+<main>
+    <p><a id="dashboard-back" href="/communities.html">내 커뮤니티</a></p>
+    <section class="card" aria-labelledby="page-title">
+        <h1 id="page-title">Discord 연결</h1>
+        <p>Discord 서버와 GuildUp Community를 연결할 수 있습니다.</p>
+
+        <!-- 최초 진입 시 표시하며, 버튼을 누르면 사용자 Discord OAuth를 시작한다. -->
+        <div id="start-view">
+            <button id="connect-button" class="connect-button" type="button">Discord 연결하기</button>
+        </div>
+
+        <!-- OAuth 완료 후 로그인 계정과 관리 가능한 Discord 서버 목록을 표시한다. -->
+        <div id="result-view" hidden>
+            <h2>로그인 계정</h2>
+            <div id="account" class="account"></div>
+            <h2>연결할 서버를 선택하세요.</h2>
+            <div id="guild-list" class="guild-list"></div>
+            <p id="empty-state" hidden>관리할 수 있는 Discord 서버가 없습니다.</p>
+        </div>
+
+        <!-- 서버 선택 후 봇 초대와 설치 확인을 진행하는 단계다. -->
+        <div id="install-view" class="install-view" hidden>
+            <h2>선택한 서버</h2>
+            <div id="install-guild"></div>
+            <p>봇이 이미 있으면 바로 연결하고, 없으면 봇 설치 화면을 엽니다.</p>
+            <button id="install-button" type="button">GuildUp 봇 추가하기</button>
+            <p><a id="restart-oauth" href="#">Discord 인증 다시 시작</a></p>
+            <!-- 봇 초대 창을 연 이후에만 설치 확인 버튼을 보여준다. -->
+            <div id="confirm-install" class="confirm-install" hidden>
+                <p>Bot 설치가 완료되었다면 아래 버튼을 눌러주세요.</p>
+                <button id="confirm-button" type="button">설치 확인</button>
+            </div>
+        </div>
+
+        <!-- 봇 참여 확인과 커뮤니티 연결 저장까지 끝났을 때 표시한다. -->
+        <div id="completion-view" class="completion-view" hidden>
+            <h2>Discord 연결 완료</h2>
+            <p id="connected-guild" class="selected"></p>
+            <p>GuildUp 봇이 정상적으로 연결되었습니다.</p>
+            <a id="roles-link" class="button-link" href="#">커뮤니티 대시보드로</a>
+        </div>
+
+        <!-- API 오류나 잘못된 URL 파라미터를 사용자에게 알리는 공통 영역이다. -->
+        <p id="message" class="message" role="alert" hidden></p>
+    </section>
+</main>
+
+<script>
+    // 현재 주소 예: /discord-connect.html?communityId=1&oauthResult=...
+    // communityId는 연결 대상이며 oauthResult는 Discord 콜백 완료 후 발급되는 임시 결과 ID다.
+    const params = new URLSearchParams(window.location.search);
+    const backId = params.get("communityId");
+    if (backId && /^\d+$/.test(backId)) {
+        document.getElementById("dashboard-back").href = `/community-dashboard.html?communityId=${encodeURIComponent(backId)}`;
+        document.getElementById("dashboard-back").textContent = "커뮤니티 대시보드로";
+    }
+
+    const communityId = params.get("communityId");
+    const oauthResult = params.get("oauthResult");
+    // 각 단계의 화면과 버튼을 이후 함수에서 재사용할 수 있도록 DOM 요소를 미리 찾는다.
+    const connectButton = document.getElementById("connect-button");
+    const startView = document.getElementById("start-view");
+    const resultView = document.getElementById("result-view");
+    const account = document.getElementById("account");
+    const guildList = document.getElementById("guild-list");
+    const emptyState = document.getElementById("empty-state");
+    const installView = document.getElementById("install-view");
+    const installGuild = document.getElementById("install-guild");
+    const installButton = document.getElementById("install-button");
+    const confirmInstall = document.getElementById("confirm-install");
+    const confirmButton = document.getElementById("confirm-button");
+    const completionView = document.getElementById("completion-view");
+    const connectedGuild = document.getElementById("connected-guild");
+    const rolesLink = document.getElementById("roles-link");
+    const message = document.getElementById("message");
+    // 서버 선택 및 봇 설치 단계 사이에서 유지해야 하는 브라우저 메모리 상태다.
+    let selectedGuild = null;
+    let installToken = null;
+    let botAuthorizationUrl = null;
+
+    // 오류 문구를 공통 영역에 표시한다.
+    function showError(text) {
+        message.textContent = text;
+        message.hidden = false;
+    }
+
+    // 새로운 요청을 시작하기 전에 이전 오류 문구를 제거한다.
+    function clearMessage() {
+        message.textContent = "";
+        message.hidden = true;
+    }
+
+    // Discord 이미지가 있으면 img를, 없으면 이름의 첫 글자를 대체 아이콘으로 만든다.
+    function imageOrInitial(url, text, className) {
+        if (url) {
+            const image = document.createElement("img");
+            image.className = className;
+            image.src = url;
+            image.alt = "";
+            return image;
+        }
+        const initial = document.createElement("span");
+        initial.className = className;
+        initial.textContent = text.charAt(0).toUpperCase();
+        initial.setAttribute("aria-hidden", "true");
+        return initial;
+    }
+
+    // OAuth 결과로 받은 사용자 정보와 관리 가능한 서버 목록을 화면에 그린다.
+    function renderResult(result) {
+        startView.hidden = true;
+        resultView.hidden = false;
+
+        const accountText = document.createElement("div");
+        const accountName = document.createElement("div");
+        accountName.className = "account-name";
+        accountName.textContent = result.user.globalName || result.user.username;
+        const username = document.createElement("p");
+        username.textContent = `@${result.user.username}`;
+        accountText.append(accountName, username);
+        account.replaceChildren(
+            imageOrInitial(result.user.avatarUrl, accountName.textContent, "avatar"),
+            accountText
+        );
+
+        // 이전 렌더링 결과가 남지 않도록 서버 목록을 비운 뒤 다시 생성한다.
+        guildList.replaceChildren();
+        emptyState.hidden = result.guilds.length !== 0;
+        for (const guild of result.guilds) {
+            const card = document.createElement("div");
+            card.className = "guild";
+            const info = document.createElement("div");
+            info.className = "guild-info";
+            const name = document.createElement("div");
+            name.className = "guild-name";
+            name.textContent = guild.name;
+            const permission = document.createElement("p");
+            permission.textContent = guild.owner ? "서버 소유자" : "서버 관리자";
+            info.append(name, permission);
+
+            // 각 서버의 선택 버튼은 해당 서버를 봇 설치 단계로 전달한다.
+            const selectButton = document.createElement("button");
+            selectButton.type = "button";
+            selectButton.textContent = "선택";
+            selectButton.addEventListener("click", () => showInstallStep(guild));
+            card.append(imageOrInitial(guild.iconUrl, guild.name, "guild-icon"), info, selectButton);
+            guildList.append(card);
+        }
+    }
+
+    // 사용자가 서버 하나를 선택했을 때 목록을 숨기고 봇 설치 화면을 보여준다.
+    function showInstallStep(guild) {
+        selectedGuild = guild;
+        resultView.hidden = true;
+        installView.hidden = false;
+        const name = document.createElement("div");
+        name.className = "guild-name";
+        name.textContent = guild.name;
+        installGuild.replaceChildren(imageOrInitial(guild.iconUrl, guild.name, "guild-icon"), name);
+    }
+
+    // 백엔드 연결 저장까지 성공하면 완료 화면과 역할 관리 링크를 표시한다.
+    function renderCompletion(result) {
+        startView.hidden = true;
+        resultView.hidden = true;
+        installView.hidden = true;
+        completionView.hidden = false;
+        connectedGuild.textContent = result.guildName;
+        rolesLink.href = `/community-dashboard.html?communityId=${encodeURIComponent(communityId)}`;
+        window.location.replace(rolesLink.href);
+    }
+
+    // 콜백 URL의 oauthResult를 사용해 서버에 임시 저장된 사용자/서버 정보를 가져온다.
+    async function loadOAuthResult() {
+        try {
+            const response = await fetch(
+                `/api/communities/${encodeURIComponent(communityId)}/discord/oauth/results/${encodeURIComponent(oauthResult)}`
+            );
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderResult(await response.json());
+            // 결과를 한 번 읽은 뒤 주소창에서 임시 ID를 제거해 새로고침에 의한 재조회를 막는다.
+            history.replaceState({}, "", `/discord-connect.html?communityId=${encodeURIComponent(communityId)}`);
+        } catch (error) {
+            showError("Discord 인증 결과가 만료되었거나 올바르지 않습니다. 다시 연결해 주세요.");
+        }
+    }
+
+    // 1단계: 현재 페이지를 백엔드 authorize API로 이동시킨다.
+    // 백엔드는 302 응답을 반환하고 브라우저는 이어서 Discord 인증 화면으로 이동한다.
+    connectButton.addEventListener("click", () => {
+        window.location.assign(
+            `/api/communities/${encodeURIComponent(communityId)}/discord/oauth/authorize`
+        );
+    });
+
+    document.getElementById("restart-oauth").href =
+        `/api/communities/${encodeURIComponent(communityId)}/discord/oauth/authorize`;
+
+    // 예상 가능한 오류만 공개된 서버 메시지로 표시하고, 내부 오류는 노출하지 않는다.
+    async function installationError(response) {
+        const messages = {
+            401: "로그인이 만료되었습니다. 다시 로그인해 주세요.",
+            403: "이 커뮤니티에 접근할 권한이 없습니다.",
+            404: "Discord 인증 결과 또는 설치 정보가 만료되었습니다. Discord 인증 다시 시작을 눌러주세요.",
+            400: "설치 요청 정보가 올바르지 않습니다. Discord 인증 다시 시작을 눌러주세요.",
+            409: "Discord 연결 상태가 충돌합니다. 커뮤니티 대시보드에서 연결 상태를 확인해 주세요.",
+            503: "Discord 설정이 완료되지 않았습니다. 서버 설정을 확인해 주세요."
+        };
+        let message = messages[response.status] || `요청을 처리하지 못했습니다. (HTTP ${response.status})`;
+        if (response.status === 409 || response.status === 503) {
+            const body = await response.json().catch(() => null);
+            if (body && typeof body.message === "string") message = body.message;
+        }
+        return new Error(message);
+    }
+
+    // 2단계: 선택한 서버에 봇이 이미 있는지 확인하고, 없으면 Discord 봇 초대 창을 연다.
+    installButton.addEventListener("click", async () => {
+        // 초대 URL을 이미 발급받았다면 API를 다시 호출하지 않고 기존 URL을 연다.
+        if (botAuthorizationUrl) {
+            window.open(botAuthorizationUrl, "_blank", "noopener");
+            return;
+        }
+        if (!selectedGuild || !oauthResult) return;
+
+        // 비동기 요청 전에 빈 창을 먼저 열어 브라우저의 팝업 차단 가능성을 낮춘다.
+        const installWindow = window.open("about:blank", "_blank");
+        installButton.disabled = true;
+        installButton.textContent = "확인 중...";
+        clearMessage();
+
+        try {
+            // OAuth에서 검증된 결과 ID와 사용자가 고른 서버 ID를 백엔드에 전달한다.
+            const response = await fetch(
+                `/api/communities/${encodeURIComponent(communityId)}/discord/bot-install/authorize`,
+                {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({oauthResultId: oauthResult, guildId: selectedGuild.id})
+                }
+            );
+            if (!response.ok) throw await installationError(response);
+            const result = await response.json();
+            // JDA에서 봇을 이미 찾았다면 백엔드가 즉시 연결을 저장한 상태다.
+            if (result.alreadyInstalled) {
+                if (installWindow) installWindow.close();
+                renderCompletion(result);
+            } else {
+                // 아직 봇이 없다면 설치 확인에 필요한 값들을 다음 단계까지 보관한다.
+                installToken = result.installToken;
+                botAuthorizationUrl = result.authorizationUrl;
+                confirmInstall.hidden = false;
+                installButton.disabled = false;
+                installButton.textContent = "설치 페이지 다시 열기";
+                if (installWindow) {
+                    installWindow.opener = null;
+                    installWindow.location.href = botAuthorizationUrl;
+                } else {
+                    showError("팝업이 차단되었습니다. 설치 페이지 다시 열기를 눌러주세요.");
+                }
+            }
+        } catch (error) {
+            if (installWindow) installWindow.close();
+            showError(error.message || "봇 설치 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+            installButton.disabled = false;
+            installButton.textContent = "GuildUp 봇 추가하기";
+        }
+    });
+
+    // 3단계: 봇 초대를 마친 뒤 JDA가 해당 서버를 인식하는지 백엔드에 확인한다.
+    confirmButton.addEventListener("click", async () => {
+        if (!installToken) return;
+        confirmButton.disabled = true;
+        confirmButton.textContent = "설치 확인 중...";
+        clearMessage();
+
+        try {
+            const response = await fetch("/api/discord/bot-install/confirm", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({installToken})
+            });
+            if (!response.ok) throw await installationError(response);
+            // 설치 토큰은 서버에서도 제거되므로 성공 후 브라우저 상태에서도 비운다.
+            installToken = null;
+            renderCompletion(await response.json());
+        } catch (error) {
+            showError(error.message || "설치 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+        } finally {
+            confirmButton.disabled = false;
+            confirmButton.textContent = "설치 확인";
+        }
+    });
+
+    // communityId가 없으면 OAuth를 시작할 수 없다. 콜백 결과가 있으면 결과 화면부터 복원한다.
+    if (!communityId || !/^\d+$/.test(communityId)) {
+        connectButton.disabled = true;
+        showError("주소에 올바른 communityId를 입력해 주세요.");
+    } else if (oauthResult) {
+        loadOAuthResult();
+    }
+</script>
+</body>
+</html>

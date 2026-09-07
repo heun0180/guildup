@@ -9,26 +9,35 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+/** Discord 서버 멤버 조회, 역할 필터링, 표시 이름 결정을 담당한다. */
 @Service
 public class DiscordMemberService {
 
     private static final Logger log = LoggerFactory.getLogger(DiscordMemberService.class);
 
+    /** JDA 캐시에 로드된 서버 전체 멤버를 반환한다. */
     public List<Member> getMembers(Guild guild) {
         return guild.getMembers();
     }
 
+    /** 역할 ID를 실제 Role로 찾은 뒤 해당 역할의 멤버를 조회한다. */
     public List<Member> getMembersWithRole(Guild guild, String roleId) {
         Role role = guild.getRoleById(roleId);
         if (role == null) {
             throw new IllegalStateException("Discord role not found: " + roleId);
         }
 
+        return getMembersWithRole(guild, role);
+    }
+
+    /** 역할을 가진 멤버 중 봇 계정을 제외한 실제 사용자만 반환한다. */
+    public List<Member> getMembersWithRole(Guild guild, Role role) {
         return guild.getMembersWithRoles(role).stream()
                 .filter(member -> !member.getUser().isBot())
                 .toList();
     }
 
+    /** 서버 별명, Discord 전역 표시 이름, 사용자 이름 순으로 표시할 이름을 선택한다. */
     public String getDisplayName(Member member) {
         if (member.getNickname() != null) {
             return member.getNickname();
@@ -41,6 +50,7 @@ public class DiscordMemberService {
         return member.getUser().getName();
     }
 
+    /** 개발 시 멤버 캐시 상태를 확인할 수 있도록 서버 멤버 정보를 로그로 출력한다. */
     public void logMembers(Guild guild) {
         List<Member> members = getMembers(guild);
         log.info("Discord guild member count - guild: {}, count: {}", guild.getName(), members.size());
