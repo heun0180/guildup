@@ -22,7 +22,9 @@ class DiscordOAuthExceptionHandlerTests {
                 .thenThrow(new DiscordOAuthConfigurationException("DISCORD_CLIENT_ID"));
         MockMvc mockMvc = MockMvcBuilders
                 .standaloneSetup(new DiscordOAuthController(oauthService, mock(com.guildup.community.service.CommunityAccessService.class)))
-                .setControllerAdvice(new DiscordOAuthExceptionHandler())
+                .setControllerAdvice(new DiscordOAuthExceptionHandler(
+                        mock(com.guildup.community.repository.DiscordCommunityConnectionRepository.class)
+                ))
                 .build();
 
         mockMvc.perform(get("/api/communities/1/discord/oauth/authorize").sessionAttr("LOGIN_USER_ID", 10L))

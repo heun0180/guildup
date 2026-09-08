@@ -13,5 +13,6 @@ public interface DiscordCommunityConnectionRepository
     Optional<DiscordCommunityConnection> findByCommunityId(Long communityId);
 
     /** Discord 서버가 이미 다른 커뮤니티에 연결됐는지 확인할 때 사용한다. */
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "community")
     Optional<DiscordCommunityConnection> findByDiscordGuildId(String discordGuildId);
 }

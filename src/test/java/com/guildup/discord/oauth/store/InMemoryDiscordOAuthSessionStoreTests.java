@@ -43,6 +43,8 @@ class InMemoryDiscordOAuthSessionStoreTests {
         String resultId = store.saveResult(1L, result);
 
         assertThat(store.getResult(1L, resultId)).isSameAs(result);
+        assertThat(store.getSelectedGuild(1L, resultId, "100")).isEqualTo(guild);
+        assertThat(store.getResult(1L, resultId)).isSameAs(result);
         assertThatThrownBy(() -> store.consumeSelectedGuild(1L, resultId, "999"))
                 .isInstanceOf(InvalidDiscordGuildSelectionException.class);
         assertThat(store.consumeSelectedGuild(1L, resultId, "100")).isEqualTo(guild);

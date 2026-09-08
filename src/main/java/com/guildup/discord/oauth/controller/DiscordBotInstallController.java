@@ -37,8 +37,10 @@ public class DiscordBotInstallController {
     @PostMapping("/api/communities/{communityId}/discord/bot-install/authorize")
     public DiscordBotInstallStartResponse authorize(
             @PathVariable Long communityId,
-            @RequestBody DiscordBotInstallStartRequest request
+            @RequestBody DiscordBotInstallStartRequest request,
+            HttpSession session
     ) {
+        access.requireManagementAccess(CurrentUserSession.requireUserId(session), communityId);
         return botInstallService.startInstallation(
                 communityId,
                 request.oauthResultId(),
@@ -57,7 +59,7 @@ public class DiscordBotInstallController {
     ) {
         Long userId = CurrentUserSession.requireUserId(session);
         var installation = installStore.getInstallSession(request.installToken());
-        access.requireAccess(userId, installation.communityId());
+        access.requireManagementAccess(userId, installation.communityId());
         return botInstallService.confirmInstallation(request.installToken());
     }
 }

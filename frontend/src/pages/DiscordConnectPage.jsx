@@ -27,6 +27,7 @@ export default function DiscordConnectPage() {
   const [selectedGuild, setSelectedGuild] = useState(null);
   const [installToken, setInstallToken] = useState(null);
   const [authorizationUrl, setAuthorizationUrl] = useState(null);
+  const [existingCommunity, setExistingCommunity] = useState(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(validId ? "" : "주소에 올바른 communityId를 입력해 주세요.");
 
@@ -53,10 +54,53 @@ export default function DiscordConnectPage() {
       });
   }, [communityId, oauthResult, validId]);
 
-  function selectGuild(guild) {
+  async function selectGuild(guild) {
     setSelectedGuild(guild);
     setMessage("");
-    setStep("install");
+    setBusy(true);
+    try {
+      const data = await api(`/api/communities/${encodeURIComponent(communityId)}/discord/guild-selection/inspect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oauthResultId: oauthResult, guildId: guild.id }),
+      });
+      if (data.alreadyConnected) {
+        setExistingCommunity(data);
+        setStep("existing");
+      } else {
+        setStep("install");
+      }
+    } catch (error) {
+      if (!redirectToLogin(error)) setMessage(installError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function joinExistingCommunity() {
+    if (!selectedGuild || !oauthResult) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const joined = await api(`/api/communities/${encodeURIComponent(communityId)}/discord/guild-selection/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          oauthResultId: oauthResult,
+          guildId: selectedGuild.id,
+          discardSourceCommunity: true,
+        }),
+      });
+      window.location.replace(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "ALREADY_COMMUNITY_MEMBER" && error.communityId) {
+        window.location.replace(`/community-dashboard.html?communityId=${encodeURIComponent(error.communityId)}`);
+      } else if (!redirectToLogin(error)) {
+        setMessage(installError(error));
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function startInstallation() {
@@ -148,7 +192,9 @@ export default function DiscordConnectPage() {
                   <div className="guild" key={guild.id}>
                     <Avatar src={guild.iconUrl} name={guild.name} className="guild-icon" />
                     <div className="guild-info"><div className="guild-name">{guild.name}</div><p>{guild.owner ? "서버 소유자" : "서버 관리자"}</p></div>
-                    <button type="button" onClick={() => selectGuild(guild)}>선택</button>
+                    <button type="button" disabled={busy} onClick={() => selectGuild(guild)}>
+                      {busy && selectedGuild?.id === guild.id ? "확인 중..." : "선택"}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -172,6 +218,31 @@ export default function DiscordConnectPage() {
                   <button type="button" disabled={busy} onClick={confirmInstallation}>{busy ? "설치 확인 중..." : "설치 확인"}</button>
                 </div>
               )}
+            </div>
+          )}
+
+          {step === "existing" && selectedGuild && existingCommunity && (
+            <div className="existing-community-view">
+              <span className="connect-icon"><Icon name="discord" size={26} /></span>
+              <h2>{existingCommunity.communityName}</h2>
+              {existingCommunity.alreadyMember ? (
+                <>
+                  <p>이미 참여 중인 커뮤니티입니다.</p>
+                  <button type="button" disabled={busy} onClick={joinExistingCommunity}>
+                    커뮤니티로 이동
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>이미 GuildUp에 등록된 Discord 서버입니다.</p>
+                  <p>기존 커뮤니티에 참여하면 현재 운영진과 함께 이 커뮤니티를 관리할 수 있습니다.</p>
+                  <button type="button" disabled={busy} onClick={joinExistingCommunity}>
+                    {busy ? "참여 중..." : "기존 커뮤니티 참여"}
+                  </button>
+                  <small>방금 만든 연결 전 커뮤니티는 참여가 완료되면 자동으로 정리됩니다.</small>
+                </>
+              )}
+              <p><a href={oauthUrl}>다른 Discord 서버 선택</a></p>
             </div>
           )}
           {message && <p className="message" role="alert">{message}</p>}

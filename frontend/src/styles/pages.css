@@ -84,6 +84,12 @@
 .install-view > p { margin-top: 14px; }
 .confirm-install { margin-top: 28px; border-top: 1px solid var(--color-border); padding-top: 24px; }
 .confirm-install button { margin-top: 12px; }
+.existing-community-view { padding: 8px 0; text-align: center; }
+.existing-community-view .connect-icon { margin: 0 auto 18px; }
+.existing-community-view h2 { margin-bottom: 12px; font-size: 1.35rem; }
+.existing-community-view > p { max-width: 520px; margin: 8px auto 0; }
+.existing-community-view > button, .existing-community-view > .button-link { margin-top: 22px; }
+.existing-community-view > small { display: block; margin-top: 12px; color: var(--color-text-secondary); }
 
 .members-panel { overflow: hidden; }
 .members-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }

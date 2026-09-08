@@ -70,29 +70,43 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
     }
 
     @Override
+    public DiscordManageableGuildResponse getSelectedGuild(
+            Long communityId,
+            String resultId,
+            String guildId
+    ) {
+        PendingResult pendingResult = requireResult(communityId, resultId);
+        return pendingResult.result().guilds().stream()
+                .filter(guild -> guild.id().equals(guildId))
+                .findFirst()
+                .orElseThrow(InvalidDiscordGuildSelectionException::new);
+    }
+
+    @Override
     public DiscordManageableGuildResponse consumeSelectedGuild(
             Long communityId,
             String resultId,
             String guildId
     ) {
-        PendingResult pendingResult = resultId == null ? null : results.get(resultId);
-        if (pendingResult == null
-                || !pendingResult.communityId().equals(communityId)
-                || pendingResult.expiresAt().isBefore(Instant.now())) {
-            throw new DiscordOAuthResultNotFoundException();
-        }
-
-        // 브라우저가 보낸 guildId가 Discord에서 조회한 관리 가능 서버 목록 안에 있어야 한다.
-        DiscordManageableGuildResponse selectedGuild = pendingResult.result().guilds().stream()
-                .filter(guild -> guild.id().equals(guildId))
-                .findFirst()
-                .orElseThrow(InvalidDiscordGuildSelectionException::new);
+        PendingResult pendingResult = requireResult(communityId, resultId);
+        // 브라우저가 보낸 guildId를 OAuth에서 확인한 관리 가능 서버 목록과 대조한다.
+        DiscordManageableGuildResponse selectedGuild = getSelectedGuild(communityId, resultId, guildId);
 
         // 서버 선택이 끝난 OAuth 결과는 한 번만 사용할 수 있도록 원자적으로 제거한다.
         if (!results.remove(resultId, pendingResult)) {
             throw new DiscordOAuthResultNotFoundException();
         }
         return selectedGuild;
+    }
+
+    private PendingResult requireResult(Long communityId, String resultId) {
+        PendingResult pendingResult = resultId == null ? null : results.get(resultId);
+        if (pendingResult == null
+                || !pendingResult.communityId().equals(communityId)
+                || pendingResult.expiresAt().isBefore(Instant.now())) {
+            throw new DiscordOAuthResultNotFoundException();
+        }
+        return pendingResult;
     }
 
     /** state와 결과 ID에 사용할 예측하기 어려운 256비트 난수를 생성한다. */

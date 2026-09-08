@@ -355,6 +355,11 @@ class CommunityFlowTests {
         String result = UriComponentsBuilder.fromUriString(callback).build().getQueryParams().getFirst("oauthResult");
         mvc.perform(get(base + "/discord/oauth/results/" + result).session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.guilds[0].id").value("123456"));
+        mvc.perform(post(base + "/discord/guild-selection/inspect").session(session)
+                        .contentType("application/json")
+                        .content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alreadyConnected").value(false));
         String installResponse = mvc.perform(post(base + "/discord/bot-install/authorize").session(session)
                         .contentType("application/json")
                         .content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
@@ -399,16 +404,110 @@ class CommunityFlowTests {
                         .session(session).contentType("application/json")
                         .content("{\"oauthResultId\":\"" + resultId + "\",\"guildId\":\"123456\"}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("DISCORD_GUILD_ALREADY_CONNECTED"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("이미 다른 커뮤니티")));
 
         String token = installs.createInstallToken(new DiscordBotInstallSession(selected.getId(), "123456", "Cheeeze"));
         mvc.perform(post("/api/discord/bot-install/confirm").session(session).contentType("application/json")
                         .content("{\"installToken\":\"" + token + "\"}"))
                 .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("DISCORD_GUILD_ALREADY_CONNECTED"))
                 .andExpect(jsonPath("$.message").value(org.hamcrest.Matchers.containsString("이미 다른 커뮤니티")));
         assertThat(connections.findByCommunityId(original.getId())).isPresent();
         assertThat(connections.findByCommunityId(selected.getId())).isEmpty();
         assertThat(connections.count()).isEqualTo(1);
+    }
+
+    @Test
+    void findsExistingGuildAndLetsAnotherDiscordManagerJoinAsAdmin() throws Exception {
+        Community existing = service.createCommunity("치즈클랜", other.getId());
+        connections.saveAndFlush(new DiscordCommunityConnection(existing, "123456", "치즈클랜 Discord"));
+        Community source = service.createCommunity("임시 치즈클랜", user.getId());
+        String resultId = oauthResults.saveResult(source.getId(),
+                new com.guildup.discord.oauth.dto.DiscordOAuthResultResponse(null, java.util.List.of(
+                        new com.guildup.discord.oauth.dto.DiscordManageableGuildResponse(
+                                "123456", "치즈클랜 Discord", null, false
+                        ))));
+        String base = "/api/communities/" + source.getId() + "/discord/guild-selection";
+        String body = "{\"oauthResultId\":\"" + resultId + "\",\"guildId\":\"123456\"}";
+
+        mvc.perform(post(base + "/inspect").session(session).contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.alreadyConnected").value(true))
+                .andExpect(jsonPath("$.communityId").value(existing.getId()))
+                .andExpect(jsonPath("$.communityName").value("치즈클랜"))
+                .andExpect(jsonPath("$.alreadyMember").value(false));
+        mvc.perform(post(base + "/join").session(session).contentType("application/json").content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.communityId").value(existing.getId()))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+
+        assertThat(memberships.findByCommunityIdAndUserId(existing.getId(), user.getId()))
+                .get().extracting(CommunityUser::getRole).isEqualTo(CommunityUserRole.ADMIN);
+        assertThat(communities.findById(source.getId())).isEmpty();
+        assertThat(memberships.findByCommunityId(existing.getId())).hasSize(2);
+    }
+
+    @Test
+    void reportsAlreadyMemberAndPreventsDuplicateCommunityUserRows() throws Exception {
+        Community existing = service.createCommunity("치즈클랜", other.getId());
+        connections.saveAndFlush(new DiscordCommunityConnection(existing, "123456", "치즈클랜 Discord"));
+        memberships.saveAndFlush(new CommunityUser(existing, user, CommunityUserRole.ADMIN));
+        Community source = service.createCommunity("새 공간", user.getId());
+        String resultId = oauthResults.saveResult(source.getId(),
+                new com.guildup.discord.oauth.dto.DiscordOAuthResultResponse(null, java.util.List.of(
+                        new com.guildup.discord.oauth.dto.DiscordManageableGuildResponse("123456", "Discord", null, true))));
+        String base = "/api/communities/" + source.getId() + "/discord/guild-selection";
+        String body = "{\"oauthResultId\":\"" + resultId + "\",\"guildId\":\"123456\"}";
+
+        mvc.perform(post(base + "/inspect").session(session).contentType("application/json").content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alreadyMember").value(true));
+        mvc.perform(post(base + "/join").session(session).contentType("application/json").content(body))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ALREADY_COMMUNITY_MEMBER"))
+                .andExpect(jsonPath("$.communityId").value(existing.getId()));
+        assertThat(memberships.findByCommunityId(existing.getId())).hasSize(2);
+        assertThat(communities.findById(source.getId())).isPresent();
+
+        String retryResultId = oauthResults.saveResult(source.getId(),
+                new com.guildup.discord.oauth.dto.DiscordOAuthResultResponse(null, java.util.List.of(
+                        new com.guildup.discord.oauth.dto.DiscordManageableGuildResponse("123456", "Discord", null, true))));
+        mvc.perform(post(base + "/join").session(session).contentType("application/json")
+                        .content("{\"oauthResultId\":\"" + retryResultId
+                                + "\",\"guildId\":\"123456\",\"discardSourceCommunity\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.communityId").value(existing.getId()))
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+        assertThat(communities.findById(source.getId())).isEmpty();
+    }
+
+    @Test
+    void rejectsJoinWhenGuildWasNotInManageableOAuthGuilds() throws Exception {
+        Community existing = service.createCommunity("치즈클랜", other.getId());
+        connections.saveAndFlush(new DiscordCommunityConnection(existing, "123456", "Discord"));
+        Community source = service.createCommunity("새 공간", user.getId());
+        String resultId = oauthResults.saveResult(source.getId(),
+                new com.guildup.discord.oauth.dto.DiscordOAuthResultResponse(null, java.util.List.of()));
+
+        mvc.perform(post("/api/communities/" + source.getId() + "/discord/guild-selection/join")
+                        .session(session).contentType("application/json")
+                        .content("{\"oauthResultId\":\"" + resultId + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isBadRequest());
+        assertThat(memberships.findByCommunityIdAndUserId(existing.getId(), user.getId())).isEmpty();
+    }
+
+    @Test
+    void databaseConstraintsRejectDuplicateGuildAndDuplicateMembership() {
+        Community first = service.createCommunity("첫 커뮤니티", user.getId());
+        Community second = service.createCommunity("두 번째 커뮤니티", other.getId());
+        connections.saveAndFlush(new DiscordCommunityConnection(first, "123456", "Discord"));
+
+        assertThatThrownBy(() -> connections.saveAndFlush(
+                new DiscordCommunityConnection(second, "123456", "Discord")
+        )).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> memberships.saveAndFlush(
+                new CommunityUser(first, user, CommunityUserRole.ADMIN)
+        )).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
     }
 
     @Test
@@ -465,6 +564,23 @@ class CommunityFlowTests {
         mvc.perform(post(base + "/members/sync").session(session))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(jda);
+    }
+
+    @Test
+    void memberCannotStartDiscordConnectionOrAddManualMembers() throws Exception {
+        Community community = service.createCommunity("공유", other.getId());
+        memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
+        String base = "/api/communities/" + community.getId();
+
+        mvc.perform(get(base + "/discord/oauth/authorize").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(base + "/members").session(session).contentType("application/json")
+                        .content("{\"nickname\":\"권한 없는 추가\"}"))
+                .andExpect(status().isForbidden());
+        assertThat(communityMembers.findByCommunityIdAndStatusOrderByIdAsc(
+                community.getId(), CommunityMemberStatus.ACTIVE
+        )).isEmpty();
+        verifyNoInteractions(discord, jda);
     }
 
     @Test

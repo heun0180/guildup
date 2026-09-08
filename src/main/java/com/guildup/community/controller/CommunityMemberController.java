@@ -39,9 +39,12 @@ public class CommunityMemberController {
     @PostMapping
     public ResponseEntity<CommunityMemberResponse> addMember(
             @PathVariable Long communityId,
-            @RequestBody CommunityMemberCreateRequest request
+            @RequestBody CommunityMemberCreateRequest request,
+            HttpSession session
     ) {
-        CommunityMember member = communityMemberService.addMember(communityId, request.nickname());
+        CommunityMember member = communityMemberService.addMember(
+                CurrentUserSession.requireUserId(session), communityId, request.nickname()
+        );
         return ResponseEntity.status(HttpStatus.CREATED).body(CommunityMemberResponse.from(member, null));
     }
 

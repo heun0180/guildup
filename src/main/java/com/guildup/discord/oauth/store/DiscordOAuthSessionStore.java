@@ -18,6 +18,13 @@ public interface DiscordOAuthSessionStore {
     /** 커뮤니티와 결과 ID가 일치하는 유효한 OAuth 결과를 조회한다. */
     DiscordOAuthResultResponse getResult(Long communityId, String resultId);
 
+    /** 결과를 소비하지 않고 선택 서버의 Discord 관리 권한 증명을 확인한다. */
+    DiscordManageableGuildResponse getSelectedGuild(
+            Long communityId,
+            String resultId,
+            String guildId
+    );
+
     /**
      * 선택한 서버가 OAuth 결과에 실제 포함됐는지 확인하고 결과를 일회성으로 소비한다.
      * 클라이언트가 임의의 guildId를 전송해 연결하는 일을 막는다.

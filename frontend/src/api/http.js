@@ -1,7 +1,10 @@
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = {}) {
     super(message);
     this.status = status;
+    this.code = details.code ?? null;
+    this.communityId = details.communityId ?? null;
+    this.communityName = details.communityName ?? null;
   }
 }
 
@@ -15,7 +18,7 @@ export async function api(url, options = {}) {
     let message = `요청을 처리하지 못했습니다. (HTTP ${response.status})`;
     const body = await response.json().catch(() => null);
     if (body && typeof body.message === "string") message = body.message;
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, body || {});
   }
 
   return response.status === 204 ? null : response.json();

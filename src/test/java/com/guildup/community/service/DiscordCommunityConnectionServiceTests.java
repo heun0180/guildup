@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.springframework.dao.DataIntegrityViolationException;
 
 class DiscordCommunityConnectionServiceTests {
 
@@ -84,6 +85,21 @@ class DiscordCommunityConnectionServiceTests {
         assertThatThrownBy(() -> connectionService.connect(2L, "1401450300136751234", "Cheeeze"))
                 .isInstanceOf(com.guildup.community.exception.DiscordGuildAlreadyConnectedException.class);
         verify(connectionRepository, never()).save(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void translatesDatabaseUniqueRaceToGuildAlreadyConnectedBusinessException() {
+        Community selected = mock(Community.class);
+        when(communityRepository.findById(2L)).thenReturn(Optional.of(selected));
+        when(connectionRepository.findByDiscordGuildId("100")).thenReturn(Optional.empty());
+        when(connectionRepository.findByCommunityId(2L)).thenReturn(Optional.empty());
+        when(connectionRepository.saveAndFlush(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new DataIntegrityViolationException("uk_discord_connection_guild"));
+
+        assertThatThrownBy(() -> connectionService.connect(2L, "100", "Cheeeze"))
+                .isInstanceOf(com.guildup.community.exception.DiscordGuildAlreadyConnectedException.class)
+                .extracting("discordGuildId")
+                .isEqualTo("100");
     }
 
 }

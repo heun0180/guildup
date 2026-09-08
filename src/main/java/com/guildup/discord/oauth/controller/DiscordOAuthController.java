@@ -55,7 +55,7 @@ public class DiscordOAuthController {
      */
     @GetMapping("/api/communities/{communityId}/discord/oauth/authorize")
     public ResponseEntity<Void> authorize(@PathVariable Long communityId, HttpSession session) {
-        access.requireAccess(CurrentUserSession.requireUserId(session), communityId);
+        access.requireManagementAccess(CurrentUserSession.requireUserId(session), communityId);
         // URL에는 client_id, scope, redirect_uri와 요청 검증용 state가 포함된다.
         URI discordAuthorizationUri = URI.create(discordOAuthService.createAuthorizationUrl(communityId));
 
@@ -89,7 +89,7 @@ public class DiscordOAuthController {
                 || !(session.getAttribute(COMMUNITY) instanceof Long communityId)) {
             throw new InvalidDiscordOAuthStateException();
         }
-        access.requireAccess(userId, communityId);
+        access.requireManagementAccess(userId, communityId);
         session.removeAttribute(STATE);
         session.removeAttribute(COMMUNITY);
         // state로 원래 communityId를 복원하고, code로 Discord 사용자/서버 정보를 조회한다.

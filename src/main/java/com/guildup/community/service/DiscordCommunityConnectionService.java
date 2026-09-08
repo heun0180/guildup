@@ -8,6 +8,7 @@ import com.guildup.community.exception.DiscordCommunityConnectionNotFoundExcepti
 import com.guildup.community.exception.DiscordCommunityConnectionConflictException;
 import com.guildup.community.repository.CommunityRepository;
 import com.guildup.community.repository.DiscordCommunityConnectionRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,7 +53,7 @@ public class DiscordCommunityConnectionService {
                 .filter(connection -> !connection.getCommunity().getId().equals(communityId))
                 .isPresent();
         if (connectedToAnotherCommunity) {
-            throw new DiscordGuildAlreadyConnectedException();
+            throw new DiscordGuildAlreadyConnectedException(normalizedGuildId);
         }
 
         // 기존 연결이 있다면 같은 서버로의 갱신만 허용하고, 없다면 새 연결을 만든다.
@@ -64,7 +65,32 @@ public class DiscordCommunityConnectionService {
                 ))
                 .orElseGet(() -> new DiscordCommunityConnection(community, normalizedGuildId, discordGuildName));
         connection.updateGuild(normalizedGuildId, discordGuildName);
-        return connectionRepository.save(connection);
+        try {
+            // flush까지 이 메서드 안에서 수행해 DB UNIQUE 위반을 비즈니스 예외로 변환한다.
+            return connectionRepository.saveAndFlush(connection);
+        } catch (DataIntegrityViolationException exception) {
+            throw translateConstraintViolation(exception, normalizedGuildId, communityId);
+        }
+    }
+
+    private RuntimeException translateConstraintViolation(
+            DataIntegrityViolationException exception,
+            String discordGuildId,
+            Long communityId
+    ) {
+        String detail = rootMessage(exception).toLowerCase();
+        if (detail.contains("community_id") || detail.contains("uk_discord_connection_community")) {
+            return new DiscordCommunityConnectionConflictException(communityId);
+        }
+        return new DiscordGuildAlreadyConnectedException(discordGuildId);
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? "" : current.getMessage();
     }
 
     /** 기존 커뮤니티 연결을 다른 Discord 서버로 바꾸는 것을 막는다. */

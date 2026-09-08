@@ -30,13 +30,13 @@ export default function CommunitiesPage() {
     setCreating(true);
     setMessage("");
     try {
-      await api("/api/communities", {
+      const created = await api("/api/communities", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: normalized, gameType }),
       });
       setName("");
-      await loadCommunities();
+      window.location.assign(`/discord-connect.html?communityId=${encodeURIComponent(created.id)}`);
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(error.message);
     } finally {

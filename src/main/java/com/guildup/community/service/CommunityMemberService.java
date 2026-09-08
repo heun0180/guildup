@@ -8,7 +8,6 @@ import com.guildup.community.domain.CommunityMemberStatus;
 import com.guildup.community.dto.CommunityMemberResponse;
 import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.repository.CommunityMemberRepository;
-import com.guildup.community.repository.CommunityRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,25 +20,24 @@ import java.util.stream.Collectors;
 @Service
 public class CommunityMemberService {
 
-    private final CommunityRepository communityRepository;
     private final CommunityMemberRepository communityMemberRepository;
     private final CommunityMemberAccountRepository accountRepository;
+    private final CommunityAccessService accessService;
 
     public CommunityMemberService(
-            CommunityRepository communityRepository,
             CommunityMemberRepository communityMemberRepository,
-            CommunityMemberAccountRepository accountRepository
+            CommunityMemberAccountRepository accountRepository,
+            CommunityAccessService accessService
     ) {
-        this.communityRepository = communityRepository;
         this.communityMemberRepository = communityMemberRepository;
         this.accountRepository = accountRepository;
+        this.accessService = accessService;
     }
 
     /** 커뮤니티 존재 여부를 확인하고 외부 계정 연결이 없는 수동 멤버를 저장한다. */
     @Transactional
-    public CommunityMember addMember(Long communityId, String nickname) {
-        Community community = communityRepository.findById(communityId)
-                .orElseThrow(() -> new IllegalArgumentException("Community not found: " + communityId));
+    public CommunityMember addMember(Long userId, Long communityId, String nickname) {
+        Community community = accessService.requireManagementAccess(userId, communityId).getCommunity();
 
         CommunityMember member = new CommunityMember(community, nickname);
         return communityMemberRepository.save(member);
