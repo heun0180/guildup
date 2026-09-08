@@ -11,4 +11,6 @@ public interface CommunityGameNicknameRuleRepository
         extends JpaRepository<CommunityGameNicknameRule, Long> {
 
     Optional<CommunityGameNicknameRule> findByCommunityIdAndGameType(Long communityId, GameType gameType);
+
+    boolean existsByCommunityIdAndGameType(Long communityId, GameType gameType);
 }

@@ -8,6 +8,7 @@ import com.guildup.community.dto.GameNicknameExtractionStatus;
 import com.guildup.community.dto.GameNicknameMemberPreviewResponse;
 import com.guildup.community.dto.GameNicknameRulePreviewResponse;
 import com.guildup.community.dto.GameNicknameRuleResponse;
+import com.guildup.community.dto.GameNicknameRuleStatusResponse;
 import com.guildup.community.repository.CommunityGameNicknameRuleRepository;
 import com.guildup.community.repository.CommunityGameRepository;
 import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
@@ -68,6 +69,15 @@ public class CommunityGameNicknameRuleService {
                         false, gameType.name(), context.currentDiscordNickname(),
                         null, null, null, null
                 ));
+    }
+
+    @Transactional(readOnly = true)
+    public GameNicknameRuleStatusResponse getStatus(Long userId, Long communityId) {
+        accessService.requireAccess(userId, communityId);
+        GameType gameType = requireGameType(communityId);
+        return new GameNicknameRuleStatusResponse(
+                ruleRepository.existsByCommunityIdAndGameType(communityId, gameType)
+        );
     }
 
     @Transactional(readOnly = true)

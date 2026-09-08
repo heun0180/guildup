@@ -137,6 +137,18 @@ class CommunityGameNicknameRuleServiceTests {
     }
 
     @Test
+    void readsConfigurationStatusWithCommunityAccessWithoutLoadingDiscord() {
+        when(ruleRepository.existsByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
+                .thenReturn(true);
+
+        var result = ruleService.getStatus(1L, 10L);
+
+        assertThat(result.configured()).isTrue();
+        verify(accessService).requireAccess(1L, 10L);
+        verify(ruleRepository).existsByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO);
+    }
+
+    @Test
     void rejectsAnalysisWhenDiscordIsNotConnected() {
         when(connectionService.getRequiredConnection(10L))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Discord 서버 연결이 필요합니다."));

@@ -170,6 +170,9 @@
 .member-role-guide h2 { font-size: 0.95rem; }
 .member-role-guide p { margin-top: 3px; font-size: 0.8rem; }
 .member-role-guide .secondary-button { margin-top: 0; white-space: nowrap; }
+.settings-status-grid { display: grid; gap: 12px; margin-bottom: 18px; }
+.settings-status-card { margin-bottom: 0; }
+.nickname-required-guide { margin-bottom: 0; }
 
 .nickname-settings-content { max-width: 980px; }
 .loading-panel { padding: 28px; color: var(--color-text-secondary); font-size: 0.875rem; }

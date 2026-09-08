@@ -7,6 +7,7 @@ import {
   MINIMUM_CLAN_MEMBER_OPTIONS,
   activityRulePayload,
 } from "../activityRule.js";
+import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 
 export default function CommunitySettingsPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -14,6 +15,7 @@ export default function CommunitySettingsPage() {
   const [community, setCommunity] = useState(null);
   const [roles, setRoles] = useState([]);
   const [selectedRoleIds, setSelectedRoleIds] = useState([]);
+  const [nicknameStatus, setNicknameStatus] = useState("loading");
   const [activityRule, setActivityRule] = useState(null);
   const [activityPeriodDays, setActivityPeriodDays] = useState(14);
   const [minimumClanMembersInRoster, setMinimumClanMembersInRoster] = useState(2);
@@ -41,9 +43,23 @@ export default function CommunitySettingsPage() {
         const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
         if (cancelled) return;
         setCommunity(dashboard);
-        const currentActivityRule = await api(activityEndpoint);
+        const [activityRuleResult, nicknameStatusResult] = await Promise.allSettled([
+          api(activityEndpoint),
+          loadGameNicknameStatus({
+            loadStatus: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`),
+            loadRule: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule`),
+          }),
+        ]);
         if (cancelled) return;
+        if (activityRuleResult.status === "rejected") throw activityRuleResult.reason;
+        if (nicknameStatusResult.status === "rejected" && nicknameStatusResult.reason?.status === 401) {
+          throw nicknameStatusResult.reason;
+        }
+        const currentActivityRule = activityRuleResult.value;
         setActivityRule(currentActivityRule);
+        setNicknameStatus(nicknameStatusResult.status === "fulfilled"
+          ? nicknameStatusResult.value.configured ? "configured" : "notConfigured"
+          : "error");
         setActivityPeriodDays(currentActivityRule.activityPeriodDays);
         setMinimumClanMembersInRoster(currentActivityRule.minimumClanMembersInRoster);
         if (!dashboard.discordConnected) return;
@@ -148,6 +164,42 @@ export default function CommunitySettingsPage() {
 
         {loading && <p role="status">설정을 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
+
+        {!loading && community && <section className="settings-status-grid" aria-label="초기 설정 상태">
+          <article className="panel member-role-guide settings-status-card">
+            <span className="management-card-icon discord"><Icon name="discord" size={22} /></span>
+            <div>
+              <h2>{selectedRoleIds.length > 0
+                ? "Discord 클랜원 역할 설정 완료"
+                : "아직 클랜원 역할이 설정되지 않았습니다."}</h2>
+              <p>{selectedRoleIds.length > 0
+                ? `${selectedRoleIds.length}개의 Discord 역할로 클랜원을 분류하고 있습니다.`
+                : "Discord 역할을 설정하면 클랜원을 자동으로 분류할 수 있습니다."}</p>
+            </div>
+            {community.discordConnected && <a className="secondary-button" href="#role-settings-title">
+              {selectedRoleIds.length > 0 ? "클랜원 역할 관리" : "클랜원 역할 설정"}
+            </a>}
+          </article>
+
+          <article className="panel member-role-guide settings-status-card">
+            <span className="management-card-icon activity"><Icon name="game" size={22} /></span>
+            <div>
+              <h2>{nicknameStatus === "configured"
+                ? "인게임 닉네임 설정 완료"
+                : nicknameStatus === "error"
+                ? "인게임 닉네임 설정 상태를 확인하지 못했습니다."
+                : "인게임 닉네임이 설정되지 않았습니다."}</h2>
+              <p>{nicknameStatus === "configured"
+                ? "클랜원의 인게임 닉네임이 등록되어 있습니다."
+                : nicknameStatus === "error"
+                ? "잠시 후 다시 시도해 주세요."
+                : "활동 정보를 조회하려면 클랜원의 인게임 닉네임을 먼저 설정해야 합니다."}</p>
+            </div>
+            <a className="secondary-button" href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}`}>
+              {nicknameStatus === "configured" ? "인게임 닉네임 관리" : "인게임 닉네임 설정"}
+            </a>
+          </article>
+        </section>}
 
         {!loading && community && activityRule && (
           <section className="panel activity-rule-panel" aria-labelledby="activity-rule-title">

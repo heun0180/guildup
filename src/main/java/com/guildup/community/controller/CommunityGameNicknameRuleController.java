@@ -3,6 +3,7 @@ package com.guildup.community.controller;
 import com.guildup.community.dto.GameNicknameRulePreviewResponse;
 import com.guildup.community.dto.GameNicknameRuleRequest;
 import com.guildup.community.dto.GameNicknameRuleResponse;
+import com.guildup.community.dto.GameNicknameRuleStatusResponse;
 import com.guildup.community.service.CommunityGameNicknameRuleService;
 import com.guildup.user.auth.service.CurrentUserSession;
 import jakarta.servlet.http.HttpSession;
@@ -28,6 +29,11 @@ public class CommunityGameNicknameRuleController {
     @GetMapping
     public GameNicknameRuleResponse getRule(@PathVariable Long communityId, HttpSession session) {
         return ruleService.getRule(CurrentUserSession.requireUserId(session), communityId);
+    }
+
+    @GetMapping("/status")
+    public GameNicknameRuleStatusResponse getStatus(@PathVariable Long communityId, HttpSession session) {
+        return ruleService.getStatus(CurrentUserSession.requireUserId(session), communityId);
     }
 
     @PostMapping("/preview")

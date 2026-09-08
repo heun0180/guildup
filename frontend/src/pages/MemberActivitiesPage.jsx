@@ -4,6 +4,8 @@ import { activityStatus, activitySyncView, formatActivityDateTime, formatRelativ
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { loadActivityPageData } from "../activityPageLoader.js";
+import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 
 export default function MemberActivitiesPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -11,7 +13,7 @@ export default function MemberActivitiesPage() {
   const [community, setCommunity] = useState(null);
   const [activities, setActivities] = useState(null);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(validId);
+  const [configurationStatus, setConfigurationStatus] = useState(validId ? "loading" : "error");
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
 
@@ -19,24 +21,30 @@ export default function MemberActivitiesPage() {
     if (!validId) return;
     let cancelled = false;
     async function load() {
-      setLoading(true);
+      setConfigurationStatus("loading");
       setMessage("");
       try {
-        const [dashboard, result] = await Promise.all([
-          api(`/api/communities/${encodeURIComponent(communityId)}`),
-          api(`/api/communities/${encodeURIComponent(communityId)}/member-activities`),
-        ]);
+        const result = await loadActivityPageData({
+          loadCommunity: () => api(`/api/communities/${encodeURIComponent(communityId)}`),
+          loadNicknameStatus: () => loadGameNicknameStatus({
+            loadStatus: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`),
+            loadRule: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule`),
+          }),
+          loadActivities: () => api(`/api/communities/${encodeURIComponent(communityId)}/member-activities`),
+        });
         if (cancelled) return;
-        setCommunity(dashboard);
-        setActivities(result);
+        setCommunity(result.community);
+        setActivities(result.activities);
+        setConfigurationStatus(result.status);
       } catch (error) {
         if (!redirectToLogin(error) && !cancelled) {
+          setConfigurationStatus("error");
           setMessage(error.status === 403
             ? "클랜원 활동을 확인할 권한이 없습니다."
-            : "배틀그라운드 활동 정보를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
+            : error.activityLoadStage === "activities"
+            ? error.message || "저장된 클랜원 활동을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요."
+            : "인게임 닉네임 설정 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.");
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }
     load();
@@ -58,6 +66,7 @@ export default function MemberActivitiesPage() {
   }
 
   async function syncActivities() {
+    if (configurationStatus !== "configured") return;
     setSyncing(true);
     setMessage("");
     try {
@@ -97,13 +106,24 @@ export default function MemberActivitiesPage() {
           <p>누가 활동 기준을 충족했고 누가 확인이 필요한지 살펴봅니다.</p>
         </div>
 
-        {loading && <section className="panel activity-loading" role="status">
+        {configurationStatus === "loading" && <section className="panel activity-loading" role="status">
           <span className="activity-loader" aria-hidden="true" />
-          <div><h2>저장된 클랜원 활동을 불러오고 있습니다...</h2><p>마지막 활동 조회 결과를 확인합니다.</p></div>
+          <div><h2>인게임 닉네임 설정을 확인하고 있습니다...</h2><p>설정이 완료된 경우 저장된 활동을 이어서 불러옵니다.</p></div>
         </section>}
         {message && <p className="message" role="alert">{message}</p>}
 
-        {!loading && activities && <>
+        {configurationStatus === "notConfigured" && <section className="panel member-role-guide nickname-required-guide">
+          <span className="management-card-icon activity"><Icon name="game" size={22} /></span>
+          <div>
+            <h2>인게임 닉네임이 설정되지 않았습니다.</h2>
+            <p>활동 정보를 조회하려면 클랜원의 인게임 닉네임을 먼저 설정해야 합니다.</p>
+          </div>
+          <a className="secondary-button" href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}`}>
+            인게임 닉네임 설정
+          </a>
+        </section>}
+
+        {configurationStatus === "configured" && activities && <>
           <section className="panel activity-sync-panel" aria-label="PUBG 활동 동기화 상태">
             <div className="activity-sync-copy">
               {activities.sync.lastSuccessfulSyncAt && <div>

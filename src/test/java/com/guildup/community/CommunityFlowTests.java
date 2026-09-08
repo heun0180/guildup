@@ -46,6 +46,7 @@ class CommunityFlowTests {
     @Autowired CommunityMemberAccountRepository memberAccounts;
     @Autowired CommunityMemberRoleSettingRepository memberRoleSettings;
     @Autowired CommunityGameRepository communityGames;
+    @Autowired CommunityGameNicknameRuleRepository gameNicknameRules;
     @Autowired CommunityGameActivityRuleRepository activityRules;
     @Autowired com.guildup.community.config.CommunityGameActivityRuleDataMigration activityRuleMigration;
     @Autowired UserRepository users;
@@ -63,6 +64,7 @@ class CommunityFlowTests {
     @BeforeEach
     void setUp() {
         activityRules.deleteAll();
+        gameNicknameRules.deleteAll();
         memberAccounts.deleteAll();
         communityMembers.deleteAll();
         memberRoleSettings.deleteAll();
@@ -652,6 +654,8 @@ class CommunityFlowTests {
         mvc.perform(get(path).session(session)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.sampleGameNickname").value("sa-gwa"))
                 .andExpect(jsonPath("$.sampleDiscordNickname").value("애플(93) sa-gwa"));
+        mvc.perform(get(path + "/status").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(true));
         mvc.perform(get(path + "/preview").session(session)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.successfulMembers").value(2))
                 .andExpect(jsonPath("$.failedMembers").value(1))
@@ -674,6 +678,9 @@ class CommunityFlowTests {
                 .andExpect(status().isForbidden());
         mvc.perform(get(path + "/preview").session(session))
                 .andExpect(status().isForbidden());
+        mvc.perform(get(path + "/status").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.configured").value(false));
         verifyNoInteractions(jda);
     }
 
