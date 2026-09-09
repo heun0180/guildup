@@ -586,6 +586,24 @@ class CommunityFlowTests {
     }
 
     @Test
+    void memberCannotAccessTeamMakerManagementApis() throws Exception {
+        Community community = service.createCommunity("공유", other.getId());
+        memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
+        String base = "/api/communities/" + community.getId() + "/team-maker";
+
+        mvc.perform(get(base + "/participants").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(base + "/generate").session(session).contentType("application/json")
+                        .content("{\"participantIds\":[1],\"currentSeason\":true,\"previousSeason\":false,\"maxMembersPerTeam\":4}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(base + "/rebalance").session(session).contentType("application/json")
+                        .content("{\"participants\":[],\"maxMembersPerTeam\":4}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(base + "/participants"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void ownerSynchronizesDiscordMemberReadsItAndDoesNotDuplicateIt() throws Exception {
         Community mine = service.createCommunity("치즈", user.getId());
         DiscordCommunityConnection connection = connections.save(

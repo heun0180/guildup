@@ -7,6 +7,7 @@ import CommunitySettingsPage from "./pages/CommunitySettingsPage.jsx";
 import GameNicknameSettingsPage from "./pages/GameNicknameSettingsPage.jsx";
 import MemberActivitiesPage from "./pages/MemberActivitiesPage.jsx";
 import MemberActivityDetailPage from "./pages/MemberActivityDetailPage.jsx";
+import TeamMakerPage from "./pages/TeamMakerPage.jsx";
 
 const pages = {
   "/": LoginPage,
@@ -19,6 +20,7 @@ const pages = {
   "/game-nickname-settings.html": GameNicknameSettingsPage,
   "/member-activities.html": MemberActivitiesPage,
   "/member-activity.html": MemberActivityDetailPage,
+  "/team-maker.html": TeamMakerPage,
 };
 
 export default function App() {

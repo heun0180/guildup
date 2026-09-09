@@ -18,6 +18,7 @@ export async function api(url, options = {}) {
     let message = `요청을 처리하지 못했습니다. (HTTP ${response.status})`;
     const body = await response.json().catch(() => null);
     if (body && typeof body.message === "string") message = body.message;
+    else if (body && typeof body.detail === "string") message = body.detail;
     throw new ApiError(response.status, message, body || {});
   }
 

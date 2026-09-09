@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -98,5 +99,68 @@ class PubgApiClientTests {
                 .isInstanceOf(PubgApiException.class)
                 .extracting(error -> ((PubgApiException) error).getStatusCode())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+    }
+
+    @Test
+    void mapsCurrentSeasonAndSumsAllGameModesForPlayerStats() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PubgApiClient client = new PubgApiClient(
+                builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test")
+        );
+        server.expect(requestTo("https://api.pubg.test/shards/kakao/seasons"))
+                .andRespond(withSuccess("""
+                        {"data":[
+                          {"type":"season","id":"season-1","attributes":{"isCurrentSeason":false,"isOffseason":false}},
+                          {"type":"season","id":"season-2","attributes":{"isCurrentSeason":true,"isOffseason":false}}
+                        ]}
+                        """, PUBG_JSON));
+        server.expect(requestTo("https://api.pubg.test/shards/kakao/players/account.A/seasons/season-2"))
+                .andRespond(withSuccess("""
+                        {"data":{"type":"playerSeason","id":"account.A","attributes":{"gameModeStats":{
+                          "squad":{"damageDealt":800.5,"roundsPlayed":3},
+                          "squad-fpp":{"damageDealt":399.5,"roundsPlayed":1}
+                        }}}}
+                        """, PUBG_JSON));
+
+        assertThat(client.getSeasons("kakao")).anySatisfy(season -> {
+            assertThat(season.id()).isEqualTo("season-2");
+            assertThat(season.current()).isTrue();
+        });
+        var stats = client.getPlayerSeasonStats("kakao", "account.A", "season-2");
+        assertThat(stats.damageDealt()).isEqualTo(1_200);
+        assertThat(stats.roundsPlayed()).isEqualTo(4);
+        server.verify();
+    }
+
+    @Test
+    void batchesSquadSeasonStatsForTenPlayersInOneRequest() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        PubgApiClient client = new PubgApiClient(
+                builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test")
+        );
+        server.expect(requestTo(org.hamcrest.Matchers.containsString(
+                        "/shards/kakao/seasons/current/gameMode/squad/players"
+                )))
+                .andExpect(request -> assertThat(request.getURI().getRawQuery())
+                        .isEqualTo("filter%5BplayerIds%5D=account.A,account.B"))
+                .andRespond(withSuccess("""
+                        {"data":[
+                          {"type":"playerSeason","attributes":{"gameModeStats":{"squad":{"damageDealt":100,"roundsPlayed":2}}},
+                           "relationships":{"player":{"data":{"type":"player","id":"account.A"}}}},
+                          {"type":"playerSeason","attributes":{"gameModeStats":{"squad":{"damageDealt":50,"roundsPlayed":1}}},
+                           "relationships":{"player":{"data":{"type":"player","id":"account.B"}}}}
+                        ]}
+                        """, PUBG_JSON));
+
+        Map<String, com.guildup.pubg.model.PubgSeasonStats> stats = client.getPlayersSeasonStats(
+                "kakao", List.of("account.A", "account.B"), "current"
+        );
+
+        assertThat(stats.get("account.A").damageDealt()).isEqualTo(100);
+        assertThat(stats.get("account.A").roundsPlayed()).isEqualTo(2);
+        assertThat(stats.get("account.B").damageDealt()).isEqualTo(50);
+        server.verify();
     }
 }
