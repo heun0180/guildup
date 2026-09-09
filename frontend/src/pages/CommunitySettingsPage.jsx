@@ -85,6 +85,11 @@ export default function CommunitySettingsPage() {
     return () => { cancelled = true; };
   }, [activityEndpoint, communityId, validId]);
 
+  useEffect(() => {
+    if (loading || window.location.hash !== "#role-settings-title") return;
+    document.getElementById("role-settings-title")?.scrollIntoView({ block: "start" });
+  }, [loading]);
+
   function toggleRole(roleId) {
     setSuccess("");
     setSelectedRoleIds((current) => current.includes(roleId)

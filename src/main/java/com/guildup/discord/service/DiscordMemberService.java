@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 /** Discord 서버 멤버 조회, 역할 필터링, 표시 이름 결정을 담당한다. */
 @Service
@@ -18,6 +19,26 @@ public class DiscordMemberService {
     /** JDA 캐시에 로드된 서버 전체 멤버를 반환한다. */
     public List<Member> getMembers(Guild guild) {
         return guild.getMembers();
+    }
+
+    /** 서버의 전체 멤버 중 봇을 제외한 실제 사용자만 반환한다. */
+    public List<Member> getHumanMembers(Guild guild) {
+        return getMembers(guild).stream()
+                .filter(member -> !member.getUser().isBot())
+                .toList();
+    }
+
+    /** 잘못된 ID를 포함해 서버의 일반 사용자로 확인되지 않으면 empty를 반환한다. */
+    public Optional<Member> findHumanMember(Guild guild, String userId) {
+        try {
+            Member member = guild.getMemberById(userId);
+            if (member == null || member.getUser().isBot()) {
+                return Optional.empty();
+            }
+            return Optional.of(member);
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
     }
 
     /** 역할 ID를 실제 Role로 찾은 뒤 해당 역할의 멤버를 조회한다. */

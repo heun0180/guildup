@@ -34,7 +34,7 @@ body {
   background: var(--color-background);
 }
 
-button, input, select { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: var(--color-primary-dark); }
 
@@ -63,7 +63,7 @@ button,
 }
 
 button:hover, .button-link:hover { background: var(--color-primary-dark); }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(88, 101, 242, 0.24); outline-offset: 2px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid rgba(88, 101, 242, 0.24); outline-offset: 2px; }
 button:disabled, .disabled-link { cursor: not-allowed; opacity: 0.55; }
 
 input, select {

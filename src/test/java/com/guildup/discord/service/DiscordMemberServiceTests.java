@@ -30,6 +30,27 @@ class DiscordMemberServiceTests {
     }
 
     @Test
+    void getHumanMembersExcludesBots() {
+        Guild guild = mock(Guild.class);
+        Member userMember = member(false);
+        Member botMember = member(true);
+        when(guild.getMembers()).thenReturn(List.of(userMember, botMember));
+
+        assertThat(discordMemberService.getHumanMembers(guild)).containsExactly(userMember);
+    }
+
+    @Test
+    void findHumanMemberRejectsBotAndInvalidId() {
+        Guild guild = mock(Guild.class);
+        Member botMember = member(true);
+        when(guild.getMemberById("100")).thenReturn(botMember);
+        when(guild.getMemberById("invalid")).thenThrow(new IllegalArgumentException("invalid id"));
+
+        assertThat(discordMemberService.findHumanMember(guild, "100")).isEmpty();
+        assertThat(discordMemberService.findHumanMember(guild, "invalid")).isEmpty();
+    }
+
+    @Test
     void displayNamePrefersGuildNickname() {
         Member member = displayNameMember("서버 별명", "전역 이름", "username");
 

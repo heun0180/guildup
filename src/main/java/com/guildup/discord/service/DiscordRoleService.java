@@ -37,6 +37,18 @@ public class DiscordRoleService {
                 .toList();
     }
 
+    /** 서버의 봇이 아닌 전체 멤버를 표시 이름 순으로 반환한다. */
+    public List<DiscordMemberResponse> getMembers(String guildId) {
+        Guild guild = discordGuildService.getGuildById(guildId);
+        return discordMemberService.getHumanMembers(guild).stream()
+                .map(this::toResponse)
+                .sorted(Comparator.comparing(
+                        DiscordMemberResponse::displayName,
+                        String.CASE_INSENSITIVE_ORDER
+                ))
+                .toList();
+    }
+
     /** 지정한 역할의 일반 사용자를 표시 이름 순으로 정렬해 반환한다. */
     public List<DiscordMemberResponse> getMembers(String guildId, String roleId) {
         Guild guild = discordGuildService.getGuildById(guildId);

@@ -63,6 +63,23 @@ class DiscordRoleServiceTests {
         ));
     }
 
+    @Test
+    void getMembersReturnsAllHumanGuildMembers() {
+        Guild guild = mock(Guild.class);
+        Member member = mock(Member.class);
+        User user = mock(User.class);
+        when(discordGuildService.getGuildById("100")).thenReturn(guild);
+        when(discordMemberService.getHumanMembers(guild)).thenReturn(List.of(member));
+        when(member.getUser()).thenReturn(user);
+        when(user.getId()).thenReturn("200");
+        when(user.getName()).thenReturn("apple_account");
+        when(discordMemberService.getDisplayName(member)).thenReturn("애플");
+        when(member.getEffectiveAvatarUrl()).thenReturn("https://cdn.example/avatar.png");
+
+        assertThat(discordRoleService.getMembers("100")).containsExactly(new DiscordMemberResponse(
+                "200", "apple_account", "애플", "https://cdn.example/avatar.png"));
+    }
+
     private Role role(String id, String name, int position, boolean publicRole) {
         Role role = mock(Role.class);
         when(role.getId()).thenReturn(id);

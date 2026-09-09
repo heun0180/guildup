@@ -17,12 +17,16 @@ export default function Sidebar({ community, communityId, active }) {
   const teamMakerUrl = validId && (community?.role === "OWNER" || community?.role === "ADMIN")
     ? `/team-maker.html?communityId=${encodeURIComponent(communityId)}`
     : null;
+  const integrationsUrl = validId
+    ? `/integrations.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
 
   const mainItems = [
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "activity", label: "활동", icon: "activity", href: activityUrl },
     { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
+    { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
   ];
 
   return (

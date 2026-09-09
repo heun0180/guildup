@@ -8,6 +8,8 @@ import GameNicknameSettingsPage from "./pages/GameNicknameSettingsPage.jsx";
 import MemberActivitiesPage from "./pages/MemberActivitiesPage.jsx";
 import MemberActivityDetailPage from "./pages/MemberActivityDetailPage.jsx";
 import TeamMakerPage from "./pages/TeamMakerPage.jsx";
+import IntegrationsPage from "./pages/IntegrationsPage.jsx";
+import DiscordDmPage from "./pages/DiscordDmPage.jsx";
 
 const pages = {
   "/": LoginPage,
@@ -21,6 +23,8 @@ const pages = {
   "/member-activities.html": MemberActivitiesPage,
   "/member-activity.html": MemberActivityDetailPage,
   "/team-maker.html": TeamMakerPage,
+  "/integrations.html": IntegrationsPage,
+  "/discord-dm.html": DiscordDmPage,
 };
 
 export default function App() {
