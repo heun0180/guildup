@@ -10,8 +10,12 @@ import MemberActivityDetailPage from "./pages/MemberActivityDetailPage.jsx";
 import TeamMakerPage from "./pages/TeamMakerPage.jsx";
 import IntegrationsPage from "./pages/IntegrationsPage.jsx";
 import DiscordDmPage from "./pages/DiscordDmPage.jsx";
+import DiscordVoiceActivityPage from "./pages/DiscordVoiceActivityPage.jsx";
+
+import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
 
 const pages = {
+  "/community-news.html": CommunityNewsPage,
   "/": LoginPage,
   "/login.html": LoginPage,
   "/communities.html": CommunitiesPage,
@@ -25,6 +29,7 @@ const pages = {
   "/team-maker.html": TeamMakerPage,
   "/integrations.html": IntegrationsPage,
   "/discord-dm.html": DiscordDmPage,
+  "/discord-voice-activity.html": DiscordVoiceActivityPage,
 };
 
 export default function App() {

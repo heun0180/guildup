@@ -1,5 +1,6 @@
 package com.guildup.discord.bot;
 
+import com.guildup.discord.service.DiscordVoiceRecoveryService;
 import jakarta.annotation.PreDestroy;
 import net.dv8tion.jda.api.JDA;
 import org.slf4j.Logger;
@@ -15,15 +16,18 @@ public class DiscordBot implements ApplicationRunner {
     private static final Logger log = LoggerFactory.getLogger(DiscordBot.class);
 
     private final JDA jda;
+    private final DiscordVoiceRecoveryService voiceRecoveryService;
 
-    public DiscordBot(JDA jda) {
+    public DiscordBot(JDA jda, DiscordVoiceRecoveryService voiceRecoveryService) {
         this.jda = jda;
+        this.voiceRecoveryService = voiceRecoveryService;
     }
 
     /** Spring Boot 준비가 끝나면 봇 로그인 상태만 로그로 확인한다. */
     @Override
     public void run(ApplicationArguments args) {
         log.info("Discord Bot login successful - name: {}", jda.getSelfUser().getName());
+        voiceRecoveryService.reconcile(jda);
     }
 
     /** 애플리케이션 종료 전에 Discord Gateway 연결을 정상적으로 닫는다. */

@@ -46,6 +46,13 @@ export default function IntegrationsPage() {
       href: `/member-activities.html?communityId=${encodedCommunityId}`,
     },
     canManage && {
+      id: "voice-activity",
+      title: "음성 활동",
+      description: "최근 14일 Discord 음성 채널 활동을 확인합니다.",
+      icon: "activity",
+      href: `/discord-voice-activity.html?communityId=${encodedCommunityId}`,
+    },
+    canManage && {
       id: "dm",
       title: "DM 보내기",
       description: "Discord 서버 멤버에게 운영 공지와 알림을 보냅니다.",

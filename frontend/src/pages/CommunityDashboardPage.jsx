@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import CommunityNewsSummary from "../components/CommunityNewsSummary.jsx";
 
 export default function CommunityDashboardPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -73,6 +74,8 @@ export default function CommunityDashboardPage() {
                 <div><p>Discord 역할</p><strong>{roleCount === null ? "-" : `${roleCount}개`}</strong></div>
               </article>
             </section>
+
+            <CommunityNewsSummary communityId={communityId} />
 
             <div className="section-heading">
               <div><h2>관리</h2><p>자주 사용하는 커뮤니티 관리 기능입니다.</p></div>
