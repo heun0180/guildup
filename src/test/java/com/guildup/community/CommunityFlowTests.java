@@ -11,6 +11,7 @@ import com.guildup.user.domain.User;
 import com.guildup.user.repository.UserRepository;
 import com.guildup.user.repository.UserExternalAccountRepository;
 import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.utils.concurrent.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -377,7 +378,7 @@ class CommunityFlowTests {
         org.mockito.Mockito.when(role.getId()).thenReturn("789");
         org.mockito.Mockito.when(role.getName()).thenReturn("클랜원");
         org.mockito.Mockito.when(guild.getRoleById("789")).thenReturn(role);
-        org.mockito.Mockito.when(guild.getMembersWithRoles(role)).thenReturn(java.util.List.of());
+        loadMembers(guild);
         mvc.perform(post("/api/discord/bot-install/confirm").session(session).contentType("application/json")
                         .content("{\"installToken\":\"" + token + "\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.connected").value(true));
@@ -612,7 +613,7 @@ class CommunityFlowTests {
         var guild = mockGuild("123456");
         var role = mockRole("789", "클랜원", 1);
         var discordMember = mockDiscordMember("999", "apple", "애플", role);
-        org.mockito.Mockito.when(guild.getMembers()).thenReturn(java.util.List.of(discordMember));
+        loadMembers(guild, discordMember);
         String base = "/api/communities/" + mine.getId();
 
         mvc.perform(post(base + "/members/sync").session(session))
@@ -639,7 +640,7 @@ class CommunityFlowTests {
         connections.save(new DiscordCommunityConnection(community, "123456", "Cheeeze"));
         memberRoleSettings.save(new CommunityMemberRoleSetting(community, "789", "클랜원"));
         var guild = mockGuild("123456");
-        org.mockito.Mockito.when(guild.getMembers()).thenReturn(java.util.List.of());
+        loadMembers(guild);
 
         mvc.perform(post("/api/communities/" + community.getId() + "/members/sync").session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.matchedMembers").value(0));
@@ -656,8 +657,7 @@ class CommunityFlowTests {
         var currentMember = mockDiscordMember("999", "apple", "애플(93) sa-gwa");
         var otherMember = mockDiscordMember("888", "julmi", "절미(95) jul-mi");
         var unmatchedMember = mockDiscordMember("777", "potato", "감자");
-        org.mockito.Mockito.when(guild.getMembers())
-                .thenReturn(java.util.List.of(currentMember, otherMember, unmatchedMember));
+        loadMembers(guild, currentMember, otherMember, unmatchedMember);
         String path = "/api/communities/" + mine.getId() + "/game-nickname-rule";
 
         mvc.perform(post(path + "/preview").session(session).contentType("application/json")
@@ -706,6 +706,17 @@ class CommunityFlowTests {
         var guild = org.mockito.Mockito.mock(net.dv8tion.jda.api.entities.Guild.class);
         org.mockito.Mockito.when(jda.getGuildById(id)).thenReturn(guild);
         return guild;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadMembers(
+            net.dv8tion.jda.api.entities.Guild guild,
+            net.dv8tion.jda.api.entities.Member... members
+    ) {
+        Task<java.util.List<net.dv8tion.jda.api.entities.Member>> task =
+                org.mockito.Mockito.mock(Task.class);
+        org.mockito.Mockito.when(guild.loadMembers()).thenReturn(task);
+        org.mockito.Mockito.when(task.get()).thenReturn(java.util.List.of(members));
     }
 
     private net.dv8tion.jda.api.entities.Role mockRole(String id, String name, int position) {

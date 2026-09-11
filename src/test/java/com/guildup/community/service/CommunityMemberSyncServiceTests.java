@@ -19,6 +19,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.utils.concurrent.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -85,7 +86,7 @@ class CommunityMemberSyncServiceTests {
         Member managerRole = discordMember("301", "manager", "운영진", false, "999", "201");
         Member guest = discordMember("302", "guest", "게스트", false, "999");
         Member bot = discordMember("303", "bot", "봇", true, "200");
-        when(guild.getMembers()).thenReturn(List.of(memberRole, managerRole, guest, bot));
+        loadMembers(memberRole, managerRole, guest, bot);
 
         var result = syncService.synchronize(1L, 10L);
 
@@ -108,7 +109,7 @@ class CommunityMemberSyncServiceTests {
         when(accountRepository.findByCommunityIdAndProvider(10L, ExternalAccountProvider.DISCORD))
                 .thenReturn(List.of(account));
         Member discordMember = discordMember("300", "new-name", "새 별명", false, "200");
-        when(guild.getMembers()).thenReturn(List.of(discordMember));
+        loadMembers(discordMember);
 
         var result = syncService.synchronize(1L, 10L);
 
@@ -126,7 +127,7 @@ class CommunityMemberSyncServiceTests {
         CommunityMemberAccount account = discordAccount(existing, "300", "apple", "애플");
         when(accountRepository.findByCommunityIdAndProvider(10L, ExternalAccountProvider.DISCORD))
                 .thenReturn(List.of(account));
-        when(guild.getMembers()).thenReturn(List.of());
+        loadMembers();
 
         var result = syncService.synchronize(1L, 10L);
 
@@ -144,7 +145,7 @@ class CommunityMemberSyncServiceTests {
         when(accountRepository.findByCommunityIdAndProvider(10L, ExternalAccountProvider.DISCORD))
                 .thenReturn(List.of(account));
         Member discordMember = discordMember("300", "apple", "애플", false, "200");
-        when(guild.getMembers()).thenReturn(List.of(discordMember));
+        loadMembers(discordMember);
 
         var result = syncService.synchronize(1L, 10L);
 
@@ -180,7 +181,7 @@ class CommunityMemberSyncServiceTests {
 
     @Test
     void onlyLoadsMembersForRequestedCommunity() {
-        when(guild.getMembers()).thenReturn(List.of());
+        loadMembers();
 
         syncService.synchronize(1L, 10L);
 
@@ -211,6 +212,13 @@ class CommunityMemberSyncServiceTests {
         }).toList();
         when(member.getRoles()).thenReturn(roles);
         return member;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadMembers(Member... members) {
+        Task<List<Member>> task = mock(Task.class);
+        when(guild.loadMembers()).thenReturn(task);
+        when(task.get()).thenReturn(List.of(members));
     }
 
     private CommunityMemberAccount discordAccount(

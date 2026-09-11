@@ -167,7 +167,7 @@ export default function CommunitySettingsPage() {
           <p>클랜 활동 기준과 Discord 연동 방식을 관리합니다.</p>
         </div>
 
-        {loading && <p role="status">설정을 불러오는 중입니다.</p>}
+        {loading && <p className="panel page-state" role="status">설정을 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
 
         {!loading && community && <section className="settings-status-grid" aria-label="초기 설정 상태">

@@ -22,7 +22,7 @@ export default function DiscordDmPage() {
   const [selectedRoleId, setSelectedRoleId] = useState("");
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
-  const [maxRecipients, setMaxRecipients] = useState(50);
+  const [maxRecipients, setMaxRecipients] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadingRole, setLoadingRole] = useState(false);
   const [sending, setSending] = useState(false);

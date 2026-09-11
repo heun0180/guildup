@@ -53,10 +53,10 @@ export default function CommunitiesPage() {
           <h1>내 커뮤니티</h1>
           <p>관리할 커뮤니티를 선택하세요.</p>
         </div>
-        {loading && <p role="status">커뮤니티를 불러오는 중입니다.</p>}
+        {loading && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
         {!loading && communities.length === 0 && (
-          <p>아직 참여한 커뮤니티가 없습니다. 새 커뮤니티를 만들어 시작하세요.</p>
+          <p className="panel page-state">아직 참여한 커뮤니티가 없습니다. 새 커뮤니티를 만들어 시작하세요.</p>
         )}
         <div className="community-grid">
           {communities.map((community) => (

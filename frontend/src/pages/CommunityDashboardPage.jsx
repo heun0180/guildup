@@ -54,7 +54,7 @@ export default function CommunityDashboardPage() {
             : "Discord 서버와 클랜원을 관리할 수 있습니다."}</p>
         </div>
 
-        {!community && !message && <p role="status">커뮤니티를 불러오는 중입니다.</p>}
+        {!community && !message && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
 
         {community && (

@@ -20,6 +20,7 @@ import com.guildup.user.domain.UserExternalAccount;
 import com.guildup.user.repository.UserExternalAccountRepository;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.utils.concurrent.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -81,7 +82,7 @@ class CommunityGameNicknameRuleServiceTests {
         Member administrator = member("admin", "admin", "애플(93) sa-gwa");
         Member julmi = member("2", "julmi", "절미(95) jul-mi");
         Member potato = member("3", "potato", "감자");
-        when(guild.getMembers()).thenReturn(List.of(administrator, julmi, potato));
+        loadMembers(administrator, julmi, potato);
 
         var result = ruleService.preview(1L, 10L, "sa-gwa");
 
@@ -101,7 +102,7 @@ class CommunityGameNicknameRuleServiceTests {
     void savesRuleAndReturnsTheSameRuleOnNextRead() {
         Member administrator = member("admin", "admin", "애플/93/sa-gwa");
         Member julmi = member("2", "julmi", "절미/95/jul-mi");
-        when(guild.getMembers()).thenReturn(List.of(administrator, julmi));
+        loadMembers(administrator, julmi);
         AtomicReference<CommunityGameNicknameRule> stored = new AtomicReference<>();
         when(ruleRepository.findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
                 .thenAnswer(invocation -> Optional.ofNullable(stored.get()));
@@ -128,7 +129,7 @@ class CommunityGameNicknameRuleServiceTests {
     @Test
     void analysisAndSaveRequireManagementAccess() {
         Member administrator = member("admin", "admin", "sa-gwa 애플 93");
-        when(guild.getMembers()).thenReturn(List.of(administrator));
+        loadMembers(administrator);
 
         ruleService.preview(1L, 10L, "sa-gwa");
         ruleService.save(1L, 10L, "sa-gwa");
@@ -161,7 +162,7 @@ class CommunityGameNicknameRuleServiceTests {
     @Test
     void usesTheCommunitySelectedSteamGameForNicknameRules() {
         Member administrator = member("admin", "admin", "sa-gwa 애플 93");
-        when(guild.getMembers()).thenReturn(List.of(administrator));
+        loadMembers(administrator);
         when(communityGameRepository.findFirstByCommunityIdOrderByIdAsc(10L))
                 .thenReturn(Optional.of(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM)));
 
@@ -181,5 +182,12 @@ class CommunityGameNicknameRuleServiceTests {
         when(user.isBot()).thenReturn(false);
         when(member.getNickname()).thenReturn(displayName);
         return member;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadMembers(Member... members) {
+        Task<List<Member>> task = mock(Task.class);
+        when(guild.loadMembers()).thenReturn(task);
+        when(task.get()).thenReturn(List.of(members));
     }
 }

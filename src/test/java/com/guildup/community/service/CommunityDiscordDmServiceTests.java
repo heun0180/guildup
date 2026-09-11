@@ -25,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,15 +46,15 @@ class CommunityDiscordDmServiceTests {
     private final Guild guild = mock(Guild.class);
     private final CommunityDiscordDmService service = new CommunityDiscordDmService(
             accessService, connectionService, guildService, memberService, roleService,
-            directMessageClient, 2, Duration.ofSeconds(10),
+            directMessageClient, Duration.ofSeconds(10),
             Clock.fixed(Instant.parse("2026-09-10T00:00:00Z"), ZoneOffset.UTC)
     );
 
     @Test
     void sendsDmToGuildMember() {
         connectedGuild();
-        Member apple = member("애플");
-        when(memberService.findHumanMember(guild, "100")).thenReturn(Optional.of(apple));
+        Member apple = member("100", "애플");
+        guildMembers(apple);
 
         DiscordDmResponse response = service.send(7L, 1L,
                 new DiscordDmRequest(List.of("100"), "공지입니다."));
@@ -68,7 +67,7 @@ class CommunityDiscordDmServiceTests {
     }
 
     @Test
-    void returnsHumanRecipientsWithConfiguredLimitForManagers() {
+    void returnsHumanRecipientsWithGuildMemberCountAsLimitForManagers() {
         connectedGuild();
         List<DiscordMemberResponse> members = List.of(new DiscordMemberResponse(
                 "100", "apple_account", "애플", "https://cdn.example/avatar.png"));
@@ -76,7 +75,7 @@ class CommunityDiscordDmServiceTests {
 
         var response = service.getRecipients(7L, 1L);
 
-        assertThat(response.maxRecipients()).isEqualTo(2);
+        assertThat(response.maxRecipients()).isEqualTo(1);
         assertThat(response.members()).isSameAs(members);
         verify(accessService).requireManagementAccess(7L, 1L);
     }
@@ -84,10 +83,9 @@ class CommunityDiscordDmServiceTests {
     @Test
     void sendsMultipleDmsSequentiallyThroughClient() {
         connectedGuild();
-        Member apple = member("애플");
-        Member fox = member("여우");
-        when(memberService.findHumanMember(guild, "100")).thenReturn(Optional.of(apple));
-        when(memberService.findHumanMember(guild, "200")).thenReturn(Optional.of(fox));
+        Member apple = member("100", "애플");
+        Member fox = member("200", "여우");
+        guildMembers(apple, fox);
 
         DiscordDmResponse response = service.send(7L, 1L,
                 new DiscordDmRequest(List.of("100", "200"), "모임 안내"));
@@ -101,10 +99,9 @@ class CommunityDiscordDmServiceTests {
     @Test
     void keepsSendingAndCollectsPartialFailure() {
         connectedGuild();
-        Member apple = member("애플");
-        Member fox = member("여우");
-        when(memberService.findHumanMember(guild, "100")).thenReturn(Optional.of(apple));
-        when(memberService.findHumanMember(guild, "200")).thenReturn(Optional.of(fox));
+        Member apple = member("100", "애플");
+        Member fox = member("200", "여우");
+        guildMembers(apple, fox);
         RuntimeException failure = new RuntimeException("Discord internal detail");
         doThrow(failure).when(directMessageClient).send("100", "공지");
         when(directMessageClient.isDmNotAvailable(failure)).thenReturn(true);
@@ -139,7 +136,7 @@ class CommunityDiscordDmServiceTests {
     @Test
     void doesNotSendToUserOutsideConnectedGuild() {
         connectedGuild();
-        when(memberService.findHumanMember(guild, "999")).thenReturn(Optional.empty());
+        guildMembers(member("100", "애플"));
 
         DiscordDmResponse response = service.send(7L, 1L, request("999"));
 
@@ -162,8 +159,8 @@ class CommunityDiscordDmServiceTests {
     @Test
     void removesDuplicateDiscordUserIds() {
         connectedGuild();
-        Member apple = member("애플");
-        when(memberService.findHumanMember(guild, "100")).thenReturn(Optional.of(apple));
+        Member apple = member("100", "애플");
+        guildMembers(apple);
 
         DiscordDmResponse response = service.send(7L, 1L,
                 new DiscordDmRequest(List.of("100", "100"), "공지"));
@@ -174,6 +171,8 @@ class CommunityDiscordDmServiceTests {
 
     @Test
     void rejectsRecipientLimitExceeded() {
+        connectedGuild();
+
         assertBadRequest(new DiscordDmRequest(List.of("100", "200", "300"), "공지"));
     }
 
@@ -195,8 +194,8 @@ class CommunityDiscordDmServiceTests {
     @Test
     void rejectsSameRequestWithinDuplicateWindow() {
         connectedGuild();
-        Member apple = member("애플");
-        when(memberService.findHumanMember(guild, "100")).thenReturn(Optional.of(apple));
+        Member apple = member("100", "애플");
+        guildMembers(apple);
         DiscordDmRequest request = request("100");
         service.send(7L, 1L, request);
 
@@ -221,10 +220,15 @@ class CommunityDiscordDmServiceTests {
         when(guildService.getGuildById("guild-1")).thenReturn(guild);
     }
 
-    private Member member(String displayName) {
+    private void guildMembers(Member... members) {
+        when(memberService.getHumanMembers(guild)).thenReturn(List.of(members));
+    }
+
+    private Member member(String id, String displayName) {
         Member member = mock(Member.class);
         User user = mock(User.class);
         when(member.getUser()).thenReturn(user);
+        when(user.getId()).thenReturn(id);
         when(memberService.getDisplayName(member)).thenReturn(displayName);
         return member;
     }

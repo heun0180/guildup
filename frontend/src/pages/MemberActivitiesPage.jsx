@@ -126,16 +126,20 @@ export default function MemberActivitiesPage() {
         {configurationStatus === "configured" && activities && <>
           <section className="panel activity-sync-panel" aria-label="PUBG 활동 동기화 상태">
             <div className="activity-sync-copy">
-              {activities.sync.lastSuccessfulSyncAt && <div>
-                <span>마지막 활동 조회</span>
-                <strong>{formatActivityDateTime(activities.sync.lastSuccessfulSyncAt)}</strong>
-              </div>}
-              <p className={`activity-sync-state ${activities.sync.status.toLowerCase()}`}>{syncView.title}</p>
-              {syncView.description && <p>{syncView.description}</p>}
-              {activities.sync.nextSyncAvailableAt && <div>
-                <span>다음 조회 가능</span>
-                <strong>{formatActivityDateTime(activities.sync.nextSyncAvailableAt)}</strong>
-              </div>}
+              <div className="activity-sync-status">
+                <p className={`activity-sync-state ${activities.sync.status.toLowerCase()}`}>{syncView.title}</p>
+                {syncView.description && <p>{syncView.description}</p>}
+              </div>
+              <div className="activity-sync-meta">
+                {activities.sync.lastSuccessfulSyncAt && <div>
+                  <span>마지막 활동 조회</span>
+                  <strong>{formatActivityDateTime(activities.sync.lastSuccessfulSyncAt)}</strong>
+                </div>}
+                {activities.sync.nextSyncAvailableAt && <div>
+                  <span>다음 조회 가능</span>
+                  <strong>{formatActivityDateTime(activities.sync.nextSyncAvailableAt)}</strong>
+                </div>}
+              </div>
             </div>
             {canManage && <button className="primary-button" type="button"
                                   disabled={syncView.buttonDisabled} onClick={syncActivities}>

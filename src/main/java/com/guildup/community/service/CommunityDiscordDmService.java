@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -48,7 +49,6 @@ public class CommunityDiscordDmService {
     private final DiscordMemberService memberService;
     private final DiscordRoleService roleService;
     private final DiscordDirectMessageClient directMessageClient;
-    private final int maxRecipients;
     private final Duration duplicateWindow;
     private final Clock clock;
     private final ConcurrentHashMap<String, Instant> recentRequests = new ConcurrentHashMap<>();
@@ -61,11 +61,10 @@ public class CommunityDiscordDmService {
             DiscordMemberService memberService,
             DiscordRoleService roleService,
             DiscordDirectMessageClient directMessageClient,
-            @Value("${discord.dm.max-recipients:50}") int maxRecipients,
             @Value("${discord.dm.duplicate-window:10s}") Duration duplicateWindow
     ) {
         this(accessService, connectionService, guildService, memberService, roleService,
-                directMessageClient, maxRecipients, duplicateWindow, Clock.systemUTC());
+                directMessageClient, duplicateWindow, Clock.systemUTC());
     }
 
     CommunityDiscordDmService(
@@ -75,7 +74,6 @@ public class CommunityDiscordDmService {
             DiscordMemberService memberService,
             DiscordRoleService roleService,
             DiscordDirectMessageClient directMessageClient,
-            int maxRecipients,
             Duration duplicateWindow,
             Clock clock
     ) {
@@ -85,7 +83,6 @@ public class CommunityDiscordDmService {
         this.memberService = memberService;
         this.roleService = roleService;
         this.directMessageClient = directMessageClient;
-        this.maxRecipients = maxRecipients;
         this.duplicateWindow = duplicateWindow;
         this.clock = clock;
     }
@@ -94,10 +91,8 @@ public class CommunityDiscordDmService {
     public DiscordDmRecipientsResponse getRecipients(Long userId, Long communityId) {
         accessService.requireManagementAccess(userId, communityId);
         DiscordCommunityConnection connection = connectionService.getRequiredConnection(communityId);
-        return new DiscordDmRecipientsResponse(
-                maxRecipients,
-                roleService.getMembers(connection.getDiscordGuildId())
-        );
+        List<DiscordMemberResponse> members = roleService.getMembers(connection.getDiscordGuildId());
+        return new DiscordDmRecipientsResponse(members.size(), members);
     }
 
     /** 요청을 검증하고 실제 서버 멤버로 확인된 사용자에게 한 명씩 DM을 발송한다. */
@@ -106,11 +101,20 @@ public class CommunityDiscordDmService {
         ValidatedRequest validated = validate(request);
         DiscordCommunityConnection connection = connectionService.getRequiredConnection(communityId);
         Guild guild = guildService.getGuildById(connection.getDiscordGuildId());
+        Map<String, Member> guildMembers = memberService.getHumanMembers(guild).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        member -> member.getUser().getId(),
+                        member -> member
+                ));
+        int guildMemberLimit = guildMembers.size();
+        if (validated.discordUserIds().size() > guildMemberLimit) {
+            throw badRequest("Discord DM recipient limit exceeded: " + guildMemberLimit);
+        }
         registerRequest(communityId, validated);
 
         List<DiscordDmResult> results = new ArrayList<>();
         for (String discordUserId : validated.discordUserIds()) {
-            Member member = memberService.findHumanMember(guild, discordUserId).orElse(null);
+            Member member = guildMembers.get(discordUserId);
             if (member == null) {
                 results.add(DiscordDmResult.failure(
                         discordUserId, null, DiscordDmFailureReason.USER_NOT_FOUND));
@@ -157,9 +161,6 @@ public class CommunityDiscordDmService {
         }
         if (uniqueIds.isEmpty()) {
             throw badRequest("At least one Discord recipient is required");
-        }
-        if (uniqueIds.size() > maxRecipients) {
-            throw badRequest("Discord DM recipient limit exceeded: " + maxRecipients);
         }
         return new ValidatedRequest(List.copyOf(uniqueIds), request.message());
     }

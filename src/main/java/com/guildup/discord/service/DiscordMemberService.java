@@ -3,22 +3,42 @@ package com.guildup.discord.service;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Discord 서버 멤버 조회, 역할 필터링, 표시 이름 결정을 담당한다. */
 @Service
 public class DiscordMemberService {
 
-    private static final Logger log = LoggerFactory.getLogger(DiscordMemberService.class);
+    private static final long MEMBER_SNAPSHOT_TTL_NANOS = Duration.ofSeconds(30).toNanos();
 
-    /** JDA 캐시에 로드된 서버 전체 멤버를 반환한다. */
+    private final Map<Guild, MemberSnapshot> memberSnapshots = new ConcurrentHashMap<>();
+    private final Map<Guild, Object> guildLoadLocks = new ConcurrentHashMap<>();
+
+    /** 기능이 요청한 Discord 서버의 멤버만 온디맨드로 조회하고 짧게 재사용한다. */
     public List<Member> getMembers(Guild guild) {
-        return guild.getMembers();
+        long now = System.nanoTime();
+        MemberSnapshot cached = memberSnapshots.get(guild);
+        if (cached != null && cached.isFresh(now)) {
+            return cached.members();
+        }
+
+        Object loadLock = guildLoadLocks.computeIfAbsent(guild, ignored -> new Object());
+        synchronized (loadLock) {
+            now = System.nanoTime();
+            cached = memberSnapshots.get(guild);
+            if (cached != null && cached.isFresh(now)) {
+                return cached.members();
+            }
+
+            List<Member> members = List.copyOf(guild.loadMembers().get());
+            memberSnapshots.put(guild, new MemberSnapshot(members, System.nanoTime()));
+            return members;
+        }
     }
 
     /** 서버의 전체 멤버 중 봇을 제외한 실제 사용자만 반환한다. */
@@ -26,19 +46,6 @@ public class DiscordMemberService {
         return getMembers(guild).stream()
                 .filter(member -> !member.getUser().isBot())
                 .toList();
-    }
-
-    /** 잘못된 ID를 포함해 서버의 일반 사용자로 확인되지 않으면 empty를 반환한다. */
-    public Optional<Member> findHumanMember(Guild guild, String userId) {
-        try {
-            Member member = guild.getMemberById(userId);
-            if (member == null || member.getUser().isBot()) {
-                return Optional.empty();
-            }
-            return Optional.of(member);
-        } catch (IllegalArgumentException exception) {
-            return Optional.empty();
-        }
     }
 
     /** 역할 ID를 실제 Role로 찾은 뒤 해당 역할의 멤버를 조회한다. */
@@ -53,7 +60,8 @@ public class DiscordMemberService {
 
     /** 역할을 가진 멤버 중 봇 계정을 제외한 실제 사용자만 반환한다. */
     public List<Member> getMembersWithRole(Guild guild, Role role) {
-        return guild.getMembersWithRoles(role).stream()
+        return getMembers(guild).stream()
+                .filter(member -> member.getRoles().contains(role))
                 .filter(member -> !member.getUser().isBot())
                 .toList();
     }
@@ -71,19 +79,10 @@ public class DiscordMemberService {
         return member.getUser().getName();
     }
 
-    /** 개발 시 멤버 캐시 상태를 확인할 수 있도록 서버 멤버 정보를 로그로 출력한다. */
-    public void logMembers(Guild guild) {
-        List<Member> members = getMembers(guild);
-        log.info("Discord guild member count - guild: {}, count: {}", guild.getName(), members.size());
-
-        for (Member member : members) {
-            log.info(
-                    "Discord member - userId: {}, username: {}, displayName: {}, bot: {}",
-                    member.getUser().getId(),
-                    member.getUser().getName(),
-                    member.getEffectiveName(),
-                    member.getUser().isBot()
-            );
+    private record MemberSnapshot(List<Member> members, long loadedAtNanos) {
+        private boolean isFresh(long now) {
+            return now - loadedAtNanos < MEMBER_SNAPSHOT_TTL_NANOS;
         }
     }
+
 }

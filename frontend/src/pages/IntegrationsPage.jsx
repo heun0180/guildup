@@ -64,7 +64,7 @@ export default function IntegrationsPage() {
           <p>외부 서비스를 연결하고 커뮤니티에서 사용할 기능을 관리합니다.</p>
         </div>
 
-        {!community && !message && <p role="status">연동 정보를 불러오는 중입니다.</p>}
+        {!community && !message && <p className="panel page-state" role="status">연동 정보를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
 
         {community && (

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
@@ -27,6 +27,7 @@ export default function MembersPage() {
   const [community, setCommunity] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const roleRequestId = useRef(0);
 
   const handleError = useCallback((error, fallback) => {
     if (!redirectToLogin(error)) setMessage(error.status === 403 ? "이 커뮤니티에 접근할 권한이 없습니다." : fallback);
@@ -45,26 +46,36 @@ export default function MembersPage() {
   }, [communityId, handleError]);
 
   const selectRole = useCallback(async (role) => {
+    const requestId = ++roleRequestId.current;
     setSelectedRole(role);
     setLoading(true);
     setMessage("");
     try {
-      setMembers(await api(`${rolesUrl}/${encodeURIComponent(role.id)}/members`));
+      const roleMembers = await api(`${rolesUrl}/${encodeURIComponent(role.id)}/members`);
+      if (requestId === roleRequestId.current) setMembers(roleMembers);
     } catch (error) {
-      handleError(error, "선택한 Discord 역할의 멤버 목록 요청에 실패했습니다.");
+      if (requestId === roleRequestId.current) {
+        setMembers([]);
+        handleError(error, "선택한 Discord 역할의 멤버 목록 요청에 실패했습니다.");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === roleRequestId.current) setLoading(false);
     }
   }, [handleError, rolesUrl]);
 
   useEffect(() => {
+    let cancelled = false;
     if (roleMode) {
+      roleRequestId.current += 1;
+      setSelectedRole(null);
+      setMembers([]);
       setLoading(true);
       api(rolesUrl).then((data) => {
+        if (cancelled) return;
         setRoles(data);
-        if (data.length) selectRole(data[0]);
-        else setLoading(false);
+        setLoading(false);
       }).catch((error) => {
+        if (cancelled) return;
         handleError(error, "Discord 서버 연결과 Guild ID를 확인해 주세요.");
         setLoading(false);
       });
@@ -74,7 +85,8 @@ export default function MembersPage() {
       setMessage("주소에 올바른 guildId 또는 communityId를 입력해 주세요.");
       setLoading(false);
     }
-  }, [communityValid, handleError, loadCommunityMembers, roleMode, rolesUrl, selectRole]);
+    return () => { cancelled = true; };
+  }, [communityValid, handleError, loadCommunityMembers, roleMode, rolesUrl]);
 
   useEffect(() => {
     if (!communityValid) return;
@@ -125,8 +137,9 @@ export default function MembersPage() {
   }
 
   const title = roleMode ? selectedRole?.name || "Discord 역할별 멤버" : "클랜원 목록";
-  const count = loading ? "불러오는 중..." : roleMode && selectedRole
-    ? `${selectedRole.name} (${members.length}명)` : `클랜원 ${members.length}명`;
+  const count = loading ? "불러오는 중..." : roleMode
+    ? selectedRole ? `${selectedRole.name} (${members.length}명)` : "역할을 선택해 주세요."
+    : `클랜원 ${members.length}명`;
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filteredMembers = members.filter((member) => {
     if (!normalizedSearch) return true;
@@ -199,7 +212,9 @@ export default function MembersPage() {
           </form>}
           {message && <p className="message padded-message" role="alert">{message}</p>}
           {!loading && !message && members.length === 0 && <p className="empty-state">{roleMode
-            ? roles.length ? "이 역할을 가진 사용자가 없습니다." : "@everyone을 제외한 역할이 없습니다."
+            ? roles.length
+              ? selectedRole ? "이 역할을 가진 사용자가 없습니다." : "역할을 선택하면 해당 멤버를 불러옵니다."
+              : "@everyone을 제외한 역할이 없습니다."
             : memberRolesConfigured ? "동기화된 ACTIVE 클랜원이 없습니다. Discord와 동기화를 실행해 주세요." : "등록된 클랜원이 없습니다."}</p>}
           {!loading && members.length > 0 && <div className="member-table-wrap">
             <table className="member-table">
