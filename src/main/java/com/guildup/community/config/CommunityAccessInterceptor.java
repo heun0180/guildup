@@ -30,7 +30,7 @@ public class CommunityAccessInterceptor implements HandlerInterceptor {
             }
         }
         if (variables != null && variables.containsKey("guildId")) {
-            access.requireGuildAccess(userId, variables.get("guildId"));
+            access.requireGuildManagementAccess(userId, variables.get("guildId"));
         }
         return true;
     }

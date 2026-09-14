@@ -45,7 +45,8 @@ public class CommunityMemberService {
 
     /** 현재 ACTIVE인 멤버와 Discord 계정을 각각 한 번 조회해 DTO로 반환한다. */
     @Transactional(readOnly = true)
-    public List<CommunityMemberResponse> getMembers(Long communityId) {
+    public List<CommunityMemberResponse> getMembers(Long userId, Long communityId) {
+        accessService.requireCommunityMember(userId, communityId);
         List<CommunityMember> members = communityMemberRepository.findByCommunityIdAndStatusOrderByIdAsc(
                 communityId,
                 CommunityMemberStatus.ACTIVE

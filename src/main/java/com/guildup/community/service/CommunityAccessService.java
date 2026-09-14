@@ -21,15 +21,15 @@ public class CommunityAccessService {
         this.connections = connections;
     }
 
-    public CommunityUser requireAccess(Long userId, Long communityId) {
+    public CommunityUser requireCommunityMember(Long userId, Long communityId) {
         return memberships.findByCommunityIdAndUserId(communityId, userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Community access denied"));
     }
 
     /** OWNER 또는 ADMIN만 수행할 수 있는 커뮤니티 관리 작업을 검증한다. */
-    public CommunityUser requireManagementAccess(Long userId, Long communityId) {
-        CommunityUser membership = requireAccess(userId, communityId);
+    public CommunityUser requireCommunityAdmin(Long userId, Long communityId) {
+        CommunityUser membership = requireCommunityMember(userId, communityId);
         if (membership.getRole() != CommunityUserRole.OWNER
                 && membership.getRole() != CommunityUserRole.ADMIN) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
@@ -38,10 +38,36 @@ public class CommunityAccessService {
         return membership;
     }
 
+    public CommunityUser requireCommunityOwner(Long userId, Long communityId) {
+        CommunityUser membership = requireCommunityMember(userId, communityId);
+        if (membership.getRole() != CommunityUserRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Community owner access denied");
+        }
+        return membership;
+    }
+
+    /** 기존 호출부와의 호환성을 유지한다. */
+    public CommunityUser requireAccess(Long userId, Long communityId) {
+        return requireCommunityMember(userId, communityId);
+    }
+
+    /** 기존 호출부와의 호환성을 유지한다. */
+    public CommunityUser requireManagementAccess(Long userId, Long communityId) {
+        return requireCommunityAdmin(userId, communityId);
+    }
+
     public void requireGuildAccess(Long userId, String guildId) {
         var connection = connections.findByDiscordGuildId(guildId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Community access denied"));
-        requireAccess(userId, connection.getCommunity().getId());
+        requireCommunityMember(userId, connection.getCommunity().getId());
+    }
+
+    public void requireGuildManagementAccess(Long userId, String guildId) {
+        var connection = connections.findByDiscordGuildId(guildId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Community management access denied"));
+        requireCommunityAdmin(userId, connection.getCommunity().getId());
     }
 }

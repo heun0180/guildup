@@ -1,6 +1,8 @@
 import Icon from "./Icon.jsx";
+import { canManageCommunity } from "../communityAccess.js";
 
 export default function Sidebar({ community, communityId, active }) {
+  const canManage = canManageCommunity(community?.role);
   const validId = /^\d+$/.test(communityId ?? "");
   const dashboardUrl = validId
     ? `/community-dashboard.html?communityId=${encodeURIComponent(communityId)}`
@@ -8,18 +10,18 @@ export default function Sidebar({ community, communityId, active }) {
   const membersUrl = validId
     ? `/members.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
-  const settingsUrl = validId
+  const settingsUrl = validId && canManage
     ? `/community-settings.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
-  const activityUrl = validId
+  const activityUrl = validId && canManage
     ? `/member-activities.html?communityId=${encodeURIComponent(communityId)}`
     : null;
-  const teamMakerUrl = validId && (community?.role === "OWNER" || community?.role === "ADMIN")
+  const teamMakerUrl = validId && canManage
     ? `/team-maker.html?communityId=${encodeURIComponent(communityId)}`
     : null;
-  const integrationsUrl = validId
+  const integrationsUrl = validId && canManage
     ? `/integrations.html?communityId=${encodeURIComponent(communityId)}`
-    : "/communities.html";
+    : null;
 
   const newsUrl = validId
     ? `/community-news.html?communityId=${encodeURIComponent(communityId)}`
@@ -29,9 +31,11 @@ export default function Sidebar({ community, communityId, active }) {
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
     { id: "news", label: "공지 · 이벤트", icon: "calendar", href: newsUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
-    { id: "activity", label: "활동", icon: "activity", href: activityUrl },
-    { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
-    { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
+    ...(canManage ? [
+      { id: "activity", label: "활동", icon: "activity", href: activityUrl },
+      { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
+      { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
+    ] : []),
   ];
 
   return (
@@ -61,13 +65,13 @@ export default function Sidebar({ community, communityId, active }) {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
+      {canManage && <div className="sidebar-footer">
         <a className={`sidebar-item${active === "settings" ? " is-active" : ""}`} href={settingsUrl}
            aria-current={active === "settings" ? "page" : undefined}>
           <Icon name="settings" />
           <span>설정</span>
         </a>
-      </div>
+      </div>}
     </aside>
   );
 }

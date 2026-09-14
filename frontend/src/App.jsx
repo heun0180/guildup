@@ -13,6 +13,7 @@ import DiscordDmPage from "./pages/DiscordDmPage.jsx";
 import DiscordVoiceActivityPage from "./pages/DiscordVoiceActivityPage.jsx";
 
 import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
+import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
 
 const pages = {
   "/community-news.html": CommunityNewsPage,
@@ -47,5 +48,5 @@ export default function App() {
     );
   }
 
-  return <Page />;
+  return <CommunityRouteGuard><Page /></CommunityRouteGuard>;
 }

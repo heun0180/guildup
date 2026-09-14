@@ -22,8 +22,9 @@ class CommunityDiscordQueryServiceTests {
     private final DiscordCommunityConnectionService connectionService =
             mock(DiscordCommunityConnectionService.class);
     private final DiscordRoleService discordRoleService = mock(DiscordRoleService.class);
+    private final CommunityAccessService accessService = mock(CommunityAccessService.class);
     private final CommunityDiscordQueryService queryService =
-            new CommunityDiscordQueryService(connectionService, discordRoleService);
+            new CommunityDiscordQueryService(connectionService, discordRoleService, accessService);
 
     @Test
     void usesStoredGuildIdToRequestDiscordRoles() {
@@ -33,9 +34,10 @@ class CommunityDiscordQueryServiceTests {
         when(connectionService.getRequiredConnection(1L)).thenReturn(connection);
         when(discordRoleService.getRoles("100")).thenReturn(expected);
 
-        List<DiscordRoleResponse> result = queryService.getRoles(1L);
+        List<DiscordRoleResponse> result = queryService.getRoles(10L, 1L);
 
         assertThat(result).isSameAs(expected);
+        verify(accessService).requireCommunityAdmin(10L, 1L);
         verify(discordRoleService).getRoles("100");
     }
 
@@ -52,9 +54,10 @@ class CommunityDiscordQueryServiceTests {
         when(connectionService.getRequiredConnection(1L)).thenReturn(connection);
         when(discordRoleService.getMembers("100", "200")).thenReturn(expected);
 
-        List<DiscordMemberResponse> result = queryService.getMembers(1L, "200");
+        List<DiscordMemberResponse> result = queryService.getMembers(10L, 1L, "200");
 
         assertThat(result).isSameAs(expected);
+        verify(accessService).requireCommunityAdmin(10L, 1L);
         verify(discordRoleService).getMembers("100", "200");
     }
 

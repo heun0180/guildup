@@ -443,10 +443,10 @@ class CommunityFlowTests {
         mvc.perform(post(base + "/join").session(session).contentType("application/json").content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.communityId").value(existing.getId()))
-                .andExpect(jsonPath("$.role").value("ADMIN"));
+                .andExpect(jsonPath("$.role").value("MEMBER"));
 
         assertThat(memberships.findByCommunityIdAndUserId(existing.getId(), user.getId()))
-                .get().extracting(CommunityUser::getRole).isEqualTo(CommunityUserRole.ADMIN);
+                .get().extracting(CommunityUser::getRole).isEqualTo(CommunityUserRole.MEMBER);
         assertThat(communities.findById(source.getId())).isEmpty();
         assertThat(memberships.findByCommunityId(existing.getId())).hasSize(2);
     }
@@ -644,6 +644,84 @@ class CommunityFlowTests {
 
         mvc.perform(post("/api/communities/" + community.getId() + "/members/sync").session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.matchedMembers").value(0));
+    }
+
+    @Test
+    void discoversDiscordGuildMembershipThenCreatesSeparateGuildUpMemberMembership() throws Exception {
+        Community community = service.createCommunity("공유", other.getId());
+        connections.save(new DiscordCommunityConnection(community, "123456", "Cheeeze"));
+        userExternalAccounts.save(new com.guildup.user.domain.UserExternalAccount(
+                user, com.guildup.account.domain.ExternalAccountProvider.DISCORD, "999", "apple"
+        ));
+        var guild = mockGuild("123456");
+        loadMembers(guild, mockDiscordMember("999", "apple", "애플"));
+
+        mvc.perform(get("/api/community-discoveries/discord").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].communityId").value(community.getId()))
+                .andExpect(jsonPath("$[0].communityName").value("공유"))
+                .andExpect(jsonPath("$[0].discordGuildName").value("Cheeeze"));
+        assertThat(memberships.findByCommunityIdAndUserId(community.getId(), user.getId())).isEmpty();
+
+        mvc.perform(post("/api/community-discoveries/discord/" + community.getId() + "/join")
+                        .session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+        assertThat(memberships.findByCommunityIdAndUserId(community.getId(), user.getId()))
+                .get().extracting(CommunityUser::getRole).isEqualTo(CommunityUserRole.MEMBER);
+        mvc.perform(get("/api/community-discoveries/discord").session(session))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+    }
+
+    @Test
+    void discordServerMembershipDoesNotGrantCommunityAccessUntilGuildUpJoin() throws Exception {
+        Community community = service.createCommunity("공유", other.getId());
+        connections.save(new DiscordCommunityConnection(community, "123456", "Cheeeze"));
+        userExternalAccounts.save(new com.guildup.user.domain.UserExternalAccount(
+                user, com.guildup.account.domain.ExternalAccountProvider.DISCORD, "999", "apple"
+        ));
+        var guild = mockGuild("123456");
+        loadMembers(guild, mockDiscordMember("999", "apple", "애플"));
+
+        mvc.perform(get("/api/communities/" + community.getId()).session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/community-discoveries/discord").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void ownerAssignsGuildUpAdminAndAdminCannotAssignRoles() throws Exception {
+        Community community = service.createCommunity("공유", user.getId());
+        memberships.save(new CommunityUser(community, other, CommunityUserRole.MEMBER));
+
+        mvc.perform(patch("/api/communities/" + community.getId() + "/users/" + other.getId() + "/role")
+                        .session(session).contentType("application/json").content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("ADMIN"));
+
+        MockHttpSession adminSession = new MockHttpSession();
+        adminSession.setAttribute("LOGIN_USER_ID", other.getId());
+        mvc.perform(get("/api/communities/" + community.getId() + "/users").session(adminSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        mvc.perform(patch("/api/communities/" + community.getId() + "/users/" + other.getId() + "/role")
+                        .session(adminSession).contentType("application/json").content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void memberCannotReadDiscordManagementRoles() throws Exception {
+        Community community = service.createCommunity("공유", other.getId());
+        memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
+        connections.save(new DiscordCommunityConnection(community, "123456", "Cheeeze"));
+
+        mvc.perform(get("/api/communities/" + community.getId() + "/discord/roles").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/discord/guilds/123456/roles").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/communities/" + community.getId() + "/member-activities").session(session))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/communities/" + community.getId() + "/members/1/activity").session(session))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(jda);
     }
 
     @Test

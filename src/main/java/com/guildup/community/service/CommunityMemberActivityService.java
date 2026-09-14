@@ -72,7 +72,7 @@ public class CommunityMemberActivityService {
     }
 
     public CommunityMemberActivityListResponse getActivities(Long userId, Long communityId) {
-        accessService.requireAccess(userId, communityId);
+        accessService.requireCommunityAdmin(userId, communityId);
         CommunityGame game = requireSupportedGame(communityId);
         CommunityGameActivityRule rule = requireRule(game.getId());
         List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
@@ -104,7 +104,7 @@ public class CommunityMemberActivityService {
             Long communityId,
             Long memberId
     ) {
-        accessService.requireAccess(userId, communityId);
+        accessService.requireCommunityAdmin(userId, communityId);
         CommunityGame game = requireSupportedGame(communityId);
         CommunityGameActivityRule rule = requireRule(game.getId());
         CommunityMember member = memberRepository.findById(memberId)

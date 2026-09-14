@@ -69,4 +69,9 @@ public class CommunityUser {
     public CommunityUserRole getRole() {
         return role;
     }
+
+    /** OWNER가 커뮤니티 운영 역할을 직접 변경할 때 사용한다. */
+    public void changeRole(CommunityUserRole role) {
+        this.role = role;
+    }
 }

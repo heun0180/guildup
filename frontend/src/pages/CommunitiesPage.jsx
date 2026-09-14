@@ -5,15 +5,23 @@ import Icon from "../components/Icon.jsx";
 
 export default function CommunitiesPage() {
   const [communities, setCommunities] = useState([]);
+  const [discoverable, setDiscoverable] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [gameType, setGameType] = useState("BATTLEGROUNDS_KAKAO");
   const [message, setMessage] = useState("");
+  const [joiningId, setJoiningId] = useState(null);
 
   const loadCommunities = useCallback(async () => {
     try {
-      setCommunities(await api("/api/auth/me/communities"));
+      const [memberships, candidates] = await Promise.allSettled([
+        api("/api/auth/me/communities"),
+        api("/api/community-discoveries/discord"),
+      ]);
+      if (memberships.status === "rejected") throw memberships.reason;
+      setCommunities(memberships.value);
+      setDiscoverable(candidates.status === "fulfilled" ? candidates.value : []);
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(error.message);
     } finally {
@@ -44,6 +52,20 @@ export default function CommunitiesPage() {
     }
   }
 
+  async function joinCommunity(communityId) {
+    setJoiningId(communityId);
+    setMessage("");
+    try {
+      const joined = await api(`/api/community-discoveries/discord/${encodeURIComponent(communityId)}/join`, {
+        method: "POST",
+      });
+      window.location.assign(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`);
+    } catch (error) {
+      if (!redirectToLogin(error)) setMessage(error.message);
+      setJoiningId(null);
+    }
+  }
+
   return (
     <div className="public-page">
       <AppHeader actions onError={setMessage} />
@@ -51,7 +73,7 @@ export default function CommunitiesPage() {
         <div className="public-heading">
           <p className="eyebrow">Communities</p>
           <h1>내 커뮤니티</h1>
-          <p>관리할 커뮤니티를 선택하세요.</p>
+          <p>가입한 커뮤니티를 선택하세요.</p>
         </div>
         {loading && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
@@ -73,6 +95,26 @@ export default function CommunitiesPage() {
             </article>
           ))}
         </div>
+        {!loading && discoverable.length > 0 && <section aria-labelledby="discoverable-title">
+          <div className="section-heading">
+            <div><h2 id="discoverable-title">가입 가능한 커뮤니티</h2>
+              <p>연결된 Discord 서버의 멤버로 확인된 커뮤니티입니다.</p></div>
+          </div>
+          <div className="community-grid">
+            {discoverable.map((community) => <article className="community-card" key={community.communityId}>
+              <div className="community-card-top">
+                <span className="community-card-mark" aria-hidden="true">{community.communityName?.charAt(0) || "G"}</span>
+                <span className="role-badge">DISCORD</span>
+              </div>
+              <h2>{community.communityName}</h2>
+              <p>{community.discordGuildName || "연결된 Discord 서버"} 멤버로 확인되었습니다.</p>
+              <button type="button" disabled={joiningId !== null}
+                      onClick={() => joinCommunity(community.communityId)}>
+                {joiningId === community.communityId ? "가입 중..." : "GuildUp 커뮤니티 가입"}
+              </button>
+            </article>)}
+          </div>
+        </section>}
         <section className="create-community-card" aria-labelledby="create-community-title">
           <div className="create-community-copy">
             <span className="add-mark"><Icon name="plus" size={20} /></span>

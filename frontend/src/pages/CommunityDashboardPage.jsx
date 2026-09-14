@@ -3,6 +3,7 @@ import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import CommunityNewsSummary from "../components/CommunityNewsSummary.jsx";
+import { canManageCommunity } from "../communityAccess.js";
 
 export default function CommunityDashboardPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -23,7 +24,7 @@ export default function CommunityDashboardPage() {
         setCommunity(dashboard);
 
         const requests = [api(`/api/communities/${encodeURIComponent(communityId)}/members`)];
-        if (dashboard.discordConnected) {
+        if (dashboard.discordConnected && canManageCommunity(dashboard.role)) {
           requests.push(api(`/api/communities/${encodeURIComponent(communityId)}/discord/roles`));
         }
         const [membersResult, rolesResult] = await Promise.allSettled(requests);
@@ -42,6 +43,7 @@ export default function CommunityDashboardPage() {
   }, [communityId, validId]);
 
   const discordName = community?.discordGuildName || community?.discordGuildId;
+  const canManage = canManageCommunity(community?.role);
 
   return (
     <DashboardLayout active="dashboard" communityId={communityId} community={community}
@@ -51,8 +53,8 @@ export default function CommunityDashboardPage() {
           <p className="eyebrow">{community?.name || "Community"}</p>
           <h1>커뮤니티 대시보드</h1>
           <p>{community?.gameName
-            ? `${community.gameName} · Discord 서버와 클랜원을 관리할 수 있습니다.`
-            : "Discord 서버와 클랜원을 관리할 수 있습니다."}</p>
+            ? `${community.gameName} · ${canManage ? "커뮤니티를 관리할 수 있습니다." : "커뮤니티 정보를 확인할 수 있습니다."}`
+            : canManage ? "커뮤니티를 관리할 수 있습니다." : "커뮤니티 정보를 확인할 수 있습니다."}</p>
         </div>
 
         {!community && !message && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
@@ -69,19 +71,20 @@ export default function CommunityDashboardPage() {
                 <span className={`summary-icon${community.discordConnected ? " success" : ""}`}><Icon name="discord" size={21} /></span>
                 <div><p>Discord</p><strong>{community.discordConnected ? "연결됨" : "연결 안 됨"}</strong></div>
               </article>
-              <article className="summary-card">
+              {canManage && <article className="summary-card">
                 <span className="summary-icon"><Icon name="link" size={21} /></span>
                 <div><p>Discord 역할</p><strong>{roleCount === null ? "-" : `${roleCount}개`}</strong></div>
-              </article>
+              </article>}
             </section>
 
             <CommunityNewsSummary communityId={communityId} />
 
             <div className="section-heading">
-              <div><h2>관리</h2><p>자주 사용하는 커뮤니티 관리 기능입니다.</p></div>
+              <div><h2>{canManage ? "관리" : "커뮤니티"}</h2>
+                <p>{canManage ? "자주 사용하는 커뮤니티 관리 기능입니다." : "커뮤니티 정보를 확인하세요."}</p></div>
             </div>
             <section className="management-grid">
-              <article className="management-card">
+              {canManage && <article className="management-card">
                 <span className="management-card-icon discord"><Icon name="discord" size={22} /></span>
                 <div className="management-card-body">
                   <div className="management-title-row">
@@ -99,12 +102,14 @@ export default function CommunityDashboardPage() {
                     {community.discordConnected ? "Discord 관리" : "Discord 연결하기"}<Icon name="arrow" size={16} />
                   </a>
                 </div>
-              </article>
+              </article>}
               <article className="management-card">
                 <span className="management-card-icon"><Icon name="users" size={22} /></span>
                 <div className="management-card-body">
                   <div className="management-title-row"><h2>클랜원</h2></div>
-                  <p>Discord 역할을 기준으로 동기화된 커뮤니티 멤버를 확인하고 관리합니다.</p>
+                  <p>{canManage
+                    ? "Discord 역할을 기준으로 동기화된 커뮤니티 멤버를 확인하고 관리합니다."
+                    : "커뮤니티에 등록된 클랜원 목록을 확인합니다."}</p>
                   <a className="secondary-button" href={`/members.html?communityId=${encodeURIComponent(communityId)}`}>
                     클랜원 보기 <Icon name="arrow" size={16} />
                   </a>

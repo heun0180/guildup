@@ -3,6 +3,7 @@ import { api, redirectToLogin } from "../api/http.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { canManageCommunity } from "../communityAccess.js";
 
 export default function MembersPage() {
   const params = new URLSearchParams(window.location.search);
@@ -146,7 +147,7 @@ export default function MembersPage() {
     return [member.displayName, member.nickname, member.username, member.discordDisplayName, member.discordUsername]
       .filter(Boolean).some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
   });
-  const canManage = community?.role === "OWNER" || community?.role === "ADMIN";
+  const canManage = canManageCommunity(community?.role);
   const lastSyncedAt = community?.lastMemberSyncedAt
     ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" })
       .format(new Date(community.lastMemberSyncedAt))
@@ -162,22 +163,24 @@ export default function MembersPage() {
             <div>
               <p className="eyebrow">{roleMode ? "Discord" : "Members"}</p>
               <h1 id="member-list-title">{roleMode ? "Discord 역할" : "클랜원"}</h1>
-              <p>{roleMode ? "Discord 서버의 역할별 멤버를 확인합니다." : "커뮤니티에 등록된 클랜원을 관리합니다."}</p>
+              <p>{roleMode
+                ? "Discord 서버의 역할별 멤버를 확인합니다."
+                : canManage ? "커뮤니티에 등록된 클랜원을 관리합니다." : "커뮤니티에 등록된 클랜원을 확인합니다."}</p>
             </div>
-            {!roleMode && <div className="members-heading-actions">
+            {!roleMode && canManage && <div className="members-heading-actions">
               <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}`}>
                 <Icon name="activity" size={17} />활동 상태 보기
               </a>
-              {canManage && memberRolesConfigured && (
+              {memberRolesConfigured && (
                 <button type="button" disabled={syncing} onClick={synchronizeMembers}>
                   <Icon name="users" size={17} />{syncing ? "동기화 중..." : "Discord와 동기화"}
                 </button>
               )}
             </div>}
           </div>
-          {!roleMode && <p className="last-synced-at">마지막 동기화: {lastSyncedAt}</p>}
+          {!roleMode && canManage && <p className="last-synced-at">마지막 동기화: {lastSyncedAt}</p>}
         </div>
-        {memberRolesConfigured === false && (
+        {canManage && memberRolesConfigured === false && (
           <aside className="member-role-guide" aria-label="클랜원 역할 설정 안내">
             <span className="management-card-icon discord"><Icon name="discord" size={22} /></span>
             <div><h2>아직 클랜원 역할이 설정되지 않았습니다.</h2><p>Discord 역할을 설정하면 클랜원을 자동으로 분류할 수 있습니다.</p></div>
@@ -203,7 +206,7 @@ export default function MembersPage() {
               {selectedRole?.id === role.id && !loading && <span className="role-count">{members.length}</span>}
             </button>)}
           </div>}
-          {!roleMode && communityValid && <form className="add-member-form" onSubmit={addMember}>
+          {!roleMode && communityValid && canManage && <form className="add-member-form" onSubmit={addMember}>
             <div><label htmlFor="nickname">새 클랜원 추가</label><p>닉네임으로 클랜원을 직접 등록합니다.</p></div>
             <div className="add-member-controls">
               <input id="nickname" placeholder="클랜원 이름 입력" autoComplete="off" required value={nickname} onChange={(event) => setNickname(event.target.value)} />

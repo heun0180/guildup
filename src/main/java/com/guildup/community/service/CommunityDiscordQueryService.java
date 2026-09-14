@@ -14,23 +14,28 @@ public class CommunityDiscordQueryService {
 
     private final DiscordCommunityConnectionService connectionService;
     private final DiscordRoleService discordRoleService;
+    private final CommunityAccessService accessService;
 
     public CommunityDiscordQueryService(
             DiscordCommunityConnectionService connectionService,
-            DiscordRoleService discordRoleService
+            DiscordRoleService discordRoleService,
+            CommunityAccessService accessService
     ) {
         this.connectionService = connectionService;
         this.discordRoleService = discordRoleService;
+        this.accessService = accessService;
     }
 
     /** 커뮤니티의 Discord 연결을 찾은 뒤 해당 서버의 역할을 조회한다. */
-    public List<DiscordRoleResponse> getRoles(Long communityId) {
+    public List<DiscordRoleResponse> getRoles(Long userId, Long communityId) {
+        accessService.requireCommunityAdmin(userId, communityId);
         DiscordCommunityConnection connection = connectionService.getRequiredConnection(communityId);
         return discordRoleService.getRoles(connection.getDiscordGuildId());
     }
 
     /** 커뮤니티의 Discord 연결을 찾은 뒤 특정 역할을 가진 멤버를 조회한다. */
-    public List<DiscordMemberResponse> getMembers(Long communityId, String roleId) {
+    public List<DiscordMemberResponse> getMembers(Long userId, Long communityId, String roleId) {
+        accessService.requireCommunityAdmin(userId, communityId);
         DiscordCommunityConnection connection = connectionService.getRequiredConnection(communityId);
         return discordRoleService.getMembers(connection.getDiscordGuildId(), roleId);
     }

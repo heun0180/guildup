@@ -14,6 +14,9 @@ public interface CommunityUserRepository extends JpaRepository<CommunityUser, Lo
 
     List<CommunityUser> findByCommunityId(Long communityId);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "user")
+    List<CommunityUser> findByCommunityIdOrderByIdAsc(Long communityId);
+
     Optional<CommunityUser> findByCommunityIdAndUserId(Long communityId, Long userId);
 
     boolean existsByCommunityIdAndUserId(Long communityId, Long userId);

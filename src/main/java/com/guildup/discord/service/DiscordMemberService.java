@@ -48,6 +48,12 @@ public class DiscordMemberService {
                 .toList();
     }
 
+    /** Discord 연결을 Community 가입 자격으로 사용할 때 실제 서버 소속 여부를 확인한다. */
+    public boolean containsUser(Guild guild, String discordUserId) {
+        return getHumanMembers(guild).stream()
+                .anyMatch(member -> member.getUser().getId().equals(discordUserId));
+    }
+
     /** 역할 ID를 실제 Role로 찾은 뒤 해당 역할의 멤버를 조회한다. */
     public List<Member> getMembersWithRole(Guild guild, String roleId) {
         Role role = guild.getRoleById(roleId);

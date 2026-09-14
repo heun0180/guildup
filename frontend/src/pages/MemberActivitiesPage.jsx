@@ -4,6 +4,7 @@ import { activityStatus, activitySyncView, formatActivityDateTime, formatRelativ
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { canManageCommunity } from "../communityAccess.js";
 import { loadActivityPageData } from "../activityPageLoader.js";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 
@@ -94,7 +95,7 @@ export default function MemberActivitiesPage() {
   }
 
   const syncView = activitySyncView(activities?.sync, syncing);
-  const canManage = community?.role === "OWNER" || community?.role === "ADMIN";
+  const canManage = canManageCommunity(community?.role);
 
   return (
     <DashboardLayout active="activity" communityId={communityId} community={community}

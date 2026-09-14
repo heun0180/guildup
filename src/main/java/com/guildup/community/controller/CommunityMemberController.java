@@ -50,8 +50,8 @@ public class CommunityMemberController {
 
     /** 등록 순서대로 커뮤니티의 전체 클랜원을 조회한다. */
     @GetMapping
-    public List<CommunityMemberResponse> getMembers(@PathVariable Long communityId) {
-        return communityMemberService.getMembers(communityId);
+    public List<CommunityMemberResponse> getMembers(@PathVariable Long communityId, HttpSession session) {
+        return communityMemberService.getMembers(CurrentUserSession.requireUserId(session), communityId);
     }
 
     /** 설정된 Discord 역할을 기준으로 GuildUp 클랜원을 동기화한다. */

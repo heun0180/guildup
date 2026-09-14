@@ -3,6 +3,8 @@ package com.guildup.community.controller;
 import com.guildup.community.service.CommunityDiscordQueryService;
 import com.guildup.discord.dto.DiscordMemberResponse;
 import com.guildup.discord.dto.DiscordRoleResponse;
+import com.guildup.user.auth.service.CurrentUserSession;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,16 +25,19 @@ public class CommunityDiscordController {
 
     /** 커뮤니티에 연결된 Discord 서버의 역할 목록을 반환한다. */
     @GetMapping
-    public List<DiscordRoleResponse> getRoles(@PathVariable Long communityId) {
-        return communityDiscordQueryService.getRoles(communityId);
+    public List<DiscordRoleResponse> getRoles(@PathVariable Long communityId, HttpSession session) {
+        return communityDiscordQueryService.getRoles(CurrentUserSession.requireUserId(session), communityId);
     }
 
     /** 커뮤니티에 연결된 서버에서 특정 Discord 역할을 가진 멤버를 반환한다. */
     @GetMapping("/{roleId}/members")
     public List<DiscordMemberResponse> getMembers(
             @PathVariable Long communityId,
-            @PathVariable String roleId
+            @PathVariable String roleId,
+            HttpSession session
     ) {
-        return communityDiscordQueryService.getMembers(communityId, roleId);
+        return communityDiscordQueryService.getMembers(
+                CurrentUserSession.requireUserId(session), communityId, roleId
+        );
     }
 }

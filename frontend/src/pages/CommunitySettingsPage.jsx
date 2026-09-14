@@ -8,6 +8,7 @@ import {
   activityRulePayload,
 } from "../activityRule.js";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
+import { canManageCommunity } from "../communityAccess.js";
 
 export default function CommunitySettingsPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -24,8 +25,10 @@ export default function CommunitySettingsPage() {
   const [activitySaving, setActivitySaving] = useState(false);
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
   const [success, setSuccess] = useState("");
+  const [communityUsers, setCommunityUsers] = useState([]);
+  const [roleSavingUserId, setRoleSavingUserId] = useState(null);
 
-  const canManage = community?.role === "OWNER" || community?.role === "ADMIN";
+  const canManage = canManageCommunity(community?.role);
   const selected = useMemo(() => new Set(selectedRoleIds), [selectedRoleIds]);
   const activityEndpoint = `/api/communities/${encodeURIComponent(communityId || "")}/activity-rule`;
 
@@ -43,18 +46,20 @@ export default function CommunitySettingsPage() {
         const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
         if (cancelled) return;
         setCommunity(dashboard);
-        const [activityRuleResult, nicknameStatusResult] = await Promise.allSettled([
+        const [activityRuleResult, nicknameStatusResult, communityUsersResult] = await Promise.allSettled([
           api(activityEndpoint),
           loadGameNicknameStatus({
             loadStatus: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`),
             loadRule: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule`),
           }),
+          api(`/api/communities/${encodeURIComponent(communityId)}/users`),
         ]);
         if (cancelled) return;
         if (activityRuleResult.status === "rejected") throw activityRuleResult.reason;
         if (nicknameStatusResult.status === "rejected" && nicknameStatusResult.reason?.status === 401) {
           throw nicknameStatusResult.reason;
         }
+        if (communityUsersResult.status === "rejected") throw communityUsersResult.reason;
         const currentActivityRule = activityRuleResult.value;
         setActivityRule(currentActivityRule);
         setNicknameStatus(nicknameStatusResult.status === "fulfilled"
@@ -62,6 +67,7 @@ export default function CommunitySettingsPage() {
           : "error");
         setActivityPeriodDays(currentActivityRule.activityPeriodDays);
         setMinimumClanMembersInRoster(currentActivityRule.minimumClanMembersInRoster);
+        setCommunityUsers(communityUsersResult.value);
         if (!dashboard.discordConnected) return;
 
         const [availableRoles, settings] = await Promise.all([
@@ -154,6 +160,28 @@ export default function CommunitySettingsPage() {
       }
     } finally {
       setActivitySaving(false);
+    }
+  }
+
+  async function changeCommunityRole(userId, role) {
+    setRoleSavingUserId(userId);
+    setMessage("");
+    setSuccess("");
+    try {
+      const updated = await api(
+        `/api/communities/${encodeURIComponent(communityId)}/users/${encodeURIComponent(userId)}/role`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        },
+      );
+      setCommunityUsers((current) => current.map((item) => item.userId === userId ? updated : item));
+      setSuccess(`${updated.nickname}님의 역할을 ${updated.role}(으)로 변경했습니다.`);
+    } catch (error) {
+      if (!redirectToLogin(error)) setMessage(error.message || "커뮤니티 역할을 변경하지 못했습니다.");
+    } finally {
+      setRoleSavingUserId(null);
     }
   }
 
@@ -311,6 +339,32 @@ export default function CommunitySettingsPage() {
               <button type="button" disabled={!canManage || saving} onClick={saveSettings}>
                 {saving ? "저장 중..." : "설정 저장"}
               </button>
+            </div>
+          </section>
+        )}
+
+        {!loading && community && (
+          <section className="panel role-settings-panel" aria-labelledby="community-users-title">
+            <div className="role-settings-copy">
+              <h2 id="community-users-title">GuildUp 커뮤니티 권한</h2>
+              <p>Discord 권한과 별개로 GuildUp에서 사용할 운영 역할을 관리합니다.</p>
+            </div>
+            <div className="member-table-wrap">
+              <table className="member-table">
+                <thead><tr><th>사용자</th><th>현재 역할</th><th>권한 변경</th></tr></thead>
+                <tbody>{communityUsers.map((item) => <tr key={item.userId}>
+                  <td><strong>{item.nickname}</strong></td>
+                  <td><span className="table-badge">{item.role}</span></td>
+                  <td>{community.role === "OWNER" && item.role !== "OWNER"
+                    ? <select value={item.role} disabled={roleSavingUserId !== null}
+                              aria-label={`${item.nickname} 역할`}
+                              onChange={(event) => changeCommunityRole(item.userId, event.target.value)}>
+                        <option value="MEMBER">MEMBER</option>
+                        <option value="ADMIN">ADMIN</option>
+                      </select>
+                    : <span className="secondary-cell">{item.role === "OWNER" ? "최고 관리자" : "OWNER만 변경 가능"}</span>}</td>
+                </tr>)}</tbody>
+              </table>
             </div>
           </section>
         )}
