@@ -26,8 +26,6 @@ export default function MembersPage() {
   const [message, setMessage] = useState("");
   const [memberRolesConfigured, setMemberRolesConfigured] = useState(null);
   const [community, setCommunity] = useState(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
   const roleRequestId = useRef(0);
 
   const handleError = useCallback((error, fallback) => {
@@ -100,22 +98,6 @@ export default function MembersPage() {
       });
   }, [communityId, communityValid]);
 
-  async function synchronizeMembers() {
-    setSyncing(true);
-    setMessage("");
-    setSyncResult(null);
-    try {
-      const result = await api(`/api/communities/${encodeURIComponent(communityId)}/members/sync`, { method: "POST" });
-      setSyncResult(result);
-      setCommunity((current) => current ? { ...current, lastMemberSyncedAt: result.synchronizedAt } : current);
-      await loadCommunityMembers();
-    } catch (error) {
-      if (!redirectToLogin(error)) setMessage(error.message || "Discord 클랜원 동기화에 실패했습니다.");
-    } finally {
-      setSyncing(false);
-    }
-  }
-
   async function addMember(event) {
     event.preventDefault();
     const normalized = nickname.trim();
@@ -148,10 +130,16 @@ export default function MembersPage() {
       .filter(Boolean).some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
   });
   const canManage = canManageCommunity(community?.role);
+  const discordConnected = community?.discordConnected === true;
+  const syncSetupRequired = Boolean(community)
+    && (!discordConnected || memberRolesConfigured === false);
+  const syncSetupUrl = discordConnected
+    ? `/community-settings.html?communityId=${encodeURIComponent(communityId)}#role-settings-title`
+    : `/discord-connect.html?communityId=${encodeURIComponent(communityId)}`;
   const lastSyncedAt = community?.lastMemberSyncedAt
     ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" })
       .format(new Date(community.lastMemberSyncedAt))
-    : "아직 동기화하지 않음";
+    : "아직 전체 확인 전";
   const formatJoinedAt = (value) => value
     ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(new Date(value)) : "-";
 
@@ -171,27 +159,34 @@ export default function MembersPage() {
               <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}`}>
                 <Icon name="activity" size={17} />활동 상태 보기
               </a>
-              {memberRolesConfigured && (
-                <button type="button" disabled={syncing} onClick={synchronizeMembers}>
-                  <Icon name="users" size={17} />{syncing ? "동기화 중..." : "Discord와 동기화"}
-                </button>
+              {syncSetupRequired && (
+                <a className="secondary-button" href={syncSetupUrl}>
+                  <Icon name="discord" size={17} />
+                  {discordConnected ? "클랜원 역할 설정 필요" : "Discord 연결 필요"}
+                </a>
               )}
             </div>}
           </div>
-          {!roleMode && canManage && <p className="last-synced-at">마지막 동기화: {lastSyncedAt}</p>}
+          {!roleMode && canManage && <p className="last-synced-at">
+            {memberRolesConfigured
+              ? `Discord 역할 변경사항은 자동 반영됩니다. 마지막 전체 확인: ${lastSyncedAt}`
+              : `마지막 전체 확인: ${lastSyncedAt}`}
+          </p>}
         </div>
-        {canManage && memberRolesConfigured === false && (
+        {canManage && syncSetupRequired && (
           <aside className="member-role-guide" aria-label="클랜원 역할 설정 안내">
             <span className="management-card-icon discord"><Icon name="discord" size={22} /></span>
-            <div><h2>아직 클랜원 역할이 설정되지 않았습니다.</h2><p>Discord 역할을 설정하면 클랜원을 자동으로 분류할 수 있습니다.</p></div>
-            <a className="secondary-button" href={`/community-settings.html?communityId=${encodeURIComponent(communityId)}`}>
-              클랜원 역할 설정 <Icon name="arrow" size={17} />
+            <div>
+              <h2>{discordConnected ? "아직 클랜원 역할이 설정되지 않았습니다." : "Discord 서버가 연결되지 않았습니다."}</h2>
+              <p>{discordConnected
+                ? "동기화할 Discord 역할을 먼저 선택해 주세요."
+                : "이 커뮤니티에 Discord 서버를 연결해야 클랜원을 동기화할 수 있습니다."}</p>
+            </div>
+            <a className="secondary-button" href={syncSetupUrl}>
+              {discordConnected ? "클랜원 역할 설정" : "Discord 서버 연결"} <Icon name="arrow" size={17} />
             </a>
           </aside>
         )}
-        {syncResult && <p className="success-message sync-result-message" role="status">
-          Discord 클랜원 동기화가 완료되었습니다. 신규 {syncResult.createdMembers}명 / 업데이트 {syncResult.updatedMembers + syncResult.reactivatedMembers}명 / 탈퇴 처리 {syncResult.leftMembers}명
-        </p>}
         <section className="panel members-panel" aria-labelledby="member-list-title">
           <div className="members-toolbar">
             <div><h2>{title}</h2><p className="member-count">{count}</p></div>
@@ -218,7 +213,7 @@ export default function MembersPage() {
             ? roles.length
               ? selectedRole ? "이 역할을 가진 사용자가 없습니다." : "역할을 선택하면 해당 멤버를 불러옵니다."
               : "@everyone을 제외한 역할이 없습니다."
-            : memberRolesConfigured ? "동기화된 ACTIVE 클랜원이 없습니다. Discord와 동기화를 실행해 주세요." : "등록된 클랜원이 없습니다."}</p>}
+            : memberRolesConfigured ? "현재 ACTIVE 상태인 클랜원이 없습니다." : "등록된 클랜원이 없습니다."}</p>}
           {!loading && members.length > 0 && <div className="member-table-wrap">
             <table className="member-table">
               <thead><tr><th>멤버</th><th>Discord 계정</th><th>{roleMode ? "역할" : "Discord 가입일"}</th>{!roleMode && <th>상태</th>}</tr></thead>

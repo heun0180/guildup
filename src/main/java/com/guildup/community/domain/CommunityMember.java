@@ -96,6 +96,9 @@ public class CommunityMember {
 
     /** Discord 프로필과 현재 클랜원 상태를 기존 행에 반영한다. */
     public void synchronizeDiscordProfile(String discordDisplayName, Instant synchronizedAt) {
+        if (Objects.equals(this.nickname, discordDisplayName) && status == CommunityMemberStatus.ACTIVE) {
+            return;
+        }
         this.nickname = discordDisplayName;
         this.status = CommunityMemberStatus.ACTIVE;
         this.updatedAt = synchronizedAt;

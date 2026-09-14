@@ -11,6 +11,8 @@ import TeamMakerPage from "./pages/TeamMakerPage.jsx";
 import IntegrationsPage from "./pages/IntegrationsPage.jsx";
 import DiscordDmPage from "./pages/DiscordDmPage.jsx";
 import DiscordVoiceActivityPage from "./pages/DiscordVoiceActivityPage.jsx";
+import RankingsPage from "./pages/RankingsPage.jsx";
+import KillCompetitionsPage from "./pages/KillCompetitionsPage.jsx";
 
 import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
 import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
@@ -31,6 +33,8 @@ const pages = {
   "/integrations.html": IntegrationsPage,
   "/discord-dm.html": DiscordDmPage,
   "/discord-voice-activity.html": DiscordVoiceActivityPage,
+  "/rankings.html": RankingsPage,
+  "/kill-competitions.html": KillCompetitionsPage,
 };
 
 export default function App() {

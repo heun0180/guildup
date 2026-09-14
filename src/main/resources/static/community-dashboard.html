@@ -2,14 +2,22 @@
 <html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>커뮤니티 대시보드 | GuildUp</title><link rel="stylesheet" href="/community.css"></head>
 <body><main><header><a class="brand" href="/communities.html">GuildUp</a><nav><a href="/communities.html">내 커뮤니티</a><button id="logout" type="button">로그아웃</button></nav></header>
 <h1 id="title">커뮤니티 대시보드</h1><p id="loading" role="status">커뮤니티를 불러오는 중입니다.</p><p id="message" class="error" role="alert"></p>
+<section id="dashboard-attendance" class="card attendance-card" hidden>
+<div><h2 id="dashboard-attendance-title">오늘 출석 체크</h2><p id="dashboard-attendance-description">버튼을 누르면 오늘의 활동 점수 +1점을 받습니다.</p></div>
+<div class="attendance-actions"><button id="dashboard-attendance-button" type="button">출석 체크 +1점</button><a id="dashboard-ranking-link" class="button secondary">전체 랭킹</a></div>
+</section>
 <div id="features" class="grid" hidden><section class="card"><h2>Discord</h2><p id="discord-status"></p><a id="discord-link" class="button"></a></section>
 <section class="card"><h2>클랜원 관리</h2><p>커뮤니티의 클랜원을 직접 등록하고 조회합니다.</p><a id="members-link" class="button">클랜원 관리</a></section>
+<section class="card"><h2>활동 랭킹</h2><p>오늘 출석하고 커뮤니티 활동 점수와 순위를 확인합니다.</p><a id="rankings-link" class="button">랭킹 · 출석체크</a></section>
 <section class="card"><h2>게임 관리 · 설정</h2><p>준비 중입니다.</p><button disabled>준비 중</button></section></div>
 </main><script src="/community-ui.js"></script><script>
 document.getElementById("logout").addEventListener("click", logout);
+document.getElementById("dashboard-attendance-button").addEventListener("click", checkDashboardAttendance);
+let dashboardCommunityId;
 async function loadDashboard() {
     const id = new URLSearchParams(location.search).get("communityId");
     if (!id || !/^\d+$/.test(id)) throw new Error("올바른 커뮤니티를 선택해 주세요.");
+    dashboardCommunityId = encodeURIComponent(id);
     const community = await api(`/api/communities/${encodeURIComponent(id)}`);
     document.getElementById("title").textContent = community.name;
     document.getElementById("discord-status").textContent = community.discordConnected
@@ -20,7 +28,40 @@ async function loadDashboard() {
     link.href = community.discordConnected ? `/members.html?communityId=${encodeURIComponent(id)}&discordRoles=true`
         : `/discord-connect.html?communityId=${encodeURIComponent(id)}`;
     document.getElementById("members-link").href = `/members.html?communityId=${encodeURIComponent(id)}`;
+    document.getElementById("rankings-link").href = `/rankings.html?communityId=${encodeURIComponent(id)}`;
+    document.getElementById("dashboard-ranking-link").href = `/rankings.html?communityId=${encodeURIComponent(id)}`;
+    try {
+        renderDashboardAttendance(await api(`/api/communities/${encodeURIComponent(id)}/attendance/me`));
+    } catch (error) {
+        document.getElementById("dashboard-attendance-title").textContent = "오늘 출석 체크";
+        document.getElementById("dashboard-attendance-description").textContent = "로그인한 Discord 계정과 클랜원 정보가 연결되면 출석할 수 있습니다.";
+        document.getElementById("dashboard-attendance-button").hidden = true;
+    }
+    document.getElementById("dashboard-attendance").hidden = false;
     document.getElementById("features").hidden = false;
+}
+function renderDashboardAttendance(attendance, justAttended = false) {
+    const button = document.getElementById("dashboard-attendance-button");
+    if (attendance.attended) {
+        document.getElementById("dashboard-attendance-title").textContent = "✓ 오늘 출석 완료";
+        document.getElementById("dashboard-attendance-description").textContent = justAttended
+            ? "오늘 +1점을 받았습니다." : `현재 점수 ${attendance.currentScore}점`;
+        button.hidden = true;
+        document.getElementById("dashboard-attendance").classList.add("complete");
+    }
+}
+async function checkDashboardAttendance() {
+    const button = document.getElementById("dashboard-attendance-button");
+    button.disabled = true;
+    button.textContent = "요청 중...";
+    try {
+        const result = await api(`/api/communities/${dashboardCommunityId}/attendance`, {method: "POST"});
+        renderDashboardAttendance(result, result.scoreAdded === 1);
+    } catch (error) {
+        showError(error);
+        button.disabled = false;
+        button.textContent = "출석 체크 +1점";
+    }
 }
 loadDashboard().catch(showError).finally(() => { document.getElementById("loading").hidden = true; });
 </script></body></html>

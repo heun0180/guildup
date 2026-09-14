@@ -79,6 +79,22 @@ class DiscordMemberServiceTests {
     }
 
     @Test
+    void memberSnapshotsAreBoundedAcrossManyGuilds() {
+        List<Guild> guilds = java.util.stream.IntStream.range(0, 101)
+                .mapToObj(index -> {
+                    Guild guild = mock(Guild.class);
+                    loadMembers(guild, List.of(member(false)));
+                    return guild;
+                })
+                .toList();
+
+        guilds.forEach(discordMemberService::getMembers);
+        discordMemberService.getMembers(guilds.getFirst());
+
+        verify(guilds.getFirst(), times(2)).loadMembers();
+    }
+
+    @Test
     void displayNamePrefersGuildNickname() {
         Member member = displayNameMember("서버 별명", "전역 이름", "username");
 

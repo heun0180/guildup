@@ -13,7 +13,7 @@ public record PubgMatchApiResponse(MatchResource data, List<IncludedResource> in
             RosterRelationships relationships
     ) {}
     public record ParticipantAttributes(ParticipantStats stats) {}
-    public record ParticipantStats(String playerId, String name) {}
+    public record ParticipantStats(String playerId, String name, Integer kills) {}
     public record RosterRelationships(ParticipantRelationship participants) {}
     public record ParticipantRelationship(List<ResourceReference> data) {}
     public record ResourceReference(String type, String id) {}

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="GuildUp 커뮤니티 활동 랭킹">
+    <title>활동 랭킹 | GuildUp</title>
+    <link rel="stylesheet" href="/community.css">
+</head>
+<body>
+<main>
+    <header>
+        <a class="brand" href="/communities.html">GuildUp</a>
+        <nav><a id="dashboard-back" href="/communities.html">커뮤니티 대시보드</a><button id="logout" type="button">로그아웃</button></nav>
+    </header>
+
+    <p class="eyebrow">ACTIVITY RANKING</p>
+    <h1>활동 랭킹</h1>
+    <p>커뮤니티 활동으로 모은 점수와 순위를 확인합니다.</p>
+    <p id="loading" role="status">랭킹을 불러오는 중입니다.</p>
+    <p id="message" class="error" role="alert"></p>
+
+    <div id="ranking-content" hidden>
+        <section class="ranking-summary" aria-label="내 활동 점수">
+            <div class="card"><span>내 순위</span><strong id="my-rank">-</strong></div>
+            <div class="card"><span>내 점수</span><strong id="my-score">0점</strong></div>
+        </section>
+
+        <section id="attendance-card" class="card attendance-card">
+            <div>
+                <h2 id="attendance-title">오늘의 출석</h2>
+                <p id="attendance-description">오늘 출석하고 활동 점수를 받아보세요.</p>
+            </div>
+            <button id="attendance-button" type="button">출석 체크 +1점</button>
+            <strong id="attendance-score" hidden></strong>
+        </section>
+
+        <section class="card ranking-card">
+            <div class="ranking-heading"><div><h2>전체 랭킹</h2><p id="member-count"></p></div><span>Asia/Seoul 오늘 기준</span></div>
+            <ol id="ranking-list" class="ranking-list"></ol>
+            <p id="ranking-empty" hidden>등록된 활성 클랜원이 없습니다.</p>
+        </section>
+    </div>
+</main>
+<script src="/community-ui.js"></script>
+<script>
+const communityId = new URLSearchParams(location.search).get("communityId");
+const attendanceButton = document.getElementById("attendance-button");
+
+document.getElementById("logout").addEventListener("click", logout);
+attendanceButton.addEventListener("click", checkAttendance);
+
+function requireCommunityId() {
+    if (!communityId || !/^\d+$/.test(communityId)) throw new Error("올바른 커뮤니티를 선택해 주세요.");
+    return encodeURIComponent(communityId);
+}
+
+async function loadPage() {
+    const id = requireCommunityId();
+    document.getElementById("dashboard-back").href = `/community-dashboard.html?communityId=${id}`;
+    const [attendance, rankings] = await Promise.all([
+        api(`/api/communities/${id}/attendance/me`),
+        api(`/api/communities/${id}/rankings`)
+    ]);
+    renderAttendance(attendance, false);
+    renderRankings(rankings);
+    document.getElementById("ranking-content").hidden = false;
+}
+
+function renderAttendance(attendance, justAttended) {
+    document.getElementById("my-score").textContent = `${attendance.currentScore}점`;
+    const title = document.getElementById("attendance-title");
+    const description = document.getElementById("attendance-description");
+    const score = document.getElementById("attendance-score");
+    if (attendance.attended) {
+        title.textContent = "✓ 오늘 출석 완료";
+        description.textContent = justAttended ? "오늘 +1점을 받았습니다." : "오늘의 활동 점수를 이미 받았습니다.";
+        attendanceButton.hidden = true;
+        attendanceButton.disabled = true;
+        score.textContent = `현재 점수 ${attendance.currentScore}점`;
+        score.hidden = false;
+        document.getElementById("attendance-card").classList.add("complete");
+    } else {
+        title.textContent = "오늘의 출석";
+        description.textContent = "오늘 출석하고 활동 점수를 받아보세요.";
+        attendanceButton.hidden = false;
+        attendanceButton.disabled = false;
+        score.hidden = true;
+    }
+}
+
+function renderRankings(data) {
+    document.getElementById("my-rank").textContent = data.myRanking.rank == null ? "-" : `${data.myRanking.rank}위`;
+    document.getElementById("my-score").textContent = `${data.myRanking.score}점`;
+    document.getElementById("member-count").textContent = `ACTIVE 클랜원 ${data.rankings.length}명`;
+    const list = document.getElementById("ranking-list");
+    list.replaceChildren();
+    document.getElementById("ranking-empty").hidden = data.rankings.length !== 0;
+    for (const entry of data.rankings) {
+        const item = document.createElement("li");
+        item.className = `ranking-row${entry.me ? " me" : ""}`;
+        const medal = entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : "";
+        const position = document.createElement("span");
+        position.className = "ranking-position";
+        position.textContent = `${medal} ${entry.rank}`.trim();
+        const nickname = document.createElement("strong");
+        nickname.className = "ranking-nickname";
+        nickname.textContent = entry.nickname;
+        nickname.title = entry.nickname;
+        const myBadge = document.createElement("span");
+        myBadge.className = "ranking-me";
+        myBadge.textContent = entry.me ? "나" : "";
+        const score = document.createElement("strong");
+        score.className = "ranking-points";
+        score.textContent = `${entry.score}점`;
+        item.append(position, nickname, myBadge, score);
+        list.append(item);
+    }
+}
+
+async function checkAttendance() {
+    attendanceButton.disabled = true;
+    attendanceButton.textContent = "요청 중...";
+    document.getElementById("message").textContent = "";
+    try {
+        const id = requireCommunityId();
+        const result = await api(`/api/communities/${id}/attendance`, {method: "POST"});
+        renderAttendance(result, result.scoreAdded === 1);
+        renderRankings(await api(`/api/communities/${id}/rankings`));
+    } catch (error) {
+        showError(error);
+        attendanceButton.disabled = false;
+        attendanceButton.textContent = "출석 체크 +1점";
+    }
+}
+
+loadPage().catch(showError).finally(() => { document.getElementById("loading").hidden = true; });
+</script>
+</body>
+</html>

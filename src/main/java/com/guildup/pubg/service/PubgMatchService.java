@@ -40,12 +40,24 @@ public class PubgMatchService {
             String shard,
             Collection<String> matchIds
     ) {
+        return findUniqueMatches(shard, matchIds, false);
+    }
+
+    /** 정산 시 이전의 일시적 미반영/404 캐시를 사용하지 않고 Match를 다시 확인한다. */
+    public synchronized Map<String, PubgMatch> findUniqueMatchesFresh(
+            String shard,
+            Collection<String> matchIds
+    ) {
+        return findUniqueMatches(shard, matchIds, true);
+    }
+
+    private Map<String, PubgMatch> findUniqueMatches(String shard, Collection<String> matchIds, boolean refresh) {
         Map<String, PubgMatch> matches = new LinkedHashMap<>();
         Instant now = clock.instant();
         cache.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
         for (String matchId : new LinkedHashSet<>(matchIds)) {
             MatchCacheKey key = new MatchCacheKey(shard, matchId);
-            CachedMatch cached = cache.get(key);
+            CachedMatch cached = refresh ? null : cache.get(key);
             PubgMatch match;
             if (cached != null && cached.expiresAt().isAfter(now)) {
                 match = cached.match().orElse(null);

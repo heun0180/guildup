@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /** 클랜원과 외부 서비스 계정의 연결을 저장하고 조회한다. */
 public interface CommunityMemberAccountRepository extends JpaRepository<CommunityMemberAccount, Long> {
@@ -14,6 +15,18 @@ public interface CommunityMemberAccountRepository extends JpaRepository<Communit
     @EntityGraph(attributePaths = "communityMember")
     List<CommunityMemberAccount> findByCommunityIdAndProvider(
             Long communityId,
+            ExternalAccountProvider provider
+    );
+
+    @EntityGraph(attributePaths = "communityMember")
+    Optional<CommunityMemberAccount> findByCommunityIdAndProviderAndExternalUserId(
+            Long communityId,
+            ExternalAccountProvider provider,
+            String externalUserId
+    );
+
+    Optional<CommunityMemberAccount> findByCommunityMemberIdAndProvider(
+            Long communityMemberId,
             ExternalAccountProvider provider
     );
 }

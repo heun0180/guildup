@@ -3,7 +3,12 @@ import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
 
 export default function LoginPage() {
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => {
+    const oauthError = new URLSearchParams(window.location.search).get("oauthError");
+    if (oauthError === "session") return "로그인 인증 정보가 만료되었습니다. Discord 로그인을 다시 시작해 주세요.";
+    if (oauthError === "discord") return "Discord 로그인이 취소되었거나 완료되지 않았습니다. 다시 시도해 주세요.";
+    return "";
+  });
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "same-origin" })

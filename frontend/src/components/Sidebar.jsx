@@ -26,11 +26,19 @@ export default function Sidebar({ community, communityId, active }) {
   const newsUrl = validId
     ? `/community-news.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
+  const rankingsUrl = validId
+    ? `/rankings.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
+  const killCompetitionsUrl = validId
+    ? `/kill-competitions.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
 
   const mainItems = [
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
     { id: "news", label: "공지 · 이벤트", icon: "calendar", href: newsUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
+    { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
+    { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
     ...(canManage ? [
       { id: "activity", label: "활동", icon: "activity", href: activityUrl },
       { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },

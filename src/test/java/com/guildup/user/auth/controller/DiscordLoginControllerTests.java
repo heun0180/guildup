@@ -112,6 +112,36 @@ class DiscordLoginControllerTests {
     }
 
     @Test
+    void redirectsToLoginWhenOAuthSessionStateIsMissing() throws Exception {
+        mockMvc.perform(
+                        get("/api/auth/discord/callback")
+                                .param("code", "authorization-code")
+                                .param("state", "expired-state")
+                )
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/login.html?oauthError=session"));
+    }
+
+    @Test
+    void redirectsToLoginWhenDiscordAuthorizationIsDenied() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute("DISCORD_LOGIN_STATE", "valid-state");
+        session.setAttribute("DISCORD_LOGIN_REDIRECT_URI", "http://localhost:8080/api/auth/discord/callback");
+
+        mockMvc.perform(
+                        get("/api/auth/discord/callback")
+                                .param("error", "access_denied")
+                                .param("state", "valid-state")
+                                .session(session)
+                )
+                .andExpect(status().isFound())
+                .andExpect(redirectedUrl("/login.html?oauthError=discord"));
+
+        assertThat(session.getAttribute("DISCORD_LOGIN_STATE")).isNull();
+        assertThat(session.getAttribute("DISCORD_LOGIN_REDIRECT_URI")).isNull();
+    }
+
+    @Test
     void returnsCurrentLoginUser() throws Exception {
         MockHttpSession session = new MockHttpSession();
 

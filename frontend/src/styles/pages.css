@@ -415,6 +415,177 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .activity-empty-matches p { margin-top: 5px; font-size: 0.8rem; }
 
 .team-maker-content { max-width: 1120px; }
+.ranking-content { max-width: 920px; }
+.ranking-loading { padding: var(--space-card); color: var(--color-text-secondary); }
+.ranking-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+.ranking-summary-card { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 21px 23px; }
+.ranking-summary-card span { color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 700; }
+.ranking-summary-card strong { color: var(--color-primary-dark); font-size: clamp(1.45rem, 3vw, 1.8rem); }
+.attendance-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; padding: 23px 24px; }
+.attendance-card.is-complete { border-color: #cde9da; background: #fbfefc; }
+.attendance-copy { display: flex; min-width: 0; align-items: center; gap: 14px; }
+.attendance-copy > div { min-width: 0; }
+.attendance-copy p { margin-top: 3px; font-size: 0.82rem; }
+.attendance-icon { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--color-primary-soft); color: var(--color-primary); }
+.attendance-card.is-complete .attendance-icon { background: var(--color-success-soft); color: var(--color-success); }
+.attendance-card button { flex: 0 0 auto; white-space: nowrap; }
+.attendance-score { flex: 0 0 auto; color: var(--color-success); font-size: 0.9rem; white-space: nowrap; }
+.dashboard-attendance { margin-bottom: 32px; }
+.attendance-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
+.attendance-actions .secondary-button { margin-top: 0; white-space: nowrap; }
+.ranking-panel { overflow: hidden; }
+.ranking-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 21px 24px; border-bottom: 1px solid var(--color-border); }
+.ranking-panel-heading p, .ranking-panel-heading > span { color: var(--color-text-secondary); font-size: 0.76rem; }
+.ranking-panel-heading > span { text-align: right; }
+.ranking-list { margin: 0; padding: 0; list-style: none; }
+.ranking-row { display: grid; min-width: 0; grid-template-columns: 72px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; min-height: 64px; padding: 10px 24px; border-bottom: 1px solid var(--color-border); }
+.ranking-row:last-child { border-bottom: 0; }
+.ranking-row.is-top { background: #fdfdff; }
+.ranking-row.is-me { background: var(--color-primary-soft); box-shadow: inset 3px 0 0 var(--color-primary); }
+.ranking-position { display: flex; align-items: center; gap: 8px; color: var(--color-text-secondary); }
+.ranking-position > span { width: 24px; font-size: 1.15rem; text-align: center; }
+.ranking-position b { min-width: 20px; font-size: 0.85rem; text-align: center; }
+.ranking-name { min-width: 0; overflow: hidden; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.ranking-me-badge { border-radius: 999px; padding: 3px 8px; background: #fff; color: var(--color-primary-dark); font-size: 0.7rem; font-weight: 800; }
+.ranking-score { min-width: 62px; text-align: right; white-space: nowrap; }
+
+@media (max-width: 560px) {
+  .ranking-summary-card { padding: 18px; }
+  .attendance-card { align-items: stretch; flex-direction: column; gap: 18px; padding: 20px; }
+  .attendance-card button { width: 100%; }
+  .attendance-actions { align-items: stretch; flex-direction: column; width: 100%; }
+  .attendance-actions > * { width: 100%; }
+  .attendance-score { padding-left: 58px; }
+  .ranking-panel-heading { padding: 18px; }
+  .ranking-panel-heading > span { display: none; }
+  .ranking-row { grid-template-columns: 54px minmax(0, 1fr) auto auto; gap: 8px; min-height: 60px; padding: 9px 16px; }
+  .ranking-position { gap: 3px; }
+  .ranking-position > span { width: 22px; font-size: 1rem; }
+  .ranking-score { min-width: 52px; font-size: 0.86rem; }
+}
+
+/* Kill competitions */
+.kill-content { max-width: 1080px; }
+.kill-heading, .kill-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.kill-heading > button { flex: 0 0 auto; }
+.kill-create-form { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(150px, .6fr) minmax(210px, .8fr); gap: 16px; margin-bottom: 20px; padding: 24px; }
+.kill-create-form > div:first-child { grid-column: 1 / -1; }
+.kill-create-form > div:first-child p, .kill-create-form label span { color: var(--color-text-secondary); font-size: .78rem; }
+.kill-create-form label { display: grid; gap: 7px; }
+.kill-create-form label span { font-weight: 750; }
+.kill-form-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: 9px; }
+.kill-form-actions .secondary-button { margin-top: 0; }
+.kill-empty { display: grid; min-height: 180px; place-items: center; align-content: center; gap: 7px; padding: 28px; text-align: center; color: var(--color-text-secondary); }
+.kill-empty.compact { min-height: 100px; margin-top: 16px; }
+.kill-empty svg { color: #9ba0ad; }
+.kill-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.kill-card { display: block; padding: 21px; color: var(--color-text); text-decoration: none; transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease; }
+.kill-card:hover { border-color: #c7cbda; transform: translateY(-1px); box-shadow: var(--shadow-elevated); }
+.kill-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.kill-card-top > b { color: var(--color-text-secondary); font-size: .75rem; }
+.kill-card h2 { margin-bottom: 18px; }
+.kill-card dl, .kill-overview dl { display: grid; margin: 0; }
+.kill-card dl { grid-template-columns: .6fr .8fr 1.2fr; gap: 12px; }
+.kill-card dl div, .kill-overview dl div { min-width: 0; }
+.kill-card dt, .kill-overview dt { color: var(--color-text-secondary); font-size: .7rem; }
+.kill-card dd, .kill-overview dd { overflow: hidden; margin: 4px 0 0; font-size: .8rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.kill-status { display: inline-flex; min-height: 27px; align-items: center; border-radius: 999px; padding: 0 10px; background: #f0f1f4; color: #626875; font-size: .72rem; font-weight: 800; white-space: nowrap; }
+.kill-status.status-recruiting { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.kill-status.status-ready { background: var(--color-warning-soft); color: var(--color-warning); }
+.kill-status.status-in_progress { background: var(--color-success-soft); color: var(--color-success); }
+.kill-status.status-completed { background: #eeeaff; color: #6348bd; }
+.kill-detail-heading .kill-status { margin-top: 8px; }
+.kill-state-banner { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; padding: 19px 22px; border-left: 4px solid #a0a5b0; }
+.kill-state-banner.status-recruiting { border-left-color: var(--color-primary); }
+.kill-state-banner.status-ready { border-left-color: var(--color-warning); }
+.kill-state-banner.status-in_progress { border-left-color: var(--color-success); }
+.kill-state-banner.status-completed { border-left-color: #775ac7; }
+.kill-state-banner p { margin-top: 3px; font-size: .8rem; }
+.kill-countdown { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; }
+.kill-countdown span { color: var(--color-text-secondary); font-size: .7rem; }
+.kill-countdown strong { font-size: .92rem; }
+.kill-overview { margin-bottom: 14px; padding: 20px 22px; }
+.kill-overview dl { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.kill-score-warning, .kill-balance-warning { margin-top: 16px; border-radius: 9px; padding: 10px 12px; background: var(--color-warning-soft); color: var(--color-warning); font-size: .78rem; font-weight: 700; }
+.kill-actions-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; padding: 22px; }
+.kill-actions-panel p { margin-top: 4px; font-size: .8rem; }
+.kill-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
+.kill-actions .secondary-button { margin-top: 0; }
+.kill-nickname-guide { max-width: 260px; color: var(--color-warning); font-weight: 700; text-align: right; }
+.kill-roster, .kill-team-builder, .kill-standings, .kill-match-evidence { margin-bottom: 14px; padding: 22px; }
+.kill-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.kill-section-heading > span { color: var(--color-text-secondary); font-size: .75rem; }
+.kill-player-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kill-player-grid > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14px; border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; background: var(--color-surface-soft); }
+.kill-player-grid span, .kill-team-card p span { display: flex; min-width: 0; flex-direction: column; }
+.kill-player-grid strong, .kill-team-card p b { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.kill-player-grid small, .kill-team-card p small { color: var(--color-text-secondary); font-size: .7rem; }
+.kill-player-grid > div > b { color: var(--color-primary-dark); font-size: .82rem; }
+.kill-team-builder { padding: 0; overflow: hidden; }
+.kill-team-builder > .kill-section-heading { padding: 21px 22px 0; }
+.kill-team-builder .kill-section-heading p { margin-top: 3px; font-size: .76rem; }
+.kill-team-builder .kill-section-heading label { display: flex; flex: 0 0 150px; align-items: center; gap: 9px; }
+.kill-team-builder .kill-section-heading label span { flex: 0 0 auto; color: var(--color-text-secondary); font-size: .75rem; font-weight: 700; }
+.kill-assignment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; border-top: 1px solid var(--color-border); padding: 18px 22px; background: var(--color-surface-soft); }
+.kill-assignment-list label { display: grid; grid-template-columns: minmax(0, 1fr) 125px; align-items: center; gap: 12px; border: 1px solid var(--color-border); border-radius: 10px; padding: 10px 11px; background: #fff; }
+.kill-assignment-list label > span { display: flex; min-width: 0; flex-direction: column; }
+.kill-assignment-list strong { overflow: hidden; font-size: .8rem; text-overflow: ellipsis; white-space: nowrap; }
+.kill-assignment-list small { color: var(--color-text-secondary); font-size: .68rem; }
+.kill-assignment-list select { min-height: 38px; }
+.kill-team-builder > .kill-balance-warning { margin: 0 22px 14px; }
+.kill-builder-actions { display: flex; justify-content: flex-end; gap: 9px; padding: 0 22px 20px; }
+.kill-builder-actions .secondary-button { margin: 0; }
+.kill-team-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.kill-team-card { overflow: hidden; }
+.kill-team-card header { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--color-border); background: var(--color-surface-soft); }
+.kill-team-card header strong { color: var(--color-primary-dark); font-size: .84rem; }
+.kill-team-card > div { padding: 4px 18px; }
+.kill-team-card p { display: flex; min-height: 56px; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border); }
+.kill-team-card p:last-child { border-bottom: 0; }
+.kill-team-card p > strong { font-size: .8rem; }
+.kill-standings ol { margin: 0; padding: 0; list-style: none; }
+.kill-standings li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 54px; border-top: 1px solid var(--color-border); }
+.kill-standings li.is-winner { margin: 0 -10px; border: 0; border-radius: 9px; padding: 0 10px; background: var(--color-primary-soft); }
+.kill-rank { color: var(--color-text-secondary); font-size: .78rem; font-weight: 800; }
+.kill-standings li > strong { font-size: .85rem; }
+.kill-standings li em { border-radius: 999px; padding: 3px 8px; background: #fff; color: var(--color-primary-dark); font-size: .68rem; font-style: normal; font-weight: 800; }
+.kill-standings li > b { min-width: 52px; text-align: right; font-size: .85rem; }
+.kill-match-evidence details { border-top: 1px solid var(--color-border); }
+.kill-match-evidence summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 2px; cursor: pointer; font-size: .78rem; }
+.kill-match-evidence code { overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
+.kill-match-evidence ul { margin: 0 0 12px; padding: 0 12px; list-style: none; background: var(--color-surface-soft); }
+.kill-match-evidence li { display: flex; justify-content: space-between; padding: 8px; font-size: .76rem; }
+.kill-admin-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+.danger-button { border-color: #e6bfc2; color: var(--color-error); }
+.danger-button:hover { border-color: var(--color-error); background: var(--color-error-soft); color: var(--color-error); }
+
+@media (max-width: 800px) {
+  .kill-create-form { grid-template-columns: 1fr 1fr; }
+  .kill-create-form label:first-of-type { grid-column: 1 / -1; }
+  .kill-card-grid, .kill-team-grid { grid-template-columns: 1fr; }
+  .kill-overview dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kill-assignment-list { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .kill-heading, .kill-detail-heading, .kill-actions-panel, .kill-state-banner { align-items: stretch; flex-direction: column; }
+  .kill-heading > button, .kill-actions-panel > button, .kill-actions > button { width: 100%; }
+  .kill-detail-heading .kill-status { align-self: flex-start; margin: 0; }
+  .kill-create-form { grid-template-columns: 1fr; padding: 19px; }
+  .kill-create-form label:first-of-type { grid-column: auto; }
+  .kill-form-actions, .kill-builder-actions { flex-direction: column; }
+  .kill-form-actions > *, .kill-builder-actions > * { width: 100%; }
+  .kill-card dl { grid-template-columns: 1fr 1fr; }
+  .kill-card dl div:last-child { grid-column: 1 / -1; }
+  .kill-countdown { align-items: flex-start; }
+  .kill-overview dl, .kill-player-grid { grid-template-columns: 1fr; }
+  .kill-actions { align-items: stretch; flex-direction: column; width: 100%; }
+  .kill-nickname-guide { max-width: none; text-align: left; }
+  .kill-team-builder .kill-section-heading { align-items: stretch; flex-direction: column; }
+  .kill-team-builder .kill-section-heading label { flex-basis: auto; }
+  .kill-assignment-list label { grid-template-columns: minmax(0, 1fr) 110px; }
+  .kill-match-evidence summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
 .team-options-panel { margin-bottom: 18px; padding: var(--space-card); }
 .team-section-heading { margin-bottom: 18px; }
 .team-section-heading p { margin-top: 4px; font-size: 0.82rem; }

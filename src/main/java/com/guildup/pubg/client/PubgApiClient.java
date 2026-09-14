@@ -263,7 +263,9 @@ public class PubgApiClient {
             if (!"participant".equals(included.type()) || included.attributes() == null
                     || included.attributes().stats() == null) continue;
             var stats = included.attributes().stats();
-            participants.put(included.id(), new PubgParticipant(stats.playerId(), stats.name()));
+            participants.put(included.id(), new PubgParticipant(
+                    stats.playerId(), stats.name(), stats.kills() == null ? 0 : stats.kills()
+            ));
         }
 
         List<PubgTeam> teams = safeIncluded(response).stream()

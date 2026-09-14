@@ -49,4 +49,16 @@ class PubgMatchServiceTests {
 
         verify(client, times(1)).getMatch("steam", "match-1");
     }
+
+    @Test
+    void freshLookupRetriesPreviouslyMissingMatch() {
+        PubgApiClient client = mock(PubgApiClient.class);
+        PubgMatch match = new PubgMatch("match-1", Instant.now(), "squad", List.of());
+        when(client.getMatch("steam", "match-1")).thenReturn(null).thenReturn(match);
+        PubgMatchService service = new PubgMatchService(client);
+
+        assertThat(service.findUniqueMatches("steam", List.of("match-1"))).isEmpty();
+        assertThat(service.findUniqueMatchesFresh("steam", List.of("match-1"))).containsEntry("match-1", match);
+        verify(client, times(2)).getMatch("steam", "match-1");
+    }
 }

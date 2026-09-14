@@ -122,14 +122,28 @@ public class DiscordLoginController {
      */
     @GetMapping("/discord/callback")
     public ResponseEntity<Void> callback(
-            @RequestParam String code,
-            @RequestParam String state,
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
             HttpSession session
     ) {
-        validateAndConsumeState(session, state);
+        if (error != null || code == null || code.isBlank()) {
+            clearLoginAttempt(session);
+            return redirectToLoginError("discord");
+        }
+
+        if (!validateAndConsumeState(session, state)) {
+            clearLoginAttempt(session);
+            return redirectToLoginError("session");
+        }
 
         String redirectUri =
                 consumeLoginRedirectUri(session);
+
+        if (redirectUri == null) {
+            clearLoginAttempt(session);
+            return redirectToLoginError("session");
+        }
 
         DiscordApiUser discordUser =
                 discordLoginService.getDiscordUser(
@@ -155,7 +169,7 @@ public class DiscordLoginController {
      * 로그인 시작 시 Session에 저장한 state와
      * Discord callback으로 전달된 state가 같은지 확인한다.
      */
-    private void validateAndConsumeState(
+    private boolean validateAndConsumeState(
             HttpSession session,
             String receivedState
     ) {
@@ -163,13 +177,11 @@ public class DiscordLoginController {
                 (String) session.getAttribute(DISCORD_LOGIN_STATE);
 
         if (savedState == null || !savedState.equals(receivedState)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Discord login state is invalid"
-            );
+            return false;
         }
 
         session.removeAttribute(DISCORD_LOGIN_STATE);
+        return true;
     }
 
     /**
@@ -210,14 +222,21 @@ public class DiscordLoginController {
                 DISCORD_LOGIN_REDIRECT_URI
         );
 
-        if (redirectUri == null || redirectUri.isBlank()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Discord login redirect URI is missing"
-            );
-        }
+        return redirectUri == null || redirectUri.isBlank() ? null : redirectUri;
+    }
 
-        return redirectUri;
+    private void clearLoginAttempt(HttpSession session) {
+        session.removeAttribute(DISCORD_LOGIN_STATE);
+        session.removeAttribute(DISCORD_LOGIN_REDIRECT_URI);
+    }
+
+    private ResponseEntity<Void> redirectToLoginError(String reason) {
+        URI location = UriComponentsBuilder.fromPath("/login.html")
+                .queryParam("oauthError", reason)
+                .build()
+                .encode()
+                .toUri();
+        return ResponseEntity.status(HttpStatus.FOUND).location(location).build();
     }
 
     @GetMapping("/me")

@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class DiscordMemberService {
 
     private static final long MEMBER_SNAPSHOT_TTL_NANOS = Duration.ofSeconds(30).toNanos();
+    private static final int MAX_MEMBER_SNAPSHOTS = 100;
 
     private final Map<Guild, MemberSnapshot> memberSnapshots = new ConcurrentHashMap<>();
     private final Map<Guild, Object> guildLoadLocks = new ConcurrentHashMap<>();
@@ -22,6 +23,7 @@ public class DiscordMemberService {
     /** 기능이 요청한 Discord 서버의 멤버만 온디맨드로 조회하고 짧게 재사용한다. */
     public List<Member> getMembers(Guild guild) {
         long now = System.nanoTime();
+        pruneMemberSnapshots(now);
         MemberSnapshot cached = memberSnapshots.get(guild);
         if (cached != null && cached.isFresh(now)) {
             return cached.members();
@@ -37,8 +39,14 @@ public class DiscordMemberService {
 
             List<Member> members = List.copyOf(guild.loadMembers().get());
             memberSnapshots.put(guild, new MemberSnapshot(members, System.nanoTime()));
+            pruneMemberSnapshots(System.nanoTime());
             return members;
         }
+    }
+
+    /** 전체 정합성 확인은 관리 화면의 30초 snapshot을 보관하거나 재사용하지 않고 즉시 해제한다. */
+    public List<Member> loadMembersForReconciliation(Guild guild) {
+        return List.copyOf(guild.loadMembers().get());
     }
 
     /** 서버의 전체 멤버 중 봇을 제외한 실제 사용자만 반환한다. */
@@ -88,6 +96,16 @@ public class DiscordMemberService {
     private record MemberSnapshot(List<Member> members, long loadedAtNanos) {
         private boolean isFresh(long now) {
             return now - loadedAtNanos < MEMBER_SNAPSHOT_TTL_NANOS;
+        }
+    }
+
+    /** 관리 화면 snapshot이 많은 Guild를 순회한 뒤에도 모든 멤버 목록을 계속 참조하지 않게 한다. */
+    private void pruneMemberSnapshots(long now) {
+        memberSnapshots.entrySet().removeIf(entry -> !entry.getValue().isFresh(now));
+        while (memberSnapshots.size() > MAX_MEMBER_SNAPSHOTS) {
+            memberSnapshots.entrySet().stream()
+                    .min(java.util.Comparator.comparingLong(entry -> entry.getValue().loadedAtNanos()))
+                    .ifPresent(entry -> memberSnapshots.remove(entry.getKey(), entry.getValue()));
         }
     }
 

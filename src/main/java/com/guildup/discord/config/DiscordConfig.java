@@ -1,5 +1,6 @@
 package com.guildup.discord.config;
 
+import com.guildup.discord.bot.DiscordMemberEventListener;
 import com.guildup.discord.bot.DiscordVoiceEventListener;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
@@ -21,14 +22,15 @@ public class DiscordConfig {
     @Bean(destroyMethod = "")
     public JDA jda(
             @Value("${DISCORD_BOT_TOKEN}") String token,
-            DiscordVoiceEventListener voiceEventListener
+            DiscordVoiceEventListener voiceEventListener,
+            DiscordMemberEventListener memberEventListener
     ) throws InterruptedException {
         return JDABuilder.createLight(token)
                 .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_VOICE_STATES)
                 .enableCache(CacheFlag.VOICE_STATE)
                 .setMemberCachePolicy(MemberCachePolicy.VOICE)
                 .setChunkingFilter(ChunkingFilter.NONE)
-                .addEventListeners(voiceEventListener)
+                .addEventListeners(voiceEventListener, memberEventListener)
                 .build()
                 .awaitReady();
     }

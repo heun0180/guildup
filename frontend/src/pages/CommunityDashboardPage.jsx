@@ -11,6 +11,8 @@ export default function CommunityDashboardPage() {
   const [community, setCommunity] = useState(null);
   const [memberCount, setMemberCount] = useState(null);
   const [roleCount, setRoleCount] = useState(null);
+  const [attendance, setAttendance] = useState(null);
+  const [checkingAttendance, setCheckingAttendance] = useState(false);
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
 
   useEffect(() => {
@@ -22,6 +24,17 @@ export default function CommunityDashboardPage() {
         const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
         if (cancelled) return;
         setCommunity(dashboard);
+
+        api(`/api/communities/${encodeURIComponent(communityId)}/attendance/me`)
+          .then((status) => { if (!cancelled) setAttendance(status); })
+          .catch((error) => {
+            if (cancelled) return;
+            if (error.status === 409) {
+              setAttendance({ unavailable: true });
+            } else if (!redirectToLogin(error)) {
+              setMessage(error.message);
+            }
+          });
 
         const requests = [api(`/api/communities/${encodeURIComponent(communityId)}/members`)];
         if (dashboard.discordConnected && canManageCommunity(dashboard.role)) {
@@ -44,6 +57,27 @@ export default function CommunityDashboardPage() {
 
   const discordName = community?.discordGuildName || community?.discordGuildId;
   const canManage = canManageCommunity(community?.role);
+
+  async function checkAttendance() {
+    if (checkingAttendance || attendance?.attended) return;
+    setCheckingAttendance(true);
+    setMessage("");
+    try {
+      const result = await api(`/api/communities/${encodeURIComponent(communityId)}/attendance`, {
+        method: "POST",
+      });
+      setAttendance({
+        attended: true,
+        attendanceDate: result.attendanceDate,
+        currentScore: result.currentScore,
+        justAttended: result.scoreAdded === 1,
+      });
+    } catch (error) {
+      if (!redirectToLogin(error)) setMessage(error.message || "출석 체크에 실패했습니다.");
+    } finally {
+      setCheckingAttendance(false);
+    }
+  }
 
   return (
     <DashboardLayout active="dashboard" communityId={communityId} community={community}
@@ -76,6 +110,28 @@ export default function CommunityDashboardPage() {
                 <div><p>Discord 역할</p><strong>{roleCount === null ? "-" : `${roleCount}개`}</strong></div>
               </article>}
             </section>
+
+            {attendance && <section className={`panel attendance-card dashboard-attendance${attendance.attended ? " is-complete" : ""}`}>
+              <div className="attendance-copy">
+                <span className="attendance-icon"><Icon name={attendance.attended ? "check" : "calendar"} size={23} /></span>
+                <div>
+                  <h2>{attendance.attended ? "오늘 출석 완료" : "오늘 출석 체크"}</h2>
+                  <p>{attendance.unavailable
+                    ? "로그인한 Discord 계정과 클랜원 정보가 연결되면 출석할 수 있습니다."
+                    : attendance.attended
+                    ? attendance.justAttended ? "오늘 +1점을 받았습니다." : `현재 점수 ${attendance.currentScore}점`
+                    : "버튼을 누르면 오늘의 활동 점수 +1점을 받습니다."}</p>
+                </div>
+              </div>
+              <div className="attendance-actions">
+                {!attendance.attended && !attendance.unavailable && <button type="button" onClick={checkAttendance} disabled={checkingAttendance}>
+                  <Icon name="check" size={18} />{checkingAttendance ? "요청 중..." : "출석 체크 +1점"}
+                </button>}
+                <a className="secondary-button" href={`/rankings.html?communityId=${encodeURIComponent(communityId)}`}>
+                  전체 랭킹 <Icon name="arrow" size={16} />
+                </a>
+              </div>
+            </section>}
 
             <CommunityNewsSummary communityId={communityId} />
 

@@ -116,14 +116,10 @@ export default function CommunitySettingsPage() {
       });
       settingsSaved = true;
       setSelectedRoleIds(result.roles.map((role) => role.discordRoleId));
-      if (result.roles.length === 0) {
-        setSuccess("클랜원 역할 설정이 저장되었습니다.");
-      } else {
-        const sync = await api(`/api/communities/${encodeURIComponent(communityId)}/members/sync`, {
-          method: "POST",
-        });
-        setSuccess(`클랜원 역할 설정과 Discord 동기화가 완료되었습니다. 신규 ${sync.createdMembers}명 / 업데이트 ${sync.updatedMembers + sync.reactivatedMembers}명 / 탈퇴 처리 ${sync.leftMembers}명`);
-      }
+      const sync = await api(`/api/communities/${encodeURIComponent(communityId)}/members/sync`, {
+        method: "POST",
+      });
+      setSuccess(`클랜원 역할 설정과 Discord 전체 확인이 완료되었습니다. 신규 ${sync.createdMembers}명 / 업데이트 ${sync.updatedMembers + sync.reactivatedMembers}명 / 탈퇴 처리 ${sync.leftMembers}명`);
     } catch (error) {
       if (!redirectToLogin(error)) {
         setMessage(settingsSaved

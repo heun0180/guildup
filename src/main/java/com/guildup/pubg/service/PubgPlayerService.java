@@ -39,17 +39,28 @@ public class PubgPlayerService {
     }
 
     public List<PubgPlayer> findByNames(String shard, List<String> playerNames) {
-        return findInBatches(shard, playerNames, true);
+        return findInBatches(shard, playerNames, true, false);
+    }
+
+    /** 참가 신청처럼 저장 전 계정 존재 여부를 확인하는 요청은 이전의 미조회 캐시를 우회한다. */
+    public List<PubgPlayer> findByNamesFresh(String shard, List<String> playerNames) {
+        return findInBatches(shard, playerNames, true, true);
     }
 
     public List<PubgPlayer> findByAccountIds(String shard, List<String> accountIds) {
-        return findInBatches(shard, accountIds, false);
+        return findInBatches(shard, accountIds, false, false);
+    }
+
+    /** 정산처럼 API 반영 지연을 다시 확인해야 하는 명시적 사용자 요청은 선수 Match 목록 캐시를 우회한다. */
+    public List<PubgPlayer> findByAccountIdsFresh(String shard, List<String> accountIds) {
+        return findInBatches(shard, accountIds, false, true);
     }
 
     private synchronized List<PubgPlayer> findInBatches(
             String shard,
             List<String> values,
-            boolean byName
+            boolean byName,
+            boolean refresh
     ) {
         List<String> uniqueValues = new ArrayList<>(new LinkedHashSet<>(values));
         Instant now = clock.instant();
@@ -59,7 +70,7 @@ public class PubgPlayerService {
 
         for (String value : uniqueValues) {
             String normalizedValue = normalize(value, byName);
-            CachedPlayer cached = cache.get(new PlayerCacheKey(shard, byName, normalizedValue));
+            CachedPlayer cached = refresh ? null : cache.get(new PlayerCacheKey(shard, byName, normalizedValue));
             if (cached == null || !cached.expiresAt().isAfter(now)) {
                 missingValues.add(value);
                 continue;

@@ -67,8 +67,8 @@ class PubgApiClientTests {
                         {
                           "data":{"type":"match","id":"match-1","attributes":{"createdAt":"2026-09-06T14:14:00Z","gameMode":"squad"}},
                           "included":[
-                            {"type":"participant","id":"p1","attributes":{"stats":{"playerId":"account.A","name":"sa-gwa"}}},
-                            {"type":"participant","id":"p2","attributes":{"stats":{"playerId":"account.B","name":"jul-mi"}}},
+                            {"type":"participant","id":"p1","attributes":{"stats":{"playerId":"account.A","name":"sa-gwa","kills":4}}},
+                            {"type":"participant","id":"p2","attributes":{"stats":{"playerId":"account.B","name":"jul-mi","kills":2}}},
                             {"type":"roster","id":"r1","relationships":{"participants":{"data":[{"type":"participant","id":"p1"},{"type":"participant","id":"p2"}]}}}
                           ]
                         }
@@ -82,6 +82,9 @@ class PubgApiClientTests {
         assertThat(match.teams().getFirst().participants())
                 .extracting(participant -> participant.accountId())
                 .containsExactly("account.A", "account.B");
+        assertThat(match.teams().getFirst().participants())
+                .extracting(participant -> participant.kills())
+                .containsExactly(4, 2);
         server.verify();
     }
 

@@ -67,4 +67,32 @@ class PubgPlayerServiceTests {
 
         verify(client, times(1)).getPlayersByNames("steam", names);
     }
+
+    @Test
+    void freshLookupBypassesCachedPlayerMatchList() {
+        PubgApiClient client = mock(PubgApiClient.class);
+        List<String> ids = List.of("account-1");
+        when(client.getPlayersByAccountIds("steam", ids))
+                .thenReturn(List.of(new PubgPlayer("account-1", "Player", List.of("old"))))
+                .thenReturn(List.of(new PubgPlayer("account-1", "Player", List.of("old", "new"))));
+        PubgPlayerService service = new PubgPlayerService(client);
+
+        assertThat(service.findByAccountIds("steam", ids).getFirst().matchIds()).containsExactly("old");
+        assertThat(service.findByAccountIdsFresh("steam", ids).getFirst().matchIds()).containsExactly("old", "new");
+        verify(client, times(2)).getPlayersByAccountIds("steam", ids);
+    }
+
+    @Test
+    void freshNameLookupRetriesAPreviouslyMissingPlayer() {
+        PubgApiClient client = mock(PubgApiClient.class);
+        List<String> names = List.of("TEMA-___-");
+        PubgPlayer player = new PubgPlayer("account-apple", "TEMA-___-", List.of());
+        when(client.getPlayersByNames("kakao", names)).thenReturn(List.of()).thenReturn(List.of(player));
+        PubgPlayerService service = new PubgPlayerService(client);
+
+        assertThat(service.findByNames("kakao", names)).isEmpty();
+        assertThat(service.findByNamesFresh("kakao", names)).containsExactly(player);
+
+        verify(client, times(2)).getPlayersByNames("kakao", names);
+    }
 }
