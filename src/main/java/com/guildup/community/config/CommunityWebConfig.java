@@ -10,7 +10,9 @@ public class CommunityWebConfig implements WebMvcConfigurer {
     public CommunityWebConfig(CommunityAccessInterceptor interceptor) { this.interceptor = interceptor; }
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(interceptor).addPathPatterns(
-                "/api/communities", "/api/communities/**", "/api/discord/guilds/**");
+        registry.addInterceptor(interceptor)
+                .addPathPatterns("/api/communities", "/api/communities/**", "/api/discord/guilds/**")
+                // 문의 API는 컨트롤러에서 같은 세션 인증을 하고, 서비스에서 404와 403을 구분한다.
+                .excludePathPatterns("/api/communities/*/feedback");
     }
 }

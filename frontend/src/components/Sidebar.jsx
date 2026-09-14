@@ -1,5 +1,5 @@
 import Icon from "./Icon.jsx";
-import { canManageCommunity } from "../communityAccess.js";
+import { canAccessCommunityMenu, canManageCommunity } from "../communityAccess.js";
 
 export default function Sidebar({ community, communityId, active }) {
   const canManage = canManageCommunity(community?.role);
@@ -32,6 +32,9 @@ export default function Sidebar({ community, communityId, active }) {
   const killCompetitionsUrl = validId
     ? `/kill-competitions.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
+  const feedbackUrl = validId
+    ? `/feedback.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
 
   const mainItems = [
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
@@ -39,12 +42,11 @@ export default function Sidebar({ community, communityId, active }) {
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
     { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
-    ...(canManage ? [
-      { id: "activity", label: "활동", icon: "activity", href: activityUrl },
-      { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
-      { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
-    ] : []),
-  ];
+    { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
+    { id: "activity", label: "활동", icon: "activity", href: activityUrl },
+    { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
+    { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
+  ].filter((item) => canAccessCommunityMenu(community?.role, item.id));
 
   return (
     <aside className="sidebar" aria-label="커뮤니티 관리 메뉴">
@@ -73,7 +75,7 @@ export default function Sidebar({ community, communityId, active }) {
         ))}
       </nav>
 
-      {canManage && <div className="sidebar-footer">
+      {canAccessCommunityMenu(community?.role, "settings") && <div className="sidebar-footer">
         <a className={`sidebar-item${active === "settings" ? " is-active" : ""}`} href={settingsUrl}
            aria-current={active === "settings" ? "page" : undefined}>
           <Icon name="settings" />

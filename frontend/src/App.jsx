@@ -13,6 +13,7 @@ import DiscordDmPage from "./pages/DiscordDmPage.jsx";
 import DiscordVoiceActivityPage from "./pages/DiscordVoiceActivityPage.jsx";
 import RankingsPage from "./pages/RankingsPage.jsx";
 import KillCompetitionsPage from "./pages/KillCompetitionsPage.jsx";
+import FeedbackPage from "./pages/FeedbackPage.jsx";
 
 import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
 import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
@@ -35,6 +36,7 @@ const pages = {
   "/discord-voice-activity.html": DiscordVoiceActivityPage,
   "/rankings.html": RankingsPage,
   "/kill-competitions.html": KillCompetitionsPage,
+  "/feedback.html": FeedbackPage,
 };
 
 export default function App() {
