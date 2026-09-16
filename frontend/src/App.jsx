@@ -16,6 +16,7 @@ import RankingsPage from "./pages/RankingsPage.jsx";
 import KillCompetitionsPage from "./pages/KillCompetitionsPage.jsx";
 import FeedbackPage from "./pages/FeedbackPage.jsx";
 import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
+import BingoPage from "./pages/BingoPage.jsx";
 import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
 import DashboardLayout from "./components/DashboardLayout.jsx";
 import AppLink from "./components/AppLink.jsx";
@@ -27,6 +28,7 @@ const activeByPath = {
   "/members.html": "members",
   "/rankings.html": "rankings",
   "/kill-competitions.html": "kill-competitions",
+  "/bingos.html": "bingos",
   "/feedback.html": "feedback",
   "/member-activities.html": "activity",
   "/member-activity.html": "activity",
@@ -97,6 +99,7 @@ export default function App() {
         <Route path="/discord-voice-activity.html" element={<DiscordVoiceActivityPage />} />
         <Route path="/rankings.html" element={<RankingsPage />} />
         <Route path="/kill-competitions.html" element={<KillCompetitionsPage />} />
+        <Route path="/bingos.html" element={<BingoPage />} />
         <Route path="/feedback.html" element={<FeedbackPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />

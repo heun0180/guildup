@@ -264,7 +264,12 @@ public class PubgApiClient {
                     || included.attributes().stats() == null) continue;
             var stats = included.attributes().stats();
             participants.put(included.id(), new PubgParticipant(
-                    stats.playerId(), stats.name(), stats.kills() == null ? 0 : stats.kills()
+                    stats.playerId(), stats.name(), integer(stats.kills()), decimal(stats.damageDealt()),
+                    integer(stats.assists()), integer(stats.DBNOs()), integer(stats.headshotKills()),
+                    integer(stats.heals()), integer(stats.boosts()), integer(stats.revives()),
+                    integer(stats.roadKills()), integer(stats.winPlace()), decimal(stats.timeSurvived()),
+                    decimal(stats.walkDistance()), decimal(stats.rideDistance()), decimal(stats.swimDistance()),
+                    decimal(stats.longestKill())
             ));
         }
 
@@ -283,8 +288,23 @@ public class PubgApiClient {
                 })
                 .toList();
         var attributes = response.data().attributes();
-        return new PubgMatch(response.data().id(), attributes.createdAt(), attributes.gameMode(), teams);
+        String assetId = response.data().relationships() == null || response.data().relationships().assets() == null
+                || response.data().relationships().assets().data() == null
+                || response.data().relationships().assets().data().isEmpty()
+                ? null : response.data().relationships().assets().data().getFirst().id();
+        String telemetryUrl = safeIncluded(response).stream()
+                .filter(included -> "asset".equals(included.type()) && java.util.Objects.equals(assetId, included.id()))
+                .map(PubgMatchApiResponse.IncludedResource::attributes)
+                .filter(java.util.Objects::nonNull)
+                .map(PubgMatchApiResponse.ParticipantAttributes::url)
+                .filter(java.util.Objects::nonNull)
+                .findFirst().orElse(null);
+        return new PubgMatch(response.data().id(), attributes.createdAt(), attributes.gameMode(),
+                attributes.mapName(), telemetryUrl, teams);
     }
+
+    private int integer(Integer value) { return value == null ? 0 : value; }
+    private double decimal(Double value) { return value == null ? 0 : value; }
 
     private List<PubgMatchApiResponse.IncludedResource> safeIncluded(PubgMatchApiResponse response) {
         return response.included() == null ? List.of() : response.included();

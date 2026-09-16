@@ -19,7 +19,7 @@ test("관리 화면과 Discord 역할 화면은 MEMBER의 직접 URL 접근을 �
 
 test("MEMBER는 일반 메뉴 이동 후에도 관리 메뉴가 활성화되지 않는다", () => {
   for (const role of ["MEMBER", null, undefined]) {
-    for (const active of ["news", "members", "rankings", "kill-competitions"]) {
+    for (const active of ["news", "members", "rankings", "kill-competitions", "bingos"]) {
       assert.equal(canAccessCommunityMenu(role, active), true);
       assert.equal(canAccessCommunityMenu(role, "activity"), false);
       assert.equal(canAccessCommunityMenu(role, "team-maker"), false);

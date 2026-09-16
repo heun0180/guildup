@@ -33,6 +33,9 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const killCompetitionsUrl = validId
     ? `/kill-competitions.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
+  const bingoUrl = validId
+    ? `/bingos.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
   const feedbackUrl = validId
     ? `/feedback.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
@@ -43,6 +46,7 @@ export default function Sidebar({ community, communityId, active, loading = fals
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
     { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
+    { id: "bingos", label: "빙고", icon: "bingo", href: bingoUrl },
     { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
     { id: "activity", label: "활동", icon: "activity", href: activityUrl },
     { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },

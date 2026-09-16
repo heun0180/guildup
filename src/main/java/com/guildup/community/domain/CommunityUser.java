@@ -13,8 +13,11 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.PrePersist;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+
+import java.time.Instant;
 
 /** GuildUp 사용자와 커뮤니티의 사용·관리 관계를 나타낸다. */
 @Entity
@@ -45,6 +48,9 @@ public class CommunityUser {
     @Column(nullable = false)
     private CommunityUserRole role;
 
+    @Column(name = "joined_at")
+    private Instant joinedAt;
+
     protected CommunityUser() {
     }
 
@@ -69,6 +75,11 @@ public class CommunityUser {
     public CommunityUserRole getRole() {
         return role;
     }
+
+    public Instant getJoinedAt() { return joinedAt; }
+
+    @PrePersist
+    void initializeJoinedAt() { if (joinedAt == null) joinedAt = Instant.now(); }
 
     /** OWNER가 커뮤니티 운영 역할을 직접 변경할 때 사용한다. */
     public void changeRole(CommunityUserRole role) {
