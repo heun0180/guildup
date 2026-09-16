@@ -1,7 +1,8 @@
 import Icon from "./Icon.jsx";
 import { canAccessCommunityMenu, canManageCommunity } from "../communityAccess.js";
+import AppLink from "./AppLink.jsx";
 
-export default function Sidebar({ community, communityId, active }) {
+export default function Sidebar({ community, communityId, active, loading = false }) {
   const canManage = canManageCommunity(community?.role);
   const validId = /^\d+$/.test(communityId ?? "");
   const dashboardUrl = validId
@@ -50,22 +51,26 @@ export default function Sidebar({ community, communityId, active }) {
 
   return (
     <aside className="sidebar" aria-label="커뮤니티 관리 메뉴">
-      <a className="community-switcher" href="/communities.html" aria-label="다른 커뮤니티 선택">
-        <span className="community-mark" aria-hidden="true">{community?.name?.charAt(0) || "G"}</span>
+      <AppLink className="community-switcher" href="/communities.html" aria-label="다른 커뮤니티 선택">
+        <span className={`community-mark${loading ? " is-loading" : ""}`} aria-hidden="true">
+          {community?.name?.charAt(0) || ""}
+        </span>
         <span className="community-switcher-copy">
-          <strong>{community?.name || "커뮤니티"}</strong>
+          {community?.name
+            ? <strong>{community.name}</strong>
+            : <strong className="community-name-skeleton" aria-label="커뮤니티 이름을 불러오는 중" />}
           <span>Community</span>
         </span>
         <span className="community-chevron" aria-hidden="true">⌄</span>
-      </a>
+      </AppLink>
 
       <nav className="sidebar-nav">
         {mainItems.map((item) => item.href ? (
-          <a className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.id}
+          <AppLink className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.id}
              aria-current={active === item.id ? "page" : undefined}>
             <Icon name={item.icon} />
             <span>{item.label}</span>
-          </a>
+          </AppLink>
         ) : (
           <span className={`sidebar-item is-disabled${active === item.id ? " is-active" : ""}`} key={item.id} aria-disabled="true">
             <Icon name={item.icon} />
@@ -76,11 +81,11 @@ export default function Sidebar({ community, communityId, active }) {
       </nav>
 
       {canAccessCommunityMenu(community?.role, "settings") && <div className="sidebar-footer">
-        <a className={`sidebar-item${active === "settings" ? " is-active" : ""}`} href={settingsUrl}
+        <AppLink className={`sidebar-item${active === "settings" ? " is-active" : ""}`} href={settingsUrl}
            aria-current={active === "settings" ? "page" : undefined}>
           <Icon name="settings" />
           <span>설정</span>
-        </a>
+        </AppLink>
       </div>}
     </aside>
   );

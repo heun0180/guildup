@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import { activityStatus, activitySyncView, formatActivityDateTime, formatRelativeDays } from "../activityView.js";
 import Avatar from "../components/Avatar.jsx";
@@ -7,11 +8,13 @@ import Icon from "../components/Icon.jsx";
 import { canManageCommunity } from "../communityAccess.js";
 import { loadActivityPageData } from "../activityPageLoader.js";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function MemberActivitiesPage() {
+  const navigate = useNavigate();
+  const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
-  const [community, setCommunity] = useState(null);
   const [activities, setActivities] = useState(null);
   const [search, setSearch] = useState("");
   const [configurationStatus, setConfigurationStatus] = useState(validId ? "loading" : "error");
@@ -26,7 +29,7 @@ export default function MemberActivitiesPage() {
       setMessage("");
       try {
         const result = await loadActivityPageData({
-          loadCommunity: () => api(`/api/communities/${encodeURIComponent(communityId)}`),
+          loadCommunity: () => Promise.resolve(community),
           loadNicknameStatus: () => loadGameNicknameStatus({
             loadStatus: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`),
             loadRule: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule`),
@@ -34,7 +37,6 @@ export default function MemberActivitiesPage() {
           loadActivities: () => api(`/api/communities/${encodeURIComponent(communityId)}/member-activities`),
         });
         if (cancelled) return;
-        setCommunity(result.community);
         setActivities(result.activities);
         setConfigurationStatus(result.status);
       } catch (error) {
@@ -50,7 +52,7 @@ export default function MemberActivitiesPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [communityId, validId]);
+  }, [community, communityId, validId]);
 
   const filteredMembers = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
@@ -63,7 +65,7 @@ export default function MemberActivitiesPage() {
   }, [activities, search]);
 
   function openDetail(memberId) {
-    window.location.assign(`/member-activity.html?communityId=${encodeURIComponent(communityId)}&memberId=${encodeURIComponent(memberId)}`);
+    navigate(`/member-activity.html?communityId=${encodeURIComponent(communityId)}&memberId=${encodeURIComponent(memberId)}`);
   }
 
   async function syncActivities() {
@@ -101,10 +103,9 @@ export default function MemberActivitiesPage() {
     <DashboardLayout active="activity" communityId={communityId} community={community}
                      loadCommunity={false} onError={setMessage}>
       <div className="dashboard-content activity-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Activity</p>
           <h1>클랜원 활동</h1>
-          <p>누가 활동 기준을 충족했고 누가 확인이 필요한지 살펴봅니다.</p>
         </div>
 
         {configurationStatus === "loading" && <section className="panel activity-loading" role="status">

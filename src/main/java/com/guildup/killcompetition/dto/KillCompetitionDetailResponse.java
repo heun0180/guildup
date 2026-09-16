@@ -6,8 +6,10 @@ import java.util.*;
 
 public record KillCompetitionDetailResponse(
         Long id, String title, KillCompetitionGameMode gameMode, String status,
-        Instant endsAt, Instant startedAt, Instant recruitmentClosedAt,
-        Instant lastInterimCalculatedAt, Instant completedAt, Instant serverTime,
+        Instant endsAt, Instant startedAt, boolean recruitmentOpen, Instant recruitmentClosedAt,
+        Instant lastInterimCalculatedAt, Instant lastInterimMatchStartedAt,
+        Instant resultRequestedAt, Instant resultPublishAt, String resultLastError,
+        Instant completedAt, Instant serverTime,
         Member creator, boolean creatorView, boolean administratorView,
         Long myParticipantId, boolean pubgNicknameConfigured,
         boolean scoreEligible, int participantCount,
@@ -17,7 +19,8 @@ public record KillCompetitionDetailResponse(
 ) {
     public record Member(Long memberId, String nickname) {}
     public record Participant(Long participantId, Long memberId, String nickname, String pubgNickname,
-                              Long teamId, int interimKills, int interimMatchCount,
+                              Long teamId, KillCompetitionParticipationStatus participationStatus, Instant eligibleFrom,
+                              int interimKills, int interimMatchCount,
                               Integer finalKills, Integer finalMatchCount) {}
     public record Team(Long teamId, String name, int displayOrder, List<Long> participantIds,
                        int interimKills, Integer finalKills) {}
@@ -29,13 +32,16 @@ public record KillCompetitionDetailResponse(
             KillCompetition competition, Long currentMemberId, boolean administrator,
             boolean pubgConfigured, Instant now, List<KillCompetitionMatchResult> matchResults
     ) {
+        List<KillCompetitionParticipant> approved = competition.getParticipants().stream()
+                .filter(KillCompetitionParticipant::isApproved).toList();
         List<Participant> participantDtos = competition.getParticipants().stream().map(p -> new Participant(
                 p.getId(), p.getCommunityMember().getId(), p.getCommunityMember().getNickname(),
                 p.getPubgNickname(), p.getTeam() == null ? null : p.getTeam().getId(),
+                p.getParticipationStatus(), p.getEligibleFrom(),
                 p.getInterimKills(), p.getInterimMatchCount(), p.getFinalKills(), p.getFinalMatchCount()
         )).toList();
         List<Team> teamDtos = competition.getTeams().stream().map(team -> {
-            List<KillCompetitionParticipant> members = competition.getParticipants().stream()
+            List<KillCompetitionParticipant> members = approved.stream()
                     .filter(p -> p.getTeam() != null && Objects.equals(p.getTeam().getId(), team.getId())).toList();
             Integer finalKills = members.stream().allMatch(p -> p.getFinalKills() != null)
                     ? members.stream().mapToInt(p -> p.getFinalKills()).sum() : null;
@@ -49,12 +55,14 @@ public record KillCompetitionDetailResponse(
         return new KillCompetitionDetailResponse(
                 competition.getId(), competition.getTitle(), competition.getGameMode(),
                 KillCompetitionSummaryResponse.effectiveStatus(competition, now),
-                competition.getEndsAt(), competition.getStartedAt(), competition.getRecruitmentClosedAt(),
-                competition.getLastInterimCalculatedAt(), competition.getCompletedAt(), now,
+                competition.getEndsAt(), competition.getStartedAt(), competition.isRecruitmentOpen(), competition.getRecruitmentClosedAt(),
+                competition.getLastInterimCalculatedAt(), competition.getLastInterimMatchStartedAt(),
+                competition.getResultRequestedAt(), competition.getResultPublishAt(), competition.getResultLastError(),
+                competition.getCompletedAt(), now,
                 new Member(competition.getCreatedBy().getId(), competition.getCreatedBy().getNickname()),
                 Objects.equals(competition.getCreatedBy().getId(), currentMemberId), administrator,
-                myParticipantId, pubgConfigured, competition.getParticipants().size() >= 4,
-                competition.getParticipants().size(), participantDtos, teamDtos,
+                myParticipantId, pubgConfigured, approved.size() >= 4,
+                approved.size(), participantDtos, teamDtos,
                 standings(competition, false), standings(competition, true), matches(matchResults)
         );
     }
@@ -64,13 +72,13 @@ public record KillCompetitionDetailResponse(
         record Entry(Long participantId, Long teamId, String name, int kills) {}
         List<Entry> entries;
         if (competition.getGameMode() == KillCompetitionGameMode.SOLO) {
-            entries = competition.getParticipants().stream().map(p -> new Entry(
+            entries = competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).map(p -> new Entry(
                     p.getId(), null, p.getCommunityMember().getNickname(),
                     finalResult ? Optional.ofNullable(p.getFinalKills()).orElse(0) : p.getInterimKills()
             )).toList();
         } else {
             entries = competition.getTeams().stream().map(team -> {
-                int kills = competition.getParticipants().stream()
+                int kills = competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
                         .filter(p -> p.getTeam() != null && Objects.equals(p.getTeam().getId(), team.getId()))
                         .mapToInt(p -> finalResult ? Optional.ofNullable(p.getFinalKills()).orElse(0) : p.getInterimKills()).sum();
                 return new Entry(null, team.getId(), team.getTeamName(), kills);

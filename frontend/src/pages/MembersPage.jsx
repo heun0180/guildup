@@ -4,8 +4,10 @@ import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { canManageCommunity } from "../communityAccess.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function MembersPage() {
+  const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
   const guildId = params.get("guildId");
@@ -25,7 +27,6 @@ export default function MembersPage() {
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const [memberRolesConfigured, setMemberRolesConfigured] = useState(null);
-  const [community, setCommunity] = useState(null);
   const roleRequestId = useRef(0);
 
   const handleError = useCallback((error, fallback) => {
@@ -89,8 +90,6 @@ export default function MembersPage() {
 
   useEffect(() => {
     if (!communityValid) return;
-    api(`/api/communities/${encodeURIComponent(communityId)}`).then(setCommunity)
-      .catch((error) => redirectToLogin(error));
     api(`/api/communities/${encodeURIComponent(communityId)}/member-role-settings`)
       .then((settings) => setMemberRolesConfigured(settings.roles.length > 0))
       .catch((error) => {
@@ -146,14 +145,11 @@ export default function MembersPage() {
   return (
     <DashboardLayout active={roleMode ? "roles" : "members"} communityId={communityId} onError={setMessage}>
       <div className="dashboard-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <div className="members-heading-row">
             <div>
               <p className="eyebrow">{roleMode ? "Discord" : "Members"}</p>
               <h1 id="member-list-title">{roleMode ? "Discord 역할" : "클랜원"}</h1>
-              <p>{roleMode
-                ? "Discord 서버의 역할별 멤버를 확인합니다."
-                : canManage ? "커뮤니티에 등록된 클랜원을 관리합니다." : "커뮤니티에 등록된 클랜원을 확인합니다."}</p>
             </div>
             {!roleMode && canManage && <div className="members-heading-actions">
               <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}`}>
@@ -202,7 +198,7 @@ export default function MembersPage() {
             </button>)}
           </div>}
           {!roleMode && communityValid && canManage && <form className="add-member-form" onSubmit={addMember}>
-            <div><label htmlFor="nickname">새 클랜원 추가</label><p>닉네임으로 클랜원을 직접 등록합니다.</p></div>
+            <div><label htmlFor="nickname">새 클랜원 추가</label></div>
             <div className="add-member-controls">
               <input id="nickname" placeholder="클랜원 이름 입력" autoComplete="off" required value={nickname} onChange={(event) => setNickname(event.target.value)} />
               <button type="submit" disabled={saving}><Icon name="plus" size={17} />{saving ? "추가 중..." : "추가"}</button>

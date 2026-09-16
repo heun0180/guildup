@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import CommunityNewsForm from "../components/CommunityNewsForm.jsx";
 import CommunityNewsMeta from "../components/CommunityNewsMeta.jsx";
 import { canManageNews, formatNewsDate, newsError, newsUrl } from "../communityNews.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function CommunityNewsPage() {
+  const navigate = useNavigate();
+  const { community } = useCommunity();
   const query = new URLSearchParams(window.location.search);
   const communityId = query.get("communityId");
   const tab = query.get("tab") === "events" ? "events" : "notices";
   const id = query.get("id");
   const valid = /^\d+$/.test(communityId ?? "") && (id === null || /^\d+$/.test(id));
   const isNotice = tab === "notices";
-  const [community, setCommunity] = useState(null);
   const [items, setItems] = useState([]);
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(valid);
@@ -29,10 +32,9 @@ export default function CommunityNewsPage() {
     let cancelled = false;
     setLoading(true);
     setError("");
-    Promise.all([api(`/api/communities/${encodeURIComponent(communityId)}`), api(id ? `${base}/${id}` : base)])
-      .then(([dashboard, result]) => {
+    api(id ? `${base}/${id}` : base)
+      .then((result) => {
         if (cancelled) return;
-        setCommunity(dashboard);
         if (id) setItem(result); else setItems(result);
       }).catch((failure) => {
         if (!cancelled && !redirectToLogin(failure)) setError(newsError(failure));
@@ -47,7 +49,7 @@ export default function CommunityNewsPage() {
       const result = await api(item ? `${base}/${item.id}` : base, {
         method: item ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
-      window.location.assign(newsUrl(communityId, tab, result.id));
+      navigate(newsUrl(communityId, tab, result.id));
     } catch (failure) {
       if (!redirectToLogin(failure)) setError(newsError(failure));
       setBusy(false);
@@ -60,7 +62,7 @@ export default function CommunityNewsPage() {
     setError("");
     try {
       await api(`${base}/${item.id}`, { method: "DELETE" });
-      window.location.assign(newsUrl(communityId, tab));
+      navigate(newsUrl(communityId, tab));
     } catch (failure) {
       if (!redirectToLogin(failure)) setError(newsError(failure));
       setBusy(false);
@@ -71,8 +73,8 @@ export default function CommunityNewsPage() {
     <DashboardLayout active="news" communityId={communityId} community={community} loadCommunity={false}
                      onError={handleLayoutError}>
       <div className="dashboard-content">
-        <div className="page-heading"><p className="eyebrow">{community?.name || "Community"}</p>
-          <h1>공지 · 이벤트</h1><p>커뮤니티 소식과 함께할 일정을 확인하세요.</p>
+        <div className="page-heading is-compact"><p className="eyebrow">{community?.name}</p>
+          <h1>공지 · 이벤트</h1>
         </div>
         <div className="role-tabs" role="tablist" aria-label="커뮤니티 소식">
           {[["notices", "공지"], ["events", "이벤트"]].map(([value, label]) => (
@@ -81,11 +83,11 @@ export default function CommunityNewsPage() {
                     onKeyDown={(event) => {
                       if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
                         event.preventDefault();
-                        window.location.assign(newsUrl(communityId,
+                        navigate(newsUrl(communityId,
                           event.key === "Home" ? "notices" : event.key === "End" ? "events" : isNotice ? "events" : "notices"));
                       }
                     }}
-                    onClick={() => window.location.assign(newsUrl(communityId, value))}>{label}</button>
+                    onClick={() => navigate(newsUrl(communityId, value))}>{label}</button>
           ))}
         </div>
         {error && <div className="message" role="alert">{error}{" "}

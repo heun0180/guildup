@@ -80,10 +80,9 @@ export default function RankingsPage() {
   return (
     <DashboardLayout active="rankings" communityId={communityId} onError={setMessage}>
       <div className="dashboard-content ranking-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Activity Ranking</p>
           <h1>활동 랭킹</h1>
-          <p>커뮤니티 활동으로 모은 점수와 순위를 확인합니다.</p>
         </div>
 
         {message && <p className="message" role="alert">{message}</p>}

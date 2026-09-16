@@ -11,6 +11,7 @@
 
 .communities-main { max-width: 1100px; }
 .public-heading { margin-bottom: 30px; }
+.public-heading.is-compact { margin-bottom: 22px; }
 .public-heading > p:last-child { margin-top: 9px; font-size: 0.95rem; }
 .page-state { min-height: 132px; margin-bottom: 18px; padding: 48px 24px; color: var(--color-text-secondary); font-size: 0.875rem; text-align: center; }
 .community-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 18px; margin-bottom: 24px; }
@@ -26,7 +27,6 @@
 .create-community-card { display: flex; align-items: center; justify-content: space-between; gap: 28px; border: 1px dashed #cfd3df; border-radius: var(--radius-card); padding: var(--space-card); background: rgba(255, 255, 255, 0.72); }
 .create-community-copy { display: flex; min-width: 260px; align-items: center; gap: 14px; }
 .create-community-copy h2 { font-size: 1rem; }
-.create-community-copy p { margin-top: 3px; font-size: 0.8125rem; }
 .add-mark { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 11px; background: var(--color-primary-soft); color: var(--color-primary); }
 .inline-form { display: grid; width: min(100%, 460px); grid-template-columns: minmax(180px, 1fr) auto; gap: 10px; }
 .create-community-form { display: grid; width: min(100%, 620px); grid-template-columns: minmax(180px, 1fr) minmax(190px, 1fr) auto; align-items: end; gap: 10px; }
@@ -200,7 +200,6 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .members-panel { overflow: hidden; }
 .members-heading-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .members-heading-row > div { min-width: 0; }
-.members-heading-row > div > p:last-child { margin-top: 9px; font-size: 0.95rem; }
 .members-heading-row > button { flex: 0 0 auto; }
 .last-synced-at { margin-top: 9px; font-size: 0.78rem !important; }
 .sync-result-message { margin: 0 0 18px; }
@@ -218,7 +217,6 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .role-count { display: inline-grid; min-width: 20px; height: 20px; place-items: center; border-radius: 999px; padding: 0 5px; background: rgba(255, 255, 255, 0.2); font-size: 0.68rem; }
 .add-member-form { display: flex; align-items: center; justify-content: space-between; gap: 24px; border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); padding: 18px 24px; background: var(--color-surface-soft); }
 .add-member-form label { color: var(--color-text); font-size: 0.875rem; font-weight: 750; }
-.add-member-form p { margin-top: 2px; font-size: 0.75rem; }
 .add-member-controls { display: grid; width: min(100%, 440px); grid-template-columns: minmax(180px, 1fr) auto; gap: 8px; }
 .add-member-controls button { font-size: 0.8rem; }
 .padded-message { margin: 18px 24px 0; }
@@ -268,8 +266,7 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .feedback-field textarea::placeholder { color: #a0a4ae; }
 .feedback-field textarea:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.11); }
 .feedback-field small { justify-self: end; color: var(--color-text-secondary); font-size: 0.75rem; }
-.feedback-actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 22px; border-top: 1px solid var(--color-border); padding: 18px 24px; background: var(--color-surface-soft); }
-.feedback-actions > span { color: var(--color-text-secondary); font-size: 0.78rem; }
+.feedback-actions { display: flex; align-items: center; justify-content: flex-end; gap: 20px; margin-top: 22px; border-top: 1px solid var(--color-border); padding: 18px 24px; background: var(--color-surface-soft); }
 .feedback-actions button { flex: 0 0 auto; min-width: 110px; }
 .settings-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 22px; border-top: 1px solid var(--color-border); padding-top: 20px; }
 .settings-actions > span { color: var(--color-text-secondary); font-size: 0.8rem; }
@@ -514,6 +511,7 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .kill-state-banner.status-ready { border-left-color: var(--color-warning); }
 .kill-state-banner.status-in_progress { border-left-color: var(--color-success); }
 .kill-state-banner.status-completed { border-left-color: #775ac7; }
+.kill-state-banner.status-result_pending { border-left-color: var(--color-warning); }
 .kill-state-banner p { margin-top: 3px; font-size: .8rem; }
 .kill-countdown { display: flex; flex: 0 0 auto; flex-direction: column; align-items: flex-end; }
 .kill-countdown span { color: var(--color-text-secondary); font-size: .7rem; }
@@ -521,6 +519,7 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .kill-overview { margin-bottom: 14px; padding: 20px 22px; }
 .kill-overview dl { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .kill-score-warning, .kill-balance-warning { margin-top: 16px; border-radius: 9px; padding: 10px 12px; background: var(--color-warning-soft); color: var(--color-warning); font-size: .78rem; font-weight: 700; }
+.kill-api-note { margin: 12px 0; border-radius: 9px; padding: 10px 12px; background: var(--color-surface-soft); color: var(--color-text-secondary); font-size: .76rem; line-height: 1.55; }
 .kill-actions-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 14px; padding: 22px; }
 .kill-actions-panel p { margin-top: 4px; font-size: .8rem; }
 .kill-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; }
@@ -570,6 +569,17 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .kill-match-evidence ul { margin: 0 0 12px; padding: 0 12px; list-style: none; background: var(--color-surface-soft); }
 .kill-match-evidence li { display: flex; justify-content: space-between; padding: 8px; font-size: .76rem; }
 .kill-admin-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+.kill-management-list { display: grid; gap: 8px; margin-top: 12px; }
+.kill-management-row, .kill-add-participant { display: grid; min-width: 0; grid-template-columns: minmax(180px, 1fr) minmax(0, auto); align-items: center; gap: 18px; border-top: 1px solid var(--color-border); padding-top: 10px; }
+.kill-management-row > span, .kill-add-participant > span { display: flex; min-width: 0; flex-direction: column; }
+.kill-management-row strong, .kill-add-participant strong { overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.kill-management-list small { color: var(--color-text-secondary); font-size: .7rem; }
+.kill-management-controls { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 8px; }
+.kill-management-controls select { width: 150px; min-width: 130px; min-height: 38px; }
+.kill-management-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.kill-management-actions button { min-width: 68px; min-height: 38px; margin: 0; }
+.kill-add-participant { margin-top: 14px; }
+.kill-add-participant .kill-management-controls > select:first-child { width: min(240px, 32vw); }
 .danger-button { border-color: #e6bfc2; color: var(--color-error); }
 .danger-button:hover { border-color: var(--color-error); background: var(--color-error-soft); color: var(--color-error); }
 
@@ -599,6 +609,11 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
   .kill-team-builder .kill-section-heading label { flex-basis: auto; }
   .kill-assignment-list label { grid-template-columns: minmax(0, 1fr) 110px; }
   .kill-match-evidence summary { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .kill-management-row, .kill-add-participant { grid-template-columns: 1fr; align-items: stretch; gap: 9px; }
+  .kill-management-controls { align-items: stretch; flex-direction: column; }
+  .kill-management-controls select, .kill-add-participant .kill-management-controls > select:first-child { width: 100%; }
+  .kill-management-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+  .kill-management-actions button { width: 100%; }
 }
 .team-options-panel { margin-bottom: 18px; padding: var(--space-card); }
 .team-section-heading { margin-bottom: 18px; }

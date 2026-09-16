@@ -20,7 +20,7 @@ export default function IntegrationServiceCard({
               <span aria-hidden="true" />{connected ? "연결됨" : "연결 안 됨"}
             </span>
           </div>
-          <p>{description}</p>
+          {description && <p>{description}</p>}
         </div>
       </div>
 

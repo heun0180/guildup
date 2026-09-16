@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
 
 export default function CommunitiesPage() {
+  const navigate = useNavigate();
   const [communities, setCommunities] = useState([]);
   const [discoverable, setDiscoverable] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,7 +46,7 @@ export default function CommunitiesPage() {
         body: JSON.stringify({ name: normalized, gameType }),
       });
       setName("");
-      window.location.assign(`/discord-connect.html?communityId=${encodeURIComponent(created.id)}`);
+      navigate(`/discord-connect.html?communityId=${encodeURIComponent(created.id)}`);
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(error.message);
     } finally {
@@ -59,7 +61,7 @@ export default function CommunitiesPage() {
       const joined = await api(`/api/community-discoveries/discord/${encodeURIComponent(communityId)}/join`, {
         method: "POST",
       });
-      window.location.assign(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`);
+      navigate(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`);
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(error.message);
       setJoiningId(null);
@@ -70,10 +72,9 @@ export default function CommunitiesPage() {
     <div className="public-page">
       <AppHeader actions onError={setMessage} />
       <main className="public-main communities-main">
-        <div className="public-heading">
+        <div className="public-heading is-compact">
           <p className="eyebrow">Communities</p>
           <h1>내 커뮤니티</h1>
-          <p>가입한 커뮤니티를 선택하세요.</p>
         </div>
         {loading && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
@@ -118,7 +119,7 @@ export default function CommunitiesPage() {
         <section className="create-community-card" aria-labelledby="create-community-title">
           <div className="create-community-copy">
             <span className="add-mark"><Icon name="plus" size={20} /></span>
-            <div><h2 id="create-community-title">새 커뮤니티</h2><p>새로운 클랜 관리 공간을 만듭니다.</p></div>
+            <div><h2 id="create-community-title">새 커뮤니티</h2></div>
           </div>
           <form className="create-community-form" onSubmit={createCommunity}>
             <label htmlFor="community-name">

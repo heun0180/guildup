@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
+import AppLink from "./AppLink.jsx";
 
-export default function AppHeader({ actions = false, onError }) {
+export default function AppHeader({ actions = false, communityId, onError }) {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -25,10 +26,12 @@ export default function AppHeader({ actions = false, onError }) {
   return (
     <header className="site-header">
       <div className="header-inner">
-        <a className="brand" href={actions ? "/communities.html" : "/login.html"}>
+        <AppLink className="brand" href={actions && /^\d+$/.test(communityId ?? "")
+          ? `/community-dashboard.html?communityId=${encodeURIComponent(communityId)}`
+          : actions ? "/communities.html" : "/login.html"}>
           <span className="brand-mark" aria-hidden="true">G</span>
           <span>GuildUp</span>
-        </a>
+        </AppLink>
         {actions && (
           <nav className="header-actions" aria-label="사용자 메뉴">
             {user && (
@@ -37,7 +40,7 @@ export default function AppHeader({ actions = false, onError }) {
                 <span>{user.nickname}</span>
               </span>
             )}
-            <a className="header-link" href="/communities.html">내 커뮤니티</a>
+            <AppLink className="header-link" href="/communities.html">내 커뮤니티</AppLink>
             <button className="text-button" type="button" onClick={logout}>로그아웃</button>
           </nav>
         )}

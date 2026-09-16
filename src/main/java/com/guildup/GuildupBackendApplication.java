@@ -2,9 +2,11 @@ package com.guildup;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /** GuildUp 백엔드의 Spring Boot 시작점이다. */
 @SpringBootApplication
+@EnableScheduling
 public class GuildupBackendApplication {
 
     /** Spring 컨테이너와 내장 웹 서버를 실행한다. */

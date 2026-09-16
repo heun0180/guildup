@@ -154,10 +154,9 @@ export default function DiscordDmPage() {
   return (
     <DashboardLayout active="integrations" communityId={communityId} onError={setNotice}>
       <div className="dashboard-content discord-dm-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Discord</p>
           <h1>DM 보내기</h1>
-          <p>Discord 서버 멤버를 선택해 운영 공지와 알림을 보냅니다.</p>
         </div>
 
         {notice && <p className="message" role="alert">{notice}</p>}

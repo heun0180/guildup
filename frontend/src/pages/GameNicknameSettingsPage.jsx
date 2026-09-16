@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 function HighlightedNickname({ discordNickname, gameNickname }) {
   const source = discordNickname || "";
@@ -94,9 +95,9 @@ function PreviewResults({ preview, saved = false, saving = false, onSave }) {
 }
 
 export default function GameNicknameSettingsPage() {
+  const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
-  const [community, setCommunity] = useState(null);
   const [rule, setRule] = useState(null);
   const [preview, setPreview] = useState(null);
   const [gameNickname, setGameNickname] = useState("");
@@ -132,9 +133,8 @@ export default function GameNicknameSettingsPage() {
       setLoading(true);
       setMessage("");
       try {
-        const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
+        const dashboard = community;
         if (cancelled) return;
-        setCommunity(dashboard);
         const canManage = dashboard.role === "OWNER" || dashboard.role === "ADMIN";
         if (!canManage) {
           setMessage("인게임 닉네임 규칙을 설정할 관리 권한이 없습니다.");
@@ -160,7 +160,7 @@ export default function GameNicknameSettingsPage() {
 
     load();
     return () => { cancelled = true; };
-  }, [communityId, endpoint, showError, validId]);
+  }, [community, communityId, endpoint, showError, validId]);
 
   async function analyzeRule() {
     setAnalyzing(true);

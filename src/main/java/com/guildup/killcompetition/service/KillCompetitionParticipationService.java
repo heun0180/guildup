@@ -40,4 +40,22 @@ public class KillCompetitionParticipationService {
         store.commit(userId, communityId, competitionId, preparation, resolved);
         return competitions.get(userId, communityId, competitionId);
     }
+
+    public KillCompetitionDetailResponse addMember(Long userId, Long communityId, Long competitionId,
+                                                   Long memberId, Long teamId) {
+        if (memberId == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "추가할 클랜원을 선택해 주세요.");
+        var preparation = store.prepareDirect(userId, communityId, competitionId, memberId);
+        PubgPlayer resolved = resolve(preparation);
+        store.commitDirect(userId, communityId, competitionId, preparation, resolved, teamId);
+        return competitions.get(userId, communityId, competitionId);
+    }
+
+    private PubgPlayer resolve(KillCompetitionParticipationStore.JoinPreparation preparation) {
+        if (!preparation.requiresLookup()) return null;
+        return players.findByNamesFresh(preparation.shard(), List.of(preparation.nickname())).stream()
+                .filter(player -> player.name() != null && player.name().equalsIgnoreCase(preparation.nickname()))
+                .filter(player -> player.accountId() != null && !player.accountId().isBlank())
+                .findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "PUBG에서 '" + preparation.nickname() + "' 계정을 찾지 못했습니다."));
+    }
 }

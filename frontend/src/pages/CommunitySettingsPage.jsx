@@ -9,11 +9,12 @@ import {
 } from "../activityRule.js";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 import { canManageCommunity } from "../communityAccess.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function CommunitySettingsPage() {
+  const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
-  const [community, setCommunity] = useState(null);
   const [roles, setRoles] = useState([]);
   const [selectedRoleIds, setSelectedRoleIds] = useState([]);
   const [nicknameStatus, setNicknameStatus] = useState("loading");
@@ -43,9 +44,8 @@ export default function CommunitySettingsPage() {
       setLoading(true);
       setMessage("");
       try {
-        const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
+        const dashboard = community;
         if (cancelled) return;
-        setCommunity(dashboard);
         const [activityRuleResult, nicknameStatusResult, communityUsersResult] = await Promise.allSettled([
           api(activityEndpoint),
           loadGameNicknameStatus({
@@ -89,7 +89,7 @@ export default function CommunitySettingsPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [activityEndpoint, communityId, validId]);
+  }, [activityEndpoint, community, communityId, validId]);
 
   useEffect(() => {
     if (loading || window.location.hash !== "#role-settings-title") return;
@@ -185,10 +185,9 @@ export default function CommunitySettingsPage() {
     <DashboardLayout active="settings" communityId={communityId} community={community}
                      loadCommunity={false} onError={setMessage}>
       <div className="dashboard-content narrow-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Settings</p>
           <h1>커뮤니티 설정</h1>
-          <p>클랜 활동 기준과 Discord 연동 방식을 관리합니다.</p>
         </div>
 
         {loading && <p className="panel page-state" role="status">설정을 불러오는 중입니다.</p>}

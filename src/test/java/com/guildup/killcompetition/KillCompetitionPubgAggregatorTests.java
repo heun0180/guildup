@@ -49,6 +49,26 @@ class KillCompetitionPubgAggregatorTests {
         verifyNoInteractions(matches);
     }
 
+    @Test
+    void appliesEachParticipantsEligibleFromWithoutFetchingMatchTwice() {
+        var inputs = List.of(
+                new KillCompetitionPubgAggregator.PlayerInput(1L, "apple", Instant.parse("2026-09-15T12:00:00Z")),
+                new KillCompetitionPubgAggregator.PlayerInput(2L, "fox", Instant.parse("2026-09-15T12:40:00Z")));
+        when(players.findByAccountIdsFresh("kakao", List.of("apple", "fox"))).thenReturn(List.of(
+                new PubgPlayer("apple", "Apple", List.of("early", "late")),
+                new PubgPlayer("fox", "Fox", List.of("early", "late"))));
+        when(matches.findUniqueMatchesFresh(eq("kakao"), anyCollection())).thenReturn(Map.of(
+                "early", match("early", "2026-09-15T12:20:00Z", 2, 8),
+                "late", match("late", "2026-09-15T12:50:00Z", 3, 5)));
+
+        var result = aggregator.aggregate("kakao", Instant.parse("2026-09-15T12:00:00Z"),
+                Instant.parse("2026-09-15T13:00:00Z"), inputs);
+
+        assertThat(result.totals().get(1L)).isEqualTo(new KillCompetitionKillSnapshot.PlayerTotal(5, 2));
+        assertThat(result.totals().get(2L)).isEqualTo(new KillCompetitionKillSnapshot.PlayerTotal(5, 1));
+        verify(matches, times(1)).findUniqueMatchesFresh(eq("kakao"), anyCollection());
+    }
+
     private PubgMatch match(String id, String startedAt, int appleKills, int foxKills) {
         return new PubgMatch(id, Instant.parse(startedAt), "squad", List.of(new PubgTeam(List.of(
                 new PubgParticipant("apple", "Apple", appleKills),

@@ -13,9 +13,10 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 @Entity
-@Table(name = "kill_competitions", indexes = @Index(
-        name = "idx_kill_competition_community_status", columnList = "community_id, status, ends_at"
-))
+@Table(name = "kill_competitions", indexes = {
+        @Index(name = "idx_kill_competition_community_status", columnList = "community_id, status, ends_at"),
+        @Index(name = "idx_kill_competition_result_publish", columnList = "status, result_publish_at")
+})
 public class KillCompetition {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -41,10 +42,15 @@ public class KillCompetition {
     @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
     @Column(name = "started_at") private Instant startedAt;
+    @Column(name = "recruitment_open", nullable = false, columnDefinition = "boolean default true") private boolean recruitmentOpen = true;
     @Column(name = "recruitment_closed_at") private Instant recruitmentClosedAt;
     @Column(name = "last_interim_calculated_at") private Instant lastInterimCalculatedAt;
+    @Column(name = "last_interim_match_started_at") private Instant lastInterimMatchStartedAt;
     @Column(name = "interim_calculation_started_at") private Instant interimCalculationStartedAt;
     @Column(name = "finalization_started_at") private Instant finalizationStartedAt;
+    @Column(name = "result_requested_at") private Instant resultRequestedAt;
+    @Column(name = "result_publish_at") private Instant resultPublishAt;
+    @Column(name = "result_last_error", length = 500) private String resultLastError;
     @Column(name = "completed_at") private Instant completedAt;
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
@@ -82,18 +88,39 @@ public class KillCompetition {
     public void start(Instant now) {
         status = KillCompetitionStatus.IN_PROGRESS;
         startedAt = now;
+        participants.stream().filter(KillCompetitionParticipant::isApproved)
+                .forEach(participant -> participant.initializeEligibleFrom(now));
+        updatedAt = now;
+    }
+
+    public void setRecruitmentOpen(boolean open, Instant now) {
+        recruitmentOpen = open;
+        if (!open) recruitmentClosedAt = now;
         updatedAt = now;
     }
 
     public void beginInterim(Instant now) { interimCalculationStartedAt = now; updatedAt = now; }
-    public void finishInterim(Instant now) {
+    public void finishInterim(Instant now, Instant latestMatchStartedAt) {
         lastInterimCalculatedAt = now;
+        lastInterimMatchStartedAt = latestMatchStartedAt;
         interimCalculationStartedAt = null;
         updatedAt = now;
     }
     public void clearInterimClaim() { interimCalculationStartedAt = null; }
     public void beginFinalization(Instant now) { finalizationStartedAt = now; updatedAt = now; }
     public void clearFinalizationClaim() { finalizationStartedAt = null; }
+    public void requestResult(Instant now, Instant publishAt) {
+        status = KillCompetitionStatus.RESULT_PENDING;
+        recruitmentOpen = false;
+        resultRequestedAt = now;
+        resultPublishAt = publishAt;
+        resultLastError = null;
+        updatedAt = now;
+    }
+    public void recordResultFailure(String message, Instant now) {
+        resultLastError = message == null ? "최종 결과 집계에 실패했습니다." : message.substring(0, Math.min(500, message.length()));
+        updatedAt = now;
+    }
     public void complete(Instant now) {
         status = KillCompetitionStatus.COMPLETED;
         completedAt = now;
@@ -117,10 +144,15 @@ public class KillCompetition {
     public KillCompetitionStatus getStatus() { return status; }
     public Instant getEndsAt() { return endsAt; }
     public Instant getStartedAt() { return startedAt; }
+    public boolean isRecruitmentOpen() { return recruitmentOpen; }
     public Instant getRecruitmentClosedAt() { return recruitmentClosedAt; }
     public Instant getLastInterimCalculatedAt() { return lastInterimCalculatedAt; }
+    public Instant getLastInterimMatchStartedAt() { return lastInterimMatchStartedAt; }
     public Instant getInterimCalculationStartedAt() { return interimCalculationStartedAt; }
     public Instant getFinalizationStartedAt() { return finalizationStartedAt; }
+    public Instant getResultRequestedAt() { return resultRequestedAt; }
+    public Instant getResultPublishAt() { return resultPublishAt; }
+    public String getResultLastError() { return resultLastError; }
     public Instant getCompletedAt() { return completedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public List<KillCompetitionParticipant> getParticipants() { return participants.stream().toList(); }

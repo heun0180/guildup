@@ -4,11 +4,12 @@ import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import CommunityNewsSummary from "../components/CommunityNewsSummary.jsx";
 import { canManageCommunity } from "../communityAccess.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function CommunityDashboardPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
-  const [community, setCommunity] = useState(null);
+  const { community } = useCommunity();
   const [memberCount, setMemberCount] = useState(null);
   const [roleCount, setRoleCount] = useState(null);
   const [attendance, setAttendance] = useState(null);
@@ -21,9 +22,8 @@ export default function CommunityDashboardPage() {
 
     async function loadDashboard() {
       try {
-        const dashboard = await api(`/api/communities/${encodeURIComponent(communityId)}`);
+        const dashboard = community;
         if (cancelled) return;
-        setCommunity(dashboard);
 
         api(`/api/communities/${encodeURIComponent(communityId)}/attendance/me`)
           .then((status) => { if (!cancelled) setAttendance(status); })
@@ -53,7 +53,7 @@ export default function CommunityDashboardPage() {
 
     loadDashboard();
     return () => { cancelled = true; };
-  }, [communityId, validId]);
+  }, [community, communityId, validId]);
 
   const discordName = community?.discordGuildName || community?.discordGuildId;
   const canManage = canManageCommunity(community?.role);
@@ -83,12 +83,10 @@ export default function CommunityDashboardPage() {
     <DashboardLayout active="dashboard" communityId={communityId} community={community}
                      loadCommunity={false} onError={setMessage}>
       <div className="dashboard-content">
-        <div className="page-heading">
-          <p className="eyebrow">{community?.name || "Community"}</p>
+        <div className="page-heading is-compact">
+          <p className="eyebrow">{community?.name}</p>
           <h1>커뮤니티 대시보드</h1>
-          <p>{community?.gameName
-            ? `${community.gameName} · ${canManage ? "커뮤니티를 관리할 수 있습니다." : "커뮤니티 정보를 확인할 수 있습니다."}`
-            : canManage ? "커뮤니티를 관리할 수 있습니다." : "커뮤니티 정보를 확인할 수 있습니다."}</p>
+          {community?.gameName && <span className="page-context-badge">{community.gameName}</span>}
         </div>
 
         {!community && !message && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
@@ -136,8 +134,7 @@ export default function CommunityDashboardPage() {
             <CommunityNewsSummary communityId={communityId} />
 
             <div className="section-heading">
-              <div><h2>{canManage ? "관리" : "커뮤니티"}</h2>
-                <p>{canManage ? "자주 사용하는 커뮤니티 관리 기능입니다." : "커뮤니티 정보를 확인하세요."}</p></div>
+              <div><h2>{canManage ? "관리" : "커뮤니티"}</h2></div>
             </div>
             <section className="management-grid">
               {canManage && <article className="management-card">
@@ -149,9 +146,7 @@ export default function CommunityDashboardPage() {
                       <span aria-hidden="true" />{community.discordConnected ? "연결됨" : "연결 안 됨"}
                     </span>
                   </div>
-                  <p>{community.discordConnected
-                    ? `${discordName} 서버의 역할과 멤버를 확인할 수 있습니다.`
-                    : "Discord 서버가 연결되어 있지 않습니다."}</p>
+                  <p>{community.discordConnected ? discordName : "Discord 서버가 연결되어 있지 않습니다."}</p>
                   <a className="secondary-button" href={community.discordConnected
                     ? `/members.html?communityId=${encodeURIComponent(communityId)}&discordRoles=true`
                     : `/discord-connect.html?communityId=${encodeURIComponent(communityId)}`}>
@@ -163,9 +158,7 @@ export default function CommunityDashboardPage() {
                 <span className="management-card-icon"><Icon name="users" size={22} /></span>
                 <div className="management-card-body">
                   <div className="management-title-row"><h2>클랜원</h2></div>
-                  <p>{canManage
-                    ? "Discord 역할을 기준으로 동기화된 커뮤니티 멤버를 확인하고 관리합니다."
-                    : "커뮤니티에 등록된 클랜원 목록을 확인합니다."}</p>
+                  {canManage && <p>Discord 역할과 동기화된 클랜원입니다.</p>}
                   <a className="secondary-button" href={`/members.html?communityId=${encodeURIComponent(communityId)}`}>
                     클랜원 보기 <Icon name="arrow" size={16} />
                   </a>

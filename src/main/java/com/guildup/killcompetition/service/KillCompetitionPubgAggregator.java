@@ -14,7 +14,11 @@ import java.util.stream.Collectors;
 /** 선수 조회는 배치로, Match는 ID 중복 제거 후 한 번씩만 조회한다. */
 @Service
 public class KillCompetitionPubgAggregator {
-    public record PlayerInput(Long participantId, String accountId) {}
+    public record PlayerInput(Long participantId, String accountId, Instant eligibleFrom) {
+        public PlayerInput(Long participantId, String accountId) {
+            this(participantId, accountId, Instant.EPOCH);
+        }
+    }
     private final PubgPlayerService players;
     private final PubgMatchService matches;
 
@@ -34,6 +38,9 @@ public class KillCompetitionPubgAggregator {
         Set<String> matchIds = loadedPlayers.stream().flatMap(player -> player.matchIds().stream())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         Map<String, PubgMatch> loadedMatches = matches.findUniqueMatchesFresh(shard, matchIds);
+        if (!loadedMatches.keySet().containsAll(matchIds)) {
+            throw new PubgApiException("일부 PUBG 경기 데이터를 조회하지 못해 정산을 중단했습니다.");
+        }
         Map<Long, Integer> kills = new LinkedHashMap<>();
         Map<Long, Integer> counts = new LinkedHashMap<>();
         inputs.forEach(input -> { kills.put(input.participantId(), 0); counts.put(input.participantId(), 0); });
@@ -44,6 +51,8 @@ public class KillCompetitionPubgAggregator {
             for (PubgParticipant player : match.teams().stream().flatMap(team -> team.participants().stream()).toList()) {
                 PlayerInput input = inputByAccount.get(player.accountId());
                 if (input == null) continue;
+                Instant eligibleFrom = input.eligibleFrom() == null ? startInclusive : input.eligibleFrom();
+                if (match.playedAt().isBefore(eligibleFrom.isAfter(startInclusive) ? eligibleFrom : startInclusive)) continue;
                 kills.merge(input.participantId(), player.kills(), Integer::sum);
                 counts.merge(input.participantId(), 1, Integer::sum);
                 rows.add(new KillCompetitionKillSnapshot.MatchKill(

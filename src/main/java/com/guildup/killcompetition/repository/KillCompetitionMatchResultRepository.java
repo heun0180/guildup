@@ -9,4 +9,5 @@ public interface KillCompetitionMatchResultRepository extends JpaRepository<Kill
     @EntityGraph(attributePaths = {"participant", "participant.communityMember"})
     List<KillCompetitionMatchResult> findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(Long competitionId);
     void deleteByCompetitionId(Long competitionId);
+    boolean existsByParticipantId(Long participantId);
 }

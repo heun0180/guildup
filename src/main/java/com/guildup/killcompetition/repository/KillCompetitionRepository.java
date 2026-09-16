@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
+import java.time.Instant;
 
 public interface KillCompetitionRepository extends JpaRepository<KillCompetition, Long> {
     @EntityGraph(attributePaths = {"createdBy", "participants", "participants.communityMember", "participants.team", "teams"})
@@ -18,4 +19,16 @@ public interface KillCompetitionRepository extends JpaRepository<KillCompetition
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select competition from KillCompetition competition where competition.id = :id and competition.community.id = :communityId")
     Optional<KillCompetition> findForUpdate(@Param("communityId") Long communityId, @Param("id") Long id);
+
+    @Query("""
+            select competition.id from KillCompetition competition
+            where competition.status = com.guildup.killcompetition.domain.KillCompetitionStatus.RESULT_PENDING
+              and competition.resultPublishAt <= :now
+            order by competition.resultPublishAt, competition.id
+            """)
+    List<Long> findResultPublishCandidateIds(@Param("now") Instant now, org.springframework.data.domain.Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select competition from KillCompetition competition where competition.id = :id")
+    Optional<KillCompetition> findByIdForUpdate(@Param("id") Long id);
 }

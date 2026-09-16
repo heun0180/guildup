@@ -14,13 +14,14 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.*;
 import java.util.*;
+import org.springframework.data.domain.PageRequest;
 
 @Service
 public class KillCompetitionSettlementStore {
     static final Duration INTERIM_COOLDOWN = Duration.ofMinutes(5);
     private static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(10);
 
-    public record SettlementWork(Long competitionId, String shard, Instant startedAt, Instant rangeEnd,
+    public record SettlementWork(Long competitionId, Long communityId, String shard, Instant startedAt, Instant rangeEnd,
                                  Instant claimAt, List<KillCompetitionPubgAggregator.PlayerInput> players) {}
 
     private final KillCompetitionRepository competitions;
@@ -46,8 +47,8 @@ public class KillCompetitionSettlementStore {
         access.requireCommunityMember(userId, communityId);
         KillCompetition competition = requireForUpdate(communityId, competitionId);
         CommunityMember member = currentMembers.require(userId, communityId);
-        if (competition.getParticipants().stream().noneMatch(p -> Objects.equals(
-                p.getCommunityMember().getId(), member.getId()))) forbidden("참가자만 중간 정산을 할 수 있습니다.");
+        if (competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).noneMatch(p -> Objects.equals(
+                p.getCommunityMember().getId(), member.getId()))) forbidden("승인된 참가자만 중간 정산을 할 수 있습니다.");
         Instant now = clock.instant();
         if (competition.getStatus() != KillCompetitionStatus.IN_PROGRESS || !now.isBefore(competition.getEndsAt())) {
             conflict("진행 중인 킬내기만 중간 정산할 수 있습니다.");
@@ -68,21 +69,39 @@ public class KillCompetitionSettlementStore {
             conflict("중간 정산 요청이 만료되었습니다. 다시 시도해 주세요.");
         }
         applyTotals(competition, snapshot, false);
-        competition.finishInterim(clock.instant());
+        Instant latest = snapshot.matchKills().stream().map(KillCompetitionKillSnapshot.MatchKill::startedAt)
+                .max(Comparator.naturalOrder()).orElse(null);
+        competition.finishInterim(clock.instant(), latest);
     }
 
     @Transactional
-    public SettlementWork claimFinal(Long userId, Long communityId, Long competitionId) {
+    public void requestFinal(Long userId, Long communityId, Long competitionId) {
         access.requireCommunityMember(userId, communityId);
         KillCompetition competition = requireForUpdate(communityId, competitionId);
         CommunityMember member = currentMembers.require(userId, communityId);
         if (!Objects.equals(competition.getCreatedBy().getId(), member.getId())) forbidden("킬내기 생성자만 결과를 발표할 수 있습니다.");
         Instant now = clock.instant();
+        if (competition.getStatus() == KillCompetitionStatus.RESULT_PENDING) conflict("이미 결과 발표를 요청했습니다.");
         if (competition.getStatus() == KillCompetitionStatus.COMPLETED) conflict("이미 결과가 확정된 킬내기입니다.");
         if (competition.getStatus() != KillCompetitionStatus.IN_PROGRESS || now.isBefore(competition.getEndsAt())) {
             conflict("종료된 킬내기만 결과를 발표할 수 있습니다.");
         }
-        if (activeClaim(competition.getFinalizationStartedAt(), now)) conflict("결과를 계산하고 있습니다.");
+        competition.requestResult(now, now.plus(Duration.ofMinutes(30)));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Long> findDueResultIds() {
+        return competitions.findResultPublishCandidateIds(clock.instant(), PageRequest.of(0, 20));
+    }
+
+    @Transactional
+    public SettlementWork claimDueFinal(Long competitionId) {
+        KillCompetition competition = competitions.findByIdForUpdate(competitionId).orElse(null);
+        if (competition == null) return null;
+        Instant now = clock.instant();
+        if (competition.getStatus() != KillCompetitionStatus.RESULT_PENDING
+                || competition.getResultPublishAt() == null || competition.getResultPublishAt().isAfter(now)
+                || activeClaim(competition.getFinalizationStartedAt(), now)) return null;
         competition.beginFinalization(now);
         return work(competition, competition.getEndsAt(), now);
     }
@@ -92,6 +111,7 @@ public class KillCompetitionSettlementStore {
     public void finishFinal(Long communityId, SettlementWork work, KillCompetitionKillSnapshot snapshot) {
         KillCompetition competition = requireForUpdate(communityId, work.competitionId());
         if (competition.getStatus() == KillCompetitionStatus.COMPLETED) return;
+        if (competition.getStatus() != KillCompetitionStatus.RESULT_PENDING) conflict("결과 발표 대기 상태가 아닙니다.");
         if (!Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) {
             conflict("결과 발표 요청이 만료되었습니다. 다시 시도해 주세요.");
         }
@@ -103,7 +123,7 @@ public class KillCompetitionSettlementStore {
                 competition, byId.get(row.participantId()), row.matchId(), row.startedAt(), row.kills())).toList());
 
         Instant completedAt = clock.instant();
-        if (competition.getParticipants().size() >= 4) {
+        if (competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).count() >= 4) {
             winnerMembers(competition).stream().sorted(Comparator.comparing(CommunityMember::getId))
                     .forEach(member -> scores.addKillCompetitionWinIfEligible(member, competition.getId(), completedAt));
         }
@@ -118,9 +138,11 @@ public class KillCompetitionSettlementStore {
     }
 
     @Transactional
-    public void releaseFinal(Long communityId, SettlementWork work) {
+    public void recordFinalFailure(Long communityId, SettlementWork work, RuntimeException failure) {
         competitions.findForUpdate(communityId, work.competitionId()).ifPresent(competition -> {
-            if (Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) competition.clearFinalizationClaim();
+            if (Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) {
+                competition.recordResultFailure(failure.getMessage(), clock.instant());
+            }
         });
     }
 
@@ -128,13 +150,17 @@ public class KillCompetitionSettlementStore {
         String shard = communityGames.findFirstByCommunityIdOrderByIdAsc(competition.getCommunity().getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "커뮤니티 PUBG 게임 설정이 없습니다."))
                 .getGameType().getPubgShard();
-        return new SettlementWork(competition.getId(), shard, competition.getStartedAt(), end, claimAt,
-                competition.getParticipants().stream().map(p -> new KillCompetitionPubgAggregator.PlayerInput(
-                        p.getId(), p.getPubgAccountId())).toList());
+        return new SettlementWork(competition.getId(), competition.getCommunity().getId(), shard,
+                competition.getStartedAt(), end, claimAt,
+                competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
+                        .map(p -> new KillCompetitionPubgAggregator.PlayerInput(
+                                p.getId(), p.getPubgAccountId(), p.getEligibleFrom() == null
+                                        ? competition.getStartedAt() : p.getEligibleFrom())).toList());
     }
 
     private void applyTotals(KillCompetition competition, KillCompetitionKillSnapshot snapshot, boolean finalResult) {
-        for (KillCompetitionParticipant participant : competition.getParticipants()) {
+        for (KillCompetitionParticipant participant : competition.getParticipants().stream()
+                .filter(KillCompetitionParticipant::isApproved).toList()) {
             var total = snapshot.totals().get(participant.getId());
             if (total == null) throw new IllegalStateException("참가자 정산 결과가 누락되었습니다.");
             if (finalResult) participant.recordFinal(total.kills(), total.matchCount());
@@ -146,16 +172,21 @@ public class KillCompetitionSettlementStore {
         if (competition.getGameMode() == KillCompetitionGameMode.SOLO) {
             int max = competition.getParticipants().stream().map(KillCompetitionParticipant::getFinalKills)
                     .filter(Objects::nonNull).mapToInt(Integer::intValue).max().orElse(0);
-            return competition.getParticipants().stream().filter(p -> Objects.equals(p.getFinalKills(), max))
+            return competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
+                    .filter(p -> Objects.equals(p.getFinalKills(), max))
+                    .filter(p -> Optional.ofNullable(p.getFinalMatchCount()).orElse(0) > 0)
                     .map(KillCompetitionParticipant::getCommunityMember).toList();
         }
         Map<Long, Integer> totals = new HashMap<>();
         competition.getTeams().forEach(team -> totals.put(team.getId(), 0));
-        competition.getParticipants().forEach(p -> totals.merge(p.getTeam().getId(), p.getFinalKills(), Integer::sum));
+        competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
+                .filter(p -> p.getTeam() != null).forEach(p -> totals.merge(p.getTeam().getId(), p.getFinalKills(), Integer::sum));
         int max = totals.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         Set<Long> winningTeams = new HashSet<>();
         totals.forEach((teamId, kills) -> { if (kills == max) winningTeams.add(teamId); });
-        return competition.getParticipants().stream().filter(p -> winningTeams.contains(p.getTeam().getId()))
+        return competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
+                .filter(p -> p.getTeam() != null && winningTeams.contains(p.getTeam().getId()))
+                .filter(p -> Optional.ofNullable(p.getFinalMatchCount()).orElse(0) > 0)
                 .map(KillCompetitionParticipant::getCommunityMember).toList();
     }
 

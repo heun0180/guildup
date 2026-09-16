@@ -1,29 +1,17 @@
-import { useEffect, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { useLocation } from "react-router-dom";
 import { requiredRolesForLocation } from "../communityAccess.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
+import AppLink from "./AppLink.jsx";
 
 export default function CommunityRouteGuard({ children }) {
-  const requiredRoles = requiredRolesForLocation(window.location.pathname, window.location.search);
-  const communityId = new URLSearchParams(window.location.search).get("communityId");
-  const validId = /^\d+$/.test(communityId ?? "");
-  const [state, setState] = useState(requiredRoles ? "loading" : "allowed");
-
-  useEffect(() => {
-    if (!requiredRoles) return;
-    if (!validId) {
-      setState("invalid");
-      return;
-    }
-    let cancelled = false;
-    api(`/api/communities/${encodeURIComponent(communityId)}`)
-      .then((community) => {
-        if (!cancelled) setState(requiredRoles.has(community.role) ? "allowed" : "forbidden");
-      })
-      .catch((error) => {
-        if (!redirectToLogin(error) && !cancelled) setState(error.status === 403 ? "forbidden" : "error");
-      });
-    return () => { cancelled = true; };
-  }, [communityId, requiredRoles, validId]);
+  const location = useLocation();
+  const { communityId, validId, community, loading, error } = useCommunity();
+  const requiredRoles = requiredRolesForLocation(location.pathname, location.search);
+  const state = !validId ? "invalid"
+    : loading ? "loading"
+    : error ? "error"
+    : requiredRoles && !requiredRoles.has(community?.role) ? "forbidden"
+    : "allowed";
 
   if (state === "allowed") return children;
   const messages = {
@@ -32,13 +20,13 @@ export default function CommunityRouteGuard({ children }) {
     forbidden: "OWNER 또는 ADMIN만 이 화면에 접근할 수 있습니다.",
     error: "커뮤니티 권한을 확인하지 못했습니다.",
   };
-  return <main className="public-main login-main">
+  return <section className="public-main login-main">
     <section className="login-card">
       <h1>{state === "forbidden" ? "접근 권한이 없습니다." : "페이지를 열 수 없습니다."}</h1>
       <p className="login-description">{messages[state]}</p>
-      {state !== "loading" && <a href={validId
+      {state !== "loading" && <AppLink href={validId
         ? `/community-dashboard.html?communityId=${encodeURIComponent(communityId)}`
-        : "/communities.html"}>커뮤니티로 돌아가기</a>}
+        : "/communities.html"}>커뮤니티로 돌아가기</AppLink>}
     </section>
-  </main>;
+  </section>;
 }

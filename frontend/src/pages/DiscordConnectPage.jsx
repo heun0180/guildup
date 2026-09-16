@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, ApiError, redirectToLogin } from "../api/http.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 const installMessages = {
   400: "설치 요청 정보가 올바르지 않습니다. Discord 인증 다시 시작을 눌러주세요.",
@@ -18,6 +20,8 @@ function installError(error) {
 }
 
 export default function DiscordConnectPage() {
+  const navigate = useNavigate();
+  const { refreshCommunity } = useCommunity();
   const [communityId] = useState(() => new URLSearchParams(window.location.search).get("communityId"));
   // 주소에서 oauthResult를 지운 뒤에도 봇 설치 요청까지 메모리에 유지한다.
   const [oauthResult] = useState(() => new URLSearchParams(window.location.search).get("oauthResult"));
@@ -44,7 +48,7 @@ export default function DiscordConnectPage() {
       .then((data) => {
         setResult(data);
         setStep("guilds");
-        window.history.replaceState({}, "", `/discord-connect.html?communityId=${encodeURIComponent(communityId)}`);
+        navigate(`/discord-connect.html?communityId=${encodeURIComponent(communityId)}`, { replace: true });
       })
       .catch((error) => {
         if (!redirectToLogin(error)) {
@@ -91,10 +95,10 @@ export default function DiscordConnectPage() {
           discardSourceCommunity: true,
         }),
       });
-      window.location.replace(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`);
+      navigate(`/community-dashboard.html?communityId=${encodeURIComponent(joined.communityId)}`, { replace: true });
     } catch (error) {
       if (error instanceof ApiError && error.code === "ALREADY_COMMUNITY_MEMBER" && error.communityId) {
-        window.location.replace(`/community-dashboard.html?communityId=${encodeURIComponent(error.communityId)}`);
+        navigate(`/community-dashboard.html?communityId=${encodeURIComponent(error.communityId)}`, { replace: true });
       } else if (!redirectToLogin(error)) {
         setMessage(installError(error));
       }
@@ -121,7 +125,8 @@ export default function DiscordConnectPage() {
       });
       if (data.alreadyInstalled) {
         installWindow?.close();
-        window.location.replace(dashboardUrl);
+        await refreshCommunity();
+        navigate(dashboardUrl, { replace: true });
         return;
       }
       setInstallToken(data.installToken);
@@ -150,7 +155,8 @@ export default function DiscordConnectPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ installToken }),
       });
-      window.location.replace(dashboardUrl);
+      await refreshCommunity();
+      navigate(dashboardUrl, { replace: true });
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(installError(error));
     } finally {
@@ -161,10 +167,9 @@ export default function DiscordConnectPage() {
   return (
     <DashboardLayout active="roles" communityId={communityId} onError={setMessage}>
       <div className="dashboard-content narrow-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Discord</p>
           <h1 id="page-title">Discord 연결</h1>
-          <p>Discord 서버를 GuildUp 커뮤니티에 연결합니다.</p>
         </div>
         <section className="panel connect-panel" aria-labelledby="page-title">
 

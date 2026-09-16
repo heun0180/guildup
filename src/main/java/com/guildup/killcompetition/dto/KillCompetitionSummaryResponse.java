@@ -11,7 +11,8 @@ public record KillCompetitionSummaryResponse(
     public static KillCompetitionSummaryResponse from(KillCompetition competition, Instant now) {
         return new KillCompetitionSummaryResponse(
                 competition.getId(), competition.getTitle(), competition.getGameMode(),
-                effectiveStatus(competition, now), competition.getParticipants().size(),
+                effectiveStatus(competition, now), (int) competition.getParticipants().stream()
+                        .filter(KillCompetitionParticipant::isApproved).count(),
                 competition.getCreatedBy().getId(), competition.getCreatedBy().getNickname(),
                 competition.getEndsAt(), competition.getStartedAt(), now
         );

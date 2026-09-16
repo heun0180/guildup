@@ -4,13 +4,14 @@ import { activityStatus, formatGameMode, formatRelativeDays } from "../activityV
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function MemberActivityDetailPage() {
+  const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
   const memberId = params.get("memberId");
   const validIds = /^\d+$/.test(communityId ?? "") && /^\d+$/.test(memberId ?? "");
-  const [community, setCommunity] = useState(null);
   const [activity, setActivity] = useState(null);
   const [loading, setLoading] = useState(validIds);
   const [message, setMessage] = useState(validIds ? "" : "올바른 클랜원을 선택해 주세요.");
@@ -21,12 +22,8 @@ export default function MemberActivityDetailPage() {
     async function load() {
       setLoading(true);
       try {
-        const [dashboard, result] = await Promise.all([
-          api(`/api/communities/${encodeURIComponent(communityId)}`),
-          api(`/api/communities/${encodeURIComponent(communityId)}/members/${encodeURIComponent(memberId)}/activity`),
-        ]);
+        const result = await api(`/api/communities/${encodeURIComponent(communityId)}/members/${encodeURIComponent(memberId)}/activity`);
         if (cancelled) return;
-        setCommunity(dashboard);
         setActivity(result);
       } catch (error) {
         if (!redirectToLogin(error) && !cancelled) {
@@ -82,7 +79,7 @@ export default function MemberActivityDetailPage() {
           </aside>
 
           <section className="activity-match-section" aria-labelledby="recent-match-title">
-            <div className="activity-match-heading"><div><h2 id="recent-match-title">최근 게임 내역</h2><p>활동 확인 기간에 참가한 게임을 최신순으로 보여줍니다.</p></div><span>{activity.matches.length}게임</span></div>
+            <div className="activity-match-heading"><div><h2 id="recent-match-title">최근 게임 내역</h2></div><span>{activity.matches.length}게임</span></div>
             {activity.matches.length === 0 ? <div className="panel activity-empty-matches">
               <Icon name="game" size={25} /><h3>표시할 최근 게임이 없습니다.</h3>
               <p>{activity.status === "ACCOUNT_VERIFICATION_REQUIRED" ? "인게임 닉네임과 PUBG 계정을 확인해 주세요." : "활동 확인 기간에 조회된 게임이 없습니다."}</p>

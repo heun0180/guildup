@@ -10,16 +10,21 @@ CREATE TABLE IF NOT EXISTS kill_competitions (
     status VARCHAR(20) NOT NULL,
     ends_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
+    recruitment_open BOOLEAN NOT NULL DEFAULT TRUE,
     recruitment_closed_at TIMESTAMPTZ,
     last_interim_calculated_at TIMESTAMPTZ,
+    last_interim_match_started_at TIMESTAMPTZ,
     interim_calculation_started_at TIMESTAMPTZ,
     finalization_started_at TIMESTAMPTZ,
+    result_requested_at TIMESTAMPTZ,
+    result_publish_at TIMESTAMPTZ,
+    result_last_error VARCHAR(500),
     completed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT ck_kill_competition_game_mode CHECK (game_mode IN ('SOLO', 'DUO', 'SQUAD')),
-    CONSTRAINT ck_kill_competition_status CHECK (status IN ('RECRUITING', 'READY', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))
+    CONSTRAINT ck_kill_competition_status CHECK (status IN ('RECRUITING', 'READY', 'IN_PROGRESS', 'RESULT_PENDING', 'COMPLETED', 'CANCELLED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_kill_competition_community_status
@@ -40,6 +45,8 @@ CREATE TABLE IF NOT EXISTS kill_competition_participants (
     team_id BIGINT REFERENCES kill_competition_teams(id),
     pubg_account_id VARCHAR(255) NOT NULL,
     pubg_nickname VARCHAR(255) NOT NULL,
+    participation_status VARCHAR(16) NOT NULL DEFAULT 'APPROVED',
+    eligible_from TIMESTAMPTZ,
     interim_kills INTEGER NOT NULL DEFAULT 0,
     interim_match_count INTEGER NOT NULL DEFAULT 0,
     final_kills INTEGER,
@@ -59,3 +66,26 @@ CREATE TABLE IF NOT EXISTS kill_competition_match_results (
 
 CREATE INDEX IF NOT EXISTS idx_kill_competition_match
     ON kill_competition_match_results (competition_id, match_id);
+
+-- 기존 설치 DB 업그레이드
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS recruitment_open BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS last_interim_match_started_at TIMESTAMPTZ;
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_requested_at TIMESTAMPTZ;
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ;
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_last_error VARCHAR(500);
+ALTER TABLE kill_competitions DROP CONSTRAINT IF EXISTS ck_kill_competition_status;
+ALTER TABLE kill_competitions ADD CONSTRAINT ck_kill_competition_status
+    CHECK (status IN ('RECRUITING', 'READY', 'IN_PROGRESS', 'RESULT_PENDING', 'COMPLETED', 'CANCELLED'));
+CREATE INDEX IF NOT EXISTS idx_kill_competition_result_publish
+    ON kill_competitions (status, result_publish_at);
+
+ALTER TABLE kill_competition_participants
+    ADD COLUMN IF NOT EXISTS participation_status VARCHAR(16) NOT NULL DEFAULT 'APPROVED';
+ALTER TABLE kill_competition_participants ADD COLUMN IF NOT EXISTS eligible_from TIMESTAMPTZ;
+UPDATE kill_competition_participants participant
+SET eligible_from = competition.started_at
+FROM kill_competitions competition
+WHERE participant.competition_id = competition.id
+  AND participant.participation_status = 'APPROVED'
+  AND participant.eligible_from IS NULL
+  AND competition.started_at IS NOT NULL;

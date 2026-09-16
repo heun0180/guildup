@@ -38,6 +38,42 @@ public class KillCompetitionController {
     public KillCompetitionDetailResponse leave(@PathVariable Long communityId, @PathVariable Long competitionId, HttpSession session) {
         return competitions.leave(CurrentUserSession.requireUserId(session), communityId, competitionId);
     }
+    @PutMapping("/{competitionId}/recruitment")
+    public KillCompetitionDetailResponse recruitment(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                                      @RequestBody KillCompetitionRecruitmentRequest request, HttpSession session) {
+        return competitions.setRecruitment(CurrentUserSession.requireUserId(session), communityId, competitionId, request.open());
+    }
+    @PostMapping("/{competitionId}/participants")
+    public KillCompetitionDetailResponse addParticipant(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                                        @RequestBody KillCompetitionParticipantAddRequest request, HttpSession session) {
+        return participation.addMember(CurrentUserSession.requireUserId(session), communityId, competitionId,
+                request.memberId(), request.teamId());
+    }
+    @PostMapping("/{competitionId}/participants/{participantId}/approve")
+    public KillCompetitionDetailResponse approve(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                                  @PathVariable Long participantId,
+                                                  @RequestBody(required = false) KillCompetitionParticipantApprovalRequest request,
+                                                  HttpSession session) {
+        return competitions.approveParticipant(CurrentUserSession.requireUserId(session), communityId, competitionId,
+                participantId, request == null ? null : request.teamId());
+    }
+    @PostMapping("/{competitionId}/participants/{participantId}/reject")
+    public KillCompetitionDetailResponse reject(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                                 @PathVariable Long participantId, HttpSession session) {
+        return competitions.rejectParticipant(CurrentUserSession.requireUserId(session), communityId, competitionId, participantId);
+    }
+    @DeleteMapping("/{competitionId}/participants/{participantId}")
+    public KillCompetitionDetailResponse removeParticipant(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                                           @PathVariable Long participantId, HttpSession session) {
+        return competitions.removeParticipant(CurrentUserSession.requireUserId(session), communityId, competitionId, participantId);
+    }
+    @PutMapping("/{competitionId}/participants/{participantId}/team")
+    public KillCompetitionDetailResponse team(@PathVariable Long communityId, @PathVariable Long competitionId,
+                                               @PathVariable Long participantId,
+                                               @RequestBody KillCompetitionParticipantTeamRequest request, HttpSession session) {
+        return competitions.changeParticipantTeam(CurrentUserSession.requireUserId(session), communityId, competitionId,
+                participantId, request.teamId());
+    }
     @PostMapping("/{competitionId}/close-recruitment")
     public KillCompetitionDetailResponse close(@PathVariable Long communityId, @PathVariable Long competitionId, HttpSession session) {
         return competitions.closeRecruitment(CurrentUserSession.requireUserId(session), communityId, competitionId);
@@ -55,7 +91,7 @@ public class KillCompetitionController {
     public KillCompetitionDetailResponse interim(@PathVariable Long communityId, @PathVariable Long competitionId, HttpSession session) {
         return settlements.calculateInterim(CurrentUserSession.requireUserId(session), communityId, competitionId);
     }
-    @PostMapping("/{competitionId}/finalize")
+    @PostMapping({"/{competitionId}/result-request", "/{competitionId}/finalize"})
     public KillCompetitionDetailResponse finalizeResult(@PathVariable Long communityId, @PathVariable Long competitionId, HttpSession session) {
         return settlements.finalizeResult(CurrentUserSession.requireUserId(session), communityId, competitionId);
     }

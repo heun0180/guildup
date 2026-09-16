@@ -208,13 +208,14 @@ class KillCompetitionFlowTests {
         var started = startedSolo(people);
         clock.set(started.endsAt().plusSeconds(1));
         mockKills(Map.of("account-생성자", 9, "account-둘", 4, "account-셋", 3, "account-넷", 2));
-        var completed = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        var completed = finalizeAndPublish(started.id());
         assertThat(completed.status()).isEqualTo("COMPLETED");
         assertThat(completed.finalStandings().getFirst()).satisfies(row -> {
             assertThat(row.name()).isEqualTo("생성자"); assertThat(row.winner()).isTrue(); assertThat(row.rank()).isEqualTo(1);
         });
         assertThat(scores.findByCommunityMemberId(creator.member().getId()).orElseThrow().getTotalScore()).isEqualTo(3);
         assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(started.id())).hasSize(4);
+        settlements.publishDueResult(started.id());
         assertConflict(() -> settlements.finalizeResult(creator.user().getId(), community.getId(), started.id()));
         assertThat(histories.findByCommunityMemberIdOrderByCreatedAtDescIdDesc(creator.member().getId())).hasSize(1);
     }
@@ -235,7 +236,7 @@ class KillCompetitionFlowTests {
         clock.set(started.endsAt().plusSeconds(1));
         mockKills(Map.of("account-생성자", 1, "account-둘", 1, "account-셋", 8, "account-넷", 7));
 
-        var completed = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        var completed = finalizeAndPublish(started.id());
         Long winningTeam = completed.finalStandings().stream().filter(KillCompetitionDetailResponse.Standing::winner)
                 .map(KillCompetitionDetailResponse.Standing::teamId).findFirst().orElseThrow();
         List<Long> winningMembers = completed.participants().stream().filter(p -> Objects.equals(p.teamId(), winningTeam))
@@ -256,19 +257,19 @@ class KillCompetitionFlowTests {
         var first = startedSolo(people);
         clock.set(first.endsAt().plusSeconds(1));
         mockKills(Map.of("account-생성자", 10, "account-둘", 10, "account-셋", 2, "account-넷", 1));
-        var completed = settlements.finalizeResult(creator.user().getId(), community.getId(), first.id());
+        var completed = finalizeAndPublish(first.id());
         assertThat(completed.finalStandings()).filteredOn(KillCompetitionDetailResponse.Standing::winner).hasSize(2)
                 .allMatch(row -> row.rank() == 1);
 
         var second = startedSolo(people);
         clock.set(second.endsAt().plusSeconds(1)); mockKills(Map.of("account-생성자", 20));
-        settlements.finalizeResult(creator.user().getId(), community.getId(), second.id());
+        finalizeAndPublish(second.id());
         assertThat(scores.findByCommunityMemberId(creator.member().getId()).orElseThrow().getTotalScore()).isEqualTo(3);
 
         clock.set(Instant.parse("2026-09-16T15:01:00Z"));
         var third = startedSolo(people);
         clock.set(third.endsAt().plusSeconds(1)); mockKills(Map.of("account-생성자", 30));
-        settlements.finalizeResult(creator.user().getId(), community.getId(), third.id());
+        finalizeAndPublish(third.id());
         assertThat(scores.findByCommunityMemberId(creator.member().getId()).orElseThrow().getTotalScore()).isEqualTo(6);
     }
 
@@ -276,16 +277,101 @@ class KillCompetitionFlowTests {
     void fewerThanFourGetsNoScoreAndPubgFailureLeavesResultUnconfirmed() {
         var small = startedSolo(List.of(creator));
         clock.set(small.endsAt().plusSeconds(1)); mockKills(Map.of("account-생성자", 5));
-        assertThat(settlements.finalizeResult(creator.user().getId(), community.getId(), small.id()).status()).isEqualTo("COMPLETED");
+        assertThat(finalizeAndPublish(small.id()).status()).isEqualTo("COMPLETED");
         assertThat(scores.findByCommunityMemberId(creator.member().getId())).isEmpty();
 
         var failed = startedSolo(List.of(creator));
         clock.set(failed.endsAt().plusSeconds(1));
         when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenThrow(new PubgApiException("실패"));
-        assertThatThrownBy(() -> settlements.finalizeResult(creator.user().getId(), community.getId(), failed.id()))
-                .isInstanceOf(PubgApiException.class);
-        assertThat(competitions.get(creator.user().getId(), community.getId(), failed.id()).status()).isEqualTo("ENDED");
+        settlements.finalizeResult(creator.user().getId(), community.getId(), failed.id());
+        clock.set(clock.instant().plus(Duration.ofMinutes(30)));
+        settlements.publishDueResult(failed.id());
+        assertThat(competitions.get(creator.user().getId(), community.getId(), failed.id()).status()).isEqualTo("RESULT_PENDING");
         assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(failed.id())).isEmpty();
+    }
+
+    @Test
+    void inProgressJoinWaitsForCreatorApprovalAndUsesApprovalTime() {
+        var started = startedSolo(List.of(creator));
+        Person late = person("늦참", CommunityUserRole.MEMBER, true);
+        clock.set(started.startedAt().plus(Duration.ofMinutes(5)));
+
+        var pending = participation.join(late.user().getId(), community.getId(), started.id());
+        var applicant = pending.participants().stream().filter(p -> p.memberId().equals(late.member().getId())).findFirst().orElseThrow();
+        assertThat(applicant.participationStatus().name()).isEqualTo("PENDING");
+        assertThat(applicant.eligibleFrom()).isNull();
+
+        clock.set(clock.instant().plusSeconds(30));
+        var approved = competitions.approveParticipant(creator.user().getId(), community.getId(), started.id(),
+                applicant.participantId(), null);
+        var participant = approved.participants().stream().filter(p -> p.memberId().equals(late.member().getId())).findFirst().orElseThrow();
+        assertThat(participant.eligibleFrom()).isEqualTo(clock.instant());
+        assertThat(participant.participationStatus().name()).isEqualTo("APPROVED");
+    }
+
+    @Test
+    void recruitmentSwitchBlocksInProgressApplications() {
+        var started = startedSolo(List.of(creator));
+        Person late = person("신청자", CommunityUserRole.MEMBER, true);
+        competitions.setRecruitment(creator.user().getId(), community.getId(), started.id(), false);
+        assertConflict(() -> participation.join(late.user().getId(), community.getId(), started.id()));
+        competitions.setRecruitment(creator.user().getId(), community.getId(), started.id(), true);
+        assertThat(participation.join(late.user().getId(), community.getId(), started.id()).participants())
+                .anyMatch(p -> p.memberId().equals(late.member().getId()));
+    }
+
+    @Test
+    void duoLateApplicantRequiresCreatorAndInitialTeamAndCannotMoveAfterARecognizedMatch() {
+        Person second = person("둘", CommunityUserRole.MEMBER, true);
+        Person late = person("늦참팀", CommunityUserRole.MEMBER, true);
+        var created = create(KillCompetitionGameMode.DUO);
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        participation.join(second.user().getId(), community.getId(), created.id());
+        var ready = competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var ids = ready.participants().stream().map(KillCompetitionDetailResponse.Participant::participantId).toList();
+        var configured = competitions.configureTeams(creator.user().getId(), community.getId(), created.id(), teamRequest(ids, 1, 2));
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        var pending = participation.join(late.user().getId(), community.getId(), started.id()).participants().stream()
+                .filter(p -> p.memberId().equals(late.member().getId())).findFirst().orElseThrow();
+
+        assertThatThrownBy(() -> competitions.approveParticipant(second.user().getId(), community.getId(), started.id(),
+                pending.participantId(), configured.teams().getFirst().teamId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> assertThat(error.getStatusCode().value()).isEqualTo(403));
+        assertBadRequest(() -> competitions.approveParticipant(creator.user().getId(), community.getId(), started.id(),
+                pending.participantId(), null));
+        var approved = competitions.approveParticipant(creator.user().getId(), community.getId(), started.id(),
+                pending.participantId(), configured.teams().getFirst().teamId());
+        assertThat(approved.participants()).filteredOn(p -> p.participantId().equals(pending.participantId()))
+                .singleElement().extracting(KillCompetitionDetailResponse.Participant::teamId)
+                .isEqualTo(configured.teams().getFirst().teamId());
+
+        mockKills(Map.of("account-생성자", 1, "account-둘", 1, "account-늦참팀", 1));
+        settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
+        assertConflict(() -> competitions.changeParticipantTeam(creator.user().getId(), community.getId(), started.id(),
+                pending.participantId(), configured.teams().get(1).teamId()));
+    }
+
+    @Test
+    void resultRequestDoesNotCallPubgAndSchedulerPublishesOnlyAfterThirtyMinutes() {
+        var started = startedSolo(List.of(creator));
+        clock.set(started.endsAt().plusSeconds(1));
+        mockKills(Map.of("account-생성자", 3));
+
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        assertThat(pending.status()).isEqualTo("RESULT_PENDING");
+        assertThat(pending.resultPublishAt()).isEqualTo(pending.resultRequestedAt().plus(Duration.ofMinutes(30)));
+        verifyNoInteractions(aggregator);
+        assertConflict(() -> settlements.finalizeResult(creator.user().getId(), community.getId(), started.id()));
+
+        clock.set(pending.resultPublishAt().minusSeconds(1));
+        settlements.publishDueResult(started.id());
+        verifyNoInteractions(aggregator);
+        clock.set(pending.resultPublishAt());
+        settlements.publishDueResult(started.id());
+        verify(aggregator, times(1)).aggregate(anyString(), any(), any(), anyList());
+        settlements.publishDueResult(started.id());
+        verify(aggregator, times(1)).aggregate(anyString(), any(), any(), anyList());
+        assertThat(competitions.get(creator.user().getId(), community.getId(), started.id()).status()).isEqualTo("COMPLETED");
     }
 
     @Test
@@ -310,6 +396,13 @@ class KillCompetitionFlowTests {
         people.forEach(p -> participation.join(p.user().getId(), community.getId(), created.id()));
         competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
         return competitions.start(creator.user().getId(), community.getId(), created.id());
+    }
+    private KillCompetitionDetailResponse finalizeAndPublish(Long competitionId) {
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), competitionId);
+        assertThat(pending.status()).isEqualTo("RESULT_PENDING");
+        clock.set(pending.resultPublishAt());
+        settlements.publishDueResult(competitionId);
+        return competitions.get(creator.user().getId(), community.getId(), competitionId);
     }
     private KillCompetitionTeamRequest teamRequest(List<Long> ids, int... teamNumbers) {
         List<KillCompetitionTeamRequest.TeamAssignment> assignments = new ArrayList<>();

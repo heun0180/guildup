@@ -53,10 +53,9 @@ export default function FeedbackPage() {
   return (
     <DashboardLayout active="feedback" communityId={communityId} onError={handleLayoutError}>
       <div className="dashboard-content narrow-content feedback-content">
-        <div className="page-heading">
+        <div className="page-heading is-compact">
           <p className="eyebrow">Feedback</p>
           <h1>문의/건의</h1>
-          <p>GuildUp을 이용하며 떠오른 의견이나 문제를 개발자에게 보내주세요.</p>
         </div>
 
         {error && <p className="message feedback-notice" role="alert">{error}</p>}
@@ -95,7 +94,6 @@ export default function FeedbackPage() {
           </label>
 
           <div className="feedback-actions">
-            <span>문의 내용은 이메일로만 전송되며 GuildUp DB에 저장되지 않습니다.</span>
             <button type="submit" disabled={sending || !validId}>{sending ? "보내는 중…" : "보내기"}</button>
           </div>
         </form>
