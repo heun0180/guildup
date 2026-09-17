@@ -45,7 +45,7 @@ public class CommunityMemberController {
         CommunityMember member = communityMemberService.addMember(
                 CurrentUserSession.requireUserId(session), communityId, request.nickname()
         );
-        return ResponseEntity.status(HttpStatus.CREATED).body(CommunityMemberResponse.from(member, null));
+        return ResponseEntity.status(HttpStatus.CREATED).body(CommunityMemberResponse.from(member, null, null));
     }
 
     /** 등록 순서대로 커뮤니티의 전체 클랜원을 조회한다. */

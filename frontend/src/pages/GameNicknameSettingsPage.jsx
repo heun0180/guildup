@@ -219,10 +219,13 @@ export default function GameNicknameSettingsPage() {
     <DashboardLayout active="game-nickname" communityId={communityId} community={community}
                      loadCommunity={false} onError={setMessage}>
       <div className="dashboard-content nickname-settings-content">
-        <div className="page-heading">
-          <p className="eyebrow">Game nickname</p>
-          <h1>인게임 닉네임 설정</h1>
-          <p>Discord 서버에서 사용하는 닉네임 형식을 분석하여<br className="desktop-break" /> 클랜원의 인게임 닉네임을 자동으로 구분합니다.</p>
+        <div className="page-heading settings-page-heading">
+          <div>
+            <p className="eyebrow">Game nickname</p>
+            <h1>인게임 닉네임 설정</h1>
+            <p>Discord 서버에서 사용하는 닉네임 형식을 분석하여<br className="desktop-break" /> 클랜원의 인게임 닉네임을 자동으로 구분합니다.</p>
+          </div>
+          <a className="secondary-button" href={`/community-settings.html?communityId=${encodeURIComponent(communityId || "")}`}>설정 목록</a>
         </div>
 
         {loading && <section className="panel loading-panel" role="status">설정을 불러오는 중입니다.</section>}

@@ -10,6 +10,15 @@ test("OWNER와 ADMIN만 GuildUp 커뮤니티를 관리한다", () => {
 
 test("관리 화면과 Discord 역할 화면은 MEMBER의 직접 URL 접근을 막는다", () => {
   assert.equal(requiredRolesForLocation("/community-settings.html").has("MEMBER"), false);
+  for (const path of [
+    "/discord-member-role-settings.html",
+    "/game-nickname-settings.html",
+    "/activity-rule-settings.html",
+    "/community-role-settings.html",
+  ]) {
+    assert.equal(requiredRolesForLocation(path).has("MEMBER"), false);
+    assert.equal(requiredRolesForLocation(path).has("ADMIN"), true);
+  }
   assert.equal(requiredRolesForLocation("/discord-dm.html").has("ADMIN"), true);
   assert.equal(requiredRolesForLocation("/member-activities.html").has("MEMBER"), false);
   assert.equal(requiredRolesForLocation("/member-activity.html").has("MEMBER"), false);

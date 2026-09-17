@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
+import SiteFooter from "../components/SiteFooter.jsx";
 
 export default function LoginPage() {
   const [message, setMessage] = useState(() => {
@@ -35,6 +36,7 @@ export default function LoginPage() {
           {message && <p className="message" role="alert">{message}</p>}
         </section>
       </main>
+      <SiteFooter showAbout={false} />
     </div>
   );
 }

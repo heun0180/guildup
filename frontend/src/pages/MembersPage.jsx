@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { canManageCommunity } from "../communityAccess.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
+import { sortCommunityMembers } from "../memberView.js";
 
 export default function MembersPage() {
   const { community } = useCommunity();
@@ -24,9 +25,13 @@ export default function MembersPage() {
   const [nickname, setNickname] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [nicknameSyncing, setNicknameSyncing] = useState(false);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState({ key: null, direction: "asc" });
   const [message, setMessage] = useState("");
+  const [success, setSuccess] = useState("");
   const [memberRolesConfigured, setMemberRolesConfigured] = useState(null);
+  const [nicknameRuleConfigured, setNicknameRuleConfigured] = useState(null);
   const roleRequestId = useRef(0);
 
   const handleError = useCallback((error, fallback) => {
@@ -90,11 +95,18 @@ export default function MembersPage() {
 
   useEffect(() => {
     if (!communityValid) return;
-    api(`/api/communities/${encodeURIComponent(communityId)}/member-role-settings`)
-      .then((settings) => setMemberRolesConfigured(settings.roles.length > 0))
-      .catch((error) => {
-        if (!redirectToLogin(error) && error.status !== 404) setMemberRolesConfigured(null);
-      });
+    Promise.all([
+      api(`/api/communities/${encodeURIComponent(communityId)}/member-role-settings`)
+        .then((settings) => setMemberRolesConfigured(settings.roles.length > 0))
+        .catch((error) => {
+          if (!redirectToLogin(error) && error.status !== 404) setMemberRolesConfigured(null);
+        }),
+      api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`)
+        .then((status) => setNicknameRuleConfigured(status.configured))
+        .catch((error) => {
+          if (!redirectToLogin(error)) setNicknameRuleConfigured(false);
+        }),
+    ]);
   }, [communityId, communityValid]);
 
   async function addMember(event) {
@@ -118,16 +130,42 @@ export default function MembersPage() {
     }
   }
 
+  async function syncGameNicknames() {
+    if (!communityValid || nicknameSyncing) return;
+    setNicknameSyncing(true);
+    setMessage("");
+    setSuccess("");
+    try {
+      const result = await api(
+        `/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/sync`,
+        { method: "POST" },
+      );
+      await loadCommunityMembers();
+      setSuccess(result.failedMembers > 0
+        ? `인게임 닉네임 ${result.synchronizedMembers}명을 동기화했습니다. ${result.failedMembers}명은 PUBG 계정을 확인하지 못했습니다.`
+        : `인게임 닉네임 ${result.synchronizedMembers}명을 동기화했습니다.`);
+    } catch (error) {
+      if (!redirectToLogin(error)) {
+        setMessage(error.message || "인게임 닉네임 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      }
+    } finally {
+      setNicknameSyncing(false);
+    }
+  }
+
   const title = roleMode ? selectedRole?.name || "Discord 역할별 멤버" : "클랜원 목록";
   const count = loading ? "불러오는 중..." : roleMode
     ? selectedRole ? `${selectedRole.name} (${members.length}명)` : "역할을 선택해 주세요."
     : `클랜원 ${members.length}명`;
-  const normalizedSearch = search.trim().toLocaleLowerCase();
-  const filteredMembers = members.filter((member) => {
-    if (!normalizedSearch) return true;
-    return [member.displayName, member.nickname, member.username, member.discordDisplayName, member.discordUsername]
-      .filter(Boolean).some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
-  });
+  const filteredMembers = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase();
+    const searched = normalizedSearch ? members.filter((member) =>
+      [member.displayName, member.nickname, member.username, member.discordDisplayName,
+        member.discordUsername, member.gameNickname]
+        .filter(Boolean).some((value) => value.toLocaleLowerCase().includes(normalizedSearch))
+    ) : members;
+    return roleMode ? searched : sortCommunityMembers(searched, sort.key, sort.direction);
+  }, [members, roleMode, search, sort]);
   const canManage = canManageCommunity(community?.role);
   const discordConnected = community?.discordConnected === true;
   const syncSetupRequired = Boolean(community)
@@ -142,6 +180,26 @@ export default function MembersPage() {
   const formatJoinedAt = (value) => value
     ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(new Date(value)) : "-";
 
+  function toggleSort(key) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
+
+  function sortableHeader(key, label) {
+    const active = sort.key === key;
+    const ariaSort = active ? (sort.direction === "asc" ? "ascending" : "descending") : "none";
+    return <th aria-sort={ariaSort}>
+      <button className="table-sort-button" type="button" onClick={() => toggleSort(key)}>
+        <span>{label}</span>
+        <span className={`table-sort-indicator${active ? " active" : ""}`} aria-hidden="true">
+          {active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>;
+  }
+
   return (
     <DashboardLayout active={roleMode ? "roles" : "members"} communityId={communityId} onError={setMessage}>
       <div className="dashboard-content">
@@ -152,9 +210,22 @@ export default function MembersPage() {
               <h1 id="member-list-title">{roleMode ? "Discord 역할" : "클랜원"}</h1>
             </div>
             {!roleMode && canManage && <div className="members-heading-actions">
+              {nicknameRuleConfigured
+                ? <button className="secondary-button" type="button" disabled={nicknameSyncing}
+                          onClick={syncGameNicknames}>
+                  <Icon name="game" size={17} />{nicknameSyncing ? "닉네임 동기화 중..." : "인게임 닉네임 동기화"}
+                </button>
+                : nicknameRuleConfigured === false && <a className="secondary-button"
+                    href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}`}>
+                  <Icon name="game" size={17} />인게임 닉네임 설정 필요
+                </a>}
               <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}`}>
-                <Icon name="activity" size={17} />활동 상태 보기
+                <Icon name="activity" size={17} />인게임 활동 상태
               </a>
+              {discordConnected && <a className="secondary-button"
+                  href={`/discord-voice-activity.html?communityId=${encodeURIComponent(communityId)}`}>
+                <Icon name="discord" size={17} />디스코드 활동 상태
+              </a>}
               {syncSetupRequired && (
                 <a className="secondary-button" href={syncSetupUrl}>
                   <Icon name="discord" size={17} />
@@ -198,26 +269,43 @@ export default function MembersPage() {
             </button>)}
           </div>}
           {!roleMode && communityValid && canManage && <form className="add-member-form" onSubmit={addMember}>
-            <div><label htmlFor="nickname">새 클랜원 추가</label></div>
+            <div className="add-member-copy">
+              <span className="add-member-icon"><Icon name="plus" size={20} /></span>
+              <div>
+                <label htmlFor="nickname">클랜원 직접 추가</label>
+                <p id="add-member-help">Discord 동기화 대상이 아닌 클랜원을 목록에 직접 등록합니다.</p>
+              </div>
+            </div>
             <div className="add-member-controls">
-              <input id="nickname" placeholder="클랜원 이름 입력" autoComplete="off" required value={nickname} onChange={(event) => setNickname(event.target.value)} />
-              <button type="submit" disabled={saving}><Icon name="plus" size={17} />{saving ? "추가 중..." : "추가"}</button>
+              <input id="nickname" placeholder="추가할 클랜원 닉네임" aria-describedby="add-member-help"
+                     autoComplete="off" required value={nickname} onChange={(event) => setNickname(event.target.value)} />
+              <button type="submit" disabled={saving}><Icon name="plus" size={17} />{saving ? "추가 중..." : "클랜원 추가"}</button>
             </div>
           </form>}
           {message && <p className="message padded-message" role="alert">{message}</p>}
+          {success && <p className="success-message member-sync-success" role="status">{success}</p>}
           {!loading && !message && members.length === 0 && <p className="empty-state">{roleMode
             ? roles.length
               ? selectedRole ? "이 역할을 가진 사용자가 없습니다." : "역할을 선택하면 해당 멤버를 불러옵니다."
               : "@everyone을 제외한 역할이 없습니다."
             : memberRolesConfigured ? "현재 ACTIVE 상태인 클랜원이 없습니다." : "등록된 클랜원이 없습니다."}</p>}
           {!loading && members.length > 0 && <div className="member-table-wrap">
-            <table className="member-table">
-              <thead><tr><th>멤버</th><th>Discord 계정</th><th>{roleMode ? "역할" : "Discord 가입일"}</th>{!roleMode && <th>상태</th>}</tr></thead>
+            <table className={`member-table${roleMode ? "" : " community-member-table"}`}>
+              <thead><tr>{roleMode ? <>
+                <th>멤버</th><th>Discord 계정</th><th>역할</th>
+              </> : <>
+                {sortableHeader("discordNickname", "Discord 닉네임")}
+                {sortableHeader("discordAccount", "Discord 계정")}
+                {sortableHeader("gameNickname", "인게임 닉네임")}
+                {sortableHeader("discordJoinedAt", "Discord 가입일")}
+                {sortableHeader("status", "상태")}
+              </>}</tr></thead>
               <tbody>{filteredMembers.map((member) => {
                 const name = roleMode ? member.displayName : member.discordDisplayName || member.nickname;
                 return <tr key={member.id ?? member.discordUserId ?? `${name}-${member.username ?? ""}`}>
                   <td><span className="member-identity"><Avatar src={roleMode ? member.avatarUrl : undefined} name={name} /><strong>{name}</strong></span></td>
                   <td className="secondary-cell">{roleMode ? `@${member.username}` : member.discordUsername ? `@${member.discordUsername}` : "수동 등록"}</td>
+                  {!roleMode && <td className={member.gameNickname ? "" : "secondary-cell"}>{member.gameNickname || "-"}</td>}
                   <td>{roleMode ? <span className="table-badge">{selectedRole?.name}</span> : <span className="secondary-cell">{formatJoinedAt(member.discordJoinedAt)}</span>}</td>
                   {!roleMode && <td><span className="table-badge">{member.status}</span></td>}
                 </tr>;

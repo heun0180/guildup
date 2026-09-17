@@ -4,7 +4,9 @@ import com.guildup.community.dto.GameNicknameRulePreviewResponse;
 import com.guildup.community.dto.GameNicknameRuleRequest;
 import com.guildup.community.dto.GameNicknameRuleResponse;
 import com.guildup.community.dto.GameNicknameRuleStatusResponse;
+import com.guildup.community.dto.CommunityGameNicknameSyncResponse;
 import com.guildup.community.service.CommunityGameNicknameRuleService;
+import com.guildup.community.service.CommunityGameNicknameSyncService;
 import com.guildup.user.auth.service.CurrentUserSession;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,9 +23,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class CommunityGameNicknameRuleController {
 
     private final CommunityGameNicknameRuleService ruleService;
+    private final CommunityGameNicknameSyncService syncService;
 
-    public CommunityGameNicknameRuleController(CommunityGameNicknameRuleService ruleService) {
+    public CommunityGameNicknameRuleController(
+            CommunityGameNicknameRuleService ruleService,
+            CommunityGameNicknameSyncService syncService
+    ) {
         this.ruleService = ruleService;
+        this.syncService = syncService;
     }
 
     @GetMapping
@@ -65,6 +72,16 @@ public class CommunityGameNicknameRuleController {
     ) {
         return ruleService.save(
                 CurrentUserSession.requireUserId(session), communityId, request.gameNickname()
+        );
+    }
+
+    @PostMapping("/sync")
+    public CommunityGameNicknameSyncResponse synchronize(
+            @PathVariable Long communityId,
+            HttpSession session
+    ) {
+        return syncService.synchronize(
+                CurrentUserSession.requireUserId(session), communityId
         );
     }
 }

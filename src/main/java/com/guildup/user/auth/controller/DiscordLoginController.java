@@ -197,6 +197,7 @@ public class DiscordLoginController {
                 .encodeToString(bytes);
     }
 
+
     /**
      * 현재 서버 주소를 기준으로 로그인 callback URL 생성
      *

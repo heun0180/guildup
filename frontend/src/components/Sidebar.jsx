@@ -48,10 +48,28 @@ export default function Sidebar({ community, communityId, active, loading = fals
     { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
     { id: "bingos", label: "빙고", icon: "bingo", href: bingoUrl },
     { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
-    { id: "activity", label: "활동", icon: "activity", href: activityUrl },
+  ];
+  const managementItems = [
+    { id: "activity", label: "인게임 활동", icon: "activity", href: activityUrl },
     { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
     { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
   ].filter((item) => canAccessCommunityMenu(community?.role, item.id));
+
+  function renderItem(item) {
+    return item.href ? (
+      <AppLink className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.id}
+         aria-current={active === item.id ? "page" : undefined}>
+        <Icon name={item.icon} />
+        <span>{item.label}</span>
+      </AppLink>
+    ) : (
+      <span className={`sidebar-item is-disabled${active === item.id ? " is-active" : ""}`} key={item.id} aria-disabled="true">
+        <Icon name={item.icon} />
+        <span>{item.label}</span>
+        <small>{item.note}</small>
+      </span>
+    );
+  }
 
   return (
     <aside className="sidebar" aria-label="커뮤니티 관리 메뉴">
@@ -69,19 +87,13 @@ export default function Sidebar({ community, communityId, active, loading = fals
       </AppLink>
 
       <nav className="sidebar-nav">
-        {mainItems.map((item) => item.href ? (
-          <AppLink className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.id}
-             aria-current={active === item.id ? "page" : undefined}>
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-          </AppLink>
-        ) : (
-          <span className={`sidebar-item is-disabled${active === item.id ? " is-active" : ""}`} key={item.id} aria-disabled="true">
-            <Icon name={item.icon} />
-            <span>{item.label}</span>
-            <small>{item.note}</small>
-          </span>
-        ))}
+        {mainItems.map(renderItem)}
+        {managementItems.length > 0 && <>
+          <div className="sidebar-section-divider" role="separator">
+            <span>관리자 전용</span>
+          </div>
+          {managementItems.map(renderItem)}
+        </>}
       </nav>
 
       {canAccessCommunityMenu(community?.role, "settings") && <div className="sidebar-footer">

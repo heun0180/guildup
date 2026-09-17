@@ -31,6 +31,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -118,7 +119,7 @@ public class CommunityMemberActivityService {
                 .orElse(null);
         CommunityMemberAccount account = pubgAccountsByMemberId(communityId).get(memberId);
         MemberActivitySummaryResponse summary = toSummary(member, snapshot, account);
-        List<MemberActivityMatchResponse> matches = snapshot == null
+        List<MemberActivityMatchResponse> matches = !isCurrentSnapshot(snapshot, account)
                 ? List.of()
                 : snapshot.getMatches().stream()
                 .sorted(Comparator.comparing(CommunityMemberActivityMatch::getPlayedAt).reversed())
@@ -138,7 +139,7 @@ public class CommunityMemberActivityService {
             CommunityMemberActivitySnapshot snapshot,
             CommunityMemberAccount account
     ) {
-        if (snapshot == null) {
+        if (!isCurrentSnapshot(snapshot, account)) {
             return new MemberActivitySummaryResponse(
                     member.getId(), member.getNickname(),
                     account == null ? null : account.getExternalUserId(),
@@ -148,11 +149,23 @@ public class CommunityMemberActivityService {
             );
         }
         return new MemberActivitySummaryResponse(
-                member.getId(), member.getNickname(), snapshot.getPubgAccountId(),
-                snapshot.getGameNickname(), snapshot.getActivityStatus(),
+                member.getId(), member.getNickname(),
+                account == null ? null : account.getExternalUserId(),
+                account == null ? snapshot.getGameNickname() : account.getExternalUsername(),
+                snapshot.getActivityStatus(),
                 snapshot.getLastPubgMatchAt(), snapshot.getLastClanActivityAt(),
                 snapshot.getSynchronizedAt()
         );
+    }
+
+    /** 현재 PUBG 연결로 만든 스냅샷만 활동 결과로 사용한다. */
+    private boolean isCurrentSnapshot(
+            CommunityMemberActivitySnapshot snapshot,
+            CommunityMemberAccount account
+    ) {
+        if (snapshot == null) return false;
+        String currentAccountId = account == null ? null : account.getExternalUserId();
+        return Objects.equals(snapshot.getPubgAccountId(), currentAccountId);
     }
 
     private Map<Long, CommunityMemberAccount> pubgAccountsByMemberId(Long communityId) {

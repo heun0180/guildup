@@ -14,7 +14,10 @@ export function requiredRolesForLocation(pathname, search = "") {
   const managementPages = new Set([
     "/discord-connect.html",
     "/community-settings.html",
+    "/discord-member-role-settings.html",
     "/game-nickname-settings.html",
+    "/activity-rule-settings.html",
+    "/community-role-settings.html",
     "/member-activities.html",
     "/member-activity.html",
     "/team-maker.html",

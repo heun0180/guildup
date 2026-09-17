@@ -13,6 +13,7 @@ public record CommunityMemberResponse(
         String discordUserId,
         String discordUsername,
         String discordDisplayName,
+        String gameNickname,
         CommunityMemberStatus status,
         Instant discordJoinedAt,
         Instant createdAt,
@@ -22,7 +23,8 @@ public record CommunityMemberResponse(
     /** CommunityMember 엔티티를 API 응답으로 변환한다. */
     public static CommunityMemberResponse from(
             CommunityMember member,
-            CommunityMemberAccount discordAccount
+            CommunityMemberAccount discordAccount,
+            CommunityMemberAccount gameAccount
     ) {
         return new CommunityMemberResponse(
                 member.getId(),
@@ -30,6 +32,7 @@ public record CommunityMemberResponse(
                 discordAccount == null ? null : discordAccount.getExternalUserId(),
                 discordAccount == null ? null : discordAccount.getExternalUsername(),
                 discordAccount == null ? null : discordAccount.getExternalDisplayName(),
+                gameAccount == null ? null : gameAccount.getExternalUsername(),
                 member.getStatus(),
                 discordAccount == null ? null : discordAccount.getExternalJoinedAt(),
                 member.getCreatedAt(),

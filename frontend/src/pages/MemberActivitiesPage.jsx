@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
-import { activityStatus, activitySyncView, formatActivityDateTime, formatRelativeDays } from "../activityView.js";
+import {
+  activityStatus,
+  activitySyncView,
+  formatActivityDateTime,
+  formatRelativeDays,
+  sortActivityMembers,
+} from "../activityView.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
@@ -17,8 +23,10 @@ export default function MemberActivitiesPage() {
   const validId = /^\d+$/.test(communityId ?? "");
   const [activities, setActivities] = useState(null);
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState({ key: null, direction: "asc" });
   const [configurationStatus, setConfigurationStatus] = useState(validId ? "loading" : "error");
   const [syncing, setSyncing] = useState(false);
+  const [syncNow, setSyncNow] = useState(() => Date.now());
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
 
   useEffect(() => {
@@ -54,15 +62,45 @@ export default function MemberActivitiesPage() {
     return () => { cancelled = true; };
   }, [community, communityId, validId]);
 
+  useEffect(() => {
+    setSyncNow(Date.now());
+    const nextAvailableAt = Date.parse(activities?.sync?.nextSyncAvailableAt);
+    if (!Number.isFinite(nextAvailableAt)) return undefined;
+    const delay = nextAvailableAt - Date.now();
+    if (delay <= 0) return undefined;
+    const timer = window.setTimeout(() => setSyncNow(Date.now()), delay + 50);
+    return () => window.clearTimeout(timer);
+  }, [activities?.sync?.nextSyncAvailableAt]);
+
   const filteredMembers = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
-    if (!keyword) return activities?.members || [];
-    return (activities?.members || []).filter((member) =>
+    const members = keyword ? (activities?.members || []).filter((member) =>
       [member.discordNickname, member.gameNickname]
         .filter(Boolean)
         .some((value) => value.toLocaleLowerCase().includes(keyword))
-    );
-  }, [activities, search]);
+    ) : activities?.members || [];
+    return sortActivityMembers(members, sort.key, sort.direction);
+  }, [activities, search, sort]);
+
+  function toggleSort(key) {
+    setSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
+
+  function sortableHeader(key, label) {
+    const active = sort.key === key;
+    const ariaSort = active ? (sort.direction === "asc" ? "ascending" : "descending") : "none";
+    return <th aria-sort={ariaSort}>
+      <button className="table-sort-button" type="button" onClick={() => toggleSort(key)}>
+        <span>{label}</span>
+        <span className={`table-sort-indicator${active ? " active" : ""}`} aria-hidden="true">
+          {active ? (sort.direction === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>;
+  }
 
   function openDetail(memberId) {
     navigate(`/member-activity.html?communityId=${encodeURIComponent(communityId)}&memberId=${encodeURIComponent(memberId)}`);
@@ -96,7 +134,7 @@ export default function MemberActivitiesPage() {
     }
   }
 
-  const syncView = activitySyncView(activities?.sync, syncing);
+  const syncView = activitySyncView(activities?.sync, syncing, syncNow);
   const canManage = canManageCommunity(community?.role);
 
   return (
@@ -172,7 +210,12 @@ export default function MemberActivitiesPage() {
             {activities.members.length === 0 ? <p className="empty-state">등록된 클랜원이 없습니다.</p> :
               <div className="member-table-wrap">
                 <table className="member-table activity-table">
-                  <thead><tr><th>Discord 닉네임</th><th>인게임 닉네임</th><th>최근 클랜 활동</th><th>상태</th></tr></thead>
+                  <thead><tr>
+                    {sortableHeader("discordNickname", "Discord 닉네임")}
+                    {sortableHeader("gameNickname", "인게임 닉네임")}
+                    {sortableHeader("lastClanActivityAt", "최근 클랜 활동")}
+                    {sortableHeader("status", "상태")}
+                  </tr></thead>
                   <tbody>{filteredMembers.map((member) => {
                     const status = activityStatus(member.status);
                     return <tr className="clickable-member-row" key={member.memberId} tabIndex="0" role="link"

@@ -1,11 +1,16 @@
 package com.guildup.community.service;
 
+import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityMember;
+import com.guildup.community.domain.CommunityMemberAccount;
+import com.guildup.community.domain.CommunityMemberStatus;
 import com.guildup.community.repository.CommunityMemberRepository;
 import com.guildup.community.repository.CommunityMemberAccountRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -35,5 +40,32 @@ class CommunityMemberServiceTests {
         verify(communityMemberRepository).save(captor.capture());
         assertThat(result).isSameAs(captor.getValue());
         assertThat(result.getNickname()).isEqualTo("애플");
+    }
+
+    @Test
+    void includesStoredGameNicknameInMemberList() {
+        CommunityMember member = mock(CommunityMember.class);
+        when(member.getId()).thenReturn(1L);
+        when(member.getStatus()).thenReturn(CommunityMemberStatus.ACTIVE);
+        CommunityMemberAccount discord = mock(CommunityMemberAccount.class);
+        CommunityMemberAccount pubg = mock(CommunityMemberAccount.class);
+        when(discord.getCommunityMember()).thenReturn(member);
+        when(discord.getExternalDisplayName()).thenReturn("애플");
+        when(pubg.getCommunityMember()).thenReturn(member);
+        when(pubg.getExternalUsername()).thenReturn("sa-gwa");
+        when(communityMemberRepository.findByCommunityIdAndStatusOrderByIdAsc(
+                1L, CommunityMemberStatus.ACTIVE
+        )).thenReturn(List.of(member));
+        when(accountRepository.findByCommunityIdAndProvider(1L, ExternalAccountProvider.DISCORD))
+                .thenReturn(List.of(discord));
+        when(accountRepository.findByCommunityIdAndProvider(1L, ExternalAccountProvider.PUBG))
+                .thenReturn(List.of(pubg));
+
+        var result = communityMemberService.getMembers(10L, 1L);
+
+        assertThat(result).singleElement().satisfies(response -> {
+            assertThat(response.discordDisplayName()).isEqualTo("애플");
+            assertThat(response.gameNickname()).isEqualTo("sa-gwa");
+        });
     }
 }

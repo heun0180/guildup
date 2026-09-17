@@ -2,17 +2,28 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { activitySyncView, formatActivityDateTime } from "../src/activityView.js";
 
-test("24시간 제한 중에는 활동 새로 조회 버튼을 비활성화한다", () => {
+test("3시간 제한 중에는 활동 새로 조회 버튼을 비활성화한다", () => {
   const view = activitySyncView({
     status: "SUCCESS",
     syncAvailable: false,
     lastSuccessfulSyncAt: "2026-09-07T15:30:00Z",
-    nextSyncAvailableAt: "2026-09-08T15:30:00Z",
-  });
+    nextSyncAvailableAt: "2026-09-07T18:30:00Z",
+  }, false, new Date("2026-09-07T18:29:59Z"));
 
   assert.equal(view.buttonLabel, "활동 새로 조회");
   assert.equal(view.buttonDisabled, true);
   assert.equal(view.title, "최신 활동 데이터입니다.");
+});
+
+test("페이지를 열어 둔 채 3시간이 지나면 활동 조회 버튼을 활성화한다", () => {
+  const view = activitySyncView({
+    status: "SUCCESS",
+    syncAvailable: false,
+    nextSyncAvailableAt: "2026-09-07T18:30:00Z",
+  }, false, new Date("2026-09-07T18:30:00Z"));
+
+  assert.equal(view.buttonDisabled, false);
+  assert.equal(view.title, "활동 데이터를 새로 조회할 수 있습니다.");
 });
 
 test("마지막 조회와 다음 조회 가능 시간을 한국 시간으로 표시한다", () => {

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
+import SiteFooter from "../components/SiteFooter.jsx";
 
 export default function CommunitiesPage() {
   const navigate = useNavigate();
@@ -139,6 +140,7 @@ export default function CommunitiesPage() {
           </form>
         </section>
       </main>
+      <SiteFooter />
     </div>
   );
 }

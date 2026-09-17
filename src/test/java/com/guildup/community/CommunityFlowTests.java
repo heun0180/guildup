@@ -58,6 +58,7 @@ class CommunityFlowTests {
     @MockitoBean JDA jda;
     @MockitoBean DiscordBot bot;
     @MockitoBean DiscordApiClient discord;
+    @MockitoBean com.guildup.pubg.service.PubgPlayerService pubgPlayerService;
     User user;
     User other;
     MockHttpSession session;
@@ -339,6 +340,80 @@ class CommunityFlowTests {
         mvc.perform(get(path).session(session)).andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].nickname").value("클랜원"));
     }
+
+    @Test
+    void ownerSynchronizesGameNicknamesAndReadsThemInMemberList() throws Exception {
+        Community community = service.createCommunity("치즈", user.getId());
+        CommunityMember member = communityMembers.save(new CommunityMember(community, "sa-gwa"));
+        gameNicknameRules.save(new CommunityGameNicknameRule(
+                community,
+                GameType.BATTLEGROUNDS_KAKAO,
+                GameNicknameRuleStrategyType.FULL_NICKNAME,
+                null,
+                null,
+                false,
+                null,
+                "sa-gwa",
+                "sa-gwa"
+        ));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh("kakao", java.util.List.of("sa-gwa")))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer(
+                        "account.apple", "sa-gwa", java.util.List.of()
+                )));
+        String base = "/api/communities/" + community.getId();
+
+        mvc.perform(post(base + "/game-nickname-rule/sync").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalMembers").value(1))
+                .andExpect(jsonPath("$.synchronizedMembers").value(1))
+                .andExpect(jsonPath("$.createdAccounts").value(1))
+                .andExpect(jsonPath("$.failedMembers").value(0));
+        mvc.perform(get(base + "/members").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(member.getId()))
+                .andExpect(jsonPath("$[0].gameNickname").value("sa-gwa"));
+    }
+
+    @Test
+    void ownerReplacesStalePubgAccountUsingSavedNicknameRule() throws Exception {
+        Community community = service.createCommunity("치즈", user.getId());
+        CommunityMember member = communityMembers.save(new CommunityMember(community, "Mkimin"));
+        memberAccounts.save(new CommunityMemberAccount(
+                member,
+                com.guildup.account.domain.ExternalAccountProvider.PUBG,
+                "wrong-account",
+                "KiMinM"
+        ));
+        gameNicknameRules.save(new CommunityGameNicknameRule(
+                community,
+                GameType.BATTLEGROUNDS_KAKAO,
+                GameNicknameRuleStrategyType.FULL_NICKNAME,
+                null,
+                null,
+                false,
+                null,
+                "Mkimin",
+                "Mkimin"
+        ));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh("kakao", java.util.List.of("Mkimin")))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer(
+                        "correct-account", "Mkimin", java.util.List.of()
+                )));
+        String base = "/api/communities/" + community.getId();
+
+        mvc.perform(post(base + "/game-nickname-rule/sync").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.createdAccounts").value(0))
+                .andExpect(jsonPath("$.updatedAccounts").value(1))
+                .andExpect(jsonPath("$.failedMembers").value(0));
+        mvc.perform(get(base + "/members").session(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].gameNickname").value("Mkimin"));
+        assertThat(memberAccounts.findByCommunityMemberIdAndProvider(
+                member.getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG
+        )).get().extracting(CommunityMemberAccount::getExternalUserId).isEqualTo("correct-account");
+    }
+
     @Test
     void preservesOAuthGuildSelectionBotInstallationAndRoleQueries() throws Exception {
         Community mine = service.createCommunity("치즈", user.getId());

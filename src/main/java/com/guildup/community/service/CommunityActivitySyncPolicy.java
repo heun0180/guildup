@@ -11,7 +11,7 @@ import java.time.Instant;
 @Component
 public class CommunityActivitySyncPolicy {
 
-    public static final Duration SUCCESS_INTERVAL = Duration.ofHours(24);
+    public static final Duration SUCCESS_INTERVAL = Duration.ofHours(3);
     public static final Duration FAILED_COOLDOWN = Duration.ofMinutes(5);
     public static final Duration STALE_SYNC_TIMEOUT = Duration.ofMinutes(30);
 

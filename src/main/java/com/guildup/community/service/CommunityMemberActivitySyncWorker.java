@@ -143,7 +143,7 @@ public class CommunityMemberActivitySyncWorker {
                 .flatMap(player -> player.matchIds().stream())
                 .distinct()
                 .toList();
-        Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatches(
+        Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatchesFresh(
                 game.getGameType().getPubgShard(), matchIds
         );
         Instant synchronizedAt = clock.instant();
@@ -258,7 +258,7 @@ public class CommunityMemberActivitySyncWorker {
                 .filter(java.util.Objects::nonNull)
                 .distinct()
                 .toList();
-        Map<String, PubgPlayer> playersByName = pubgPlayerService.findByNames(shard, unresolvedNames).stream()
+        Map<String, PubgPlayer> playersByName = pubgPlayerService.findByNamesFresh(shard, unresolvedNames).stream()
                 .filter(player -> player.name() != null && player.accountId() != null)
                 .collect(Collectors.toMap(
                         player -> normalize(player.name()), Function.identity(),
@@ -293,7 +293,7 @@ public class CommunityMemberActivitySyncWorker {
                 .filter(accountId -> !playersByAccountId.containsKey(accountId))
                 .distinct()
                 .toList();
-        for (PubgPlayer player : pubgPlayerService.findByAccountIds(shard, unloadedIds)) {
+        for (PubgPlayer player : pubgPlayerService.findByAccountIdsFresh(shard, unloadedIds)) {
             if (player.accountId() != null) playersByAccountId.put(player.accountId(), player);
         }
         for (CommunityMemberAccount account : accountsByMemberId.values()) {

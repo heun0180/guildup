@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useCommunity } from "../community/CommunityContext.jsx";
 import AppHeader from "./AppHeader.jsx";
 import Sidebar from "./Sidebar.jsx";
+import SiteFooter from "./SiteFooter.jsx";
 
 export default function DashboardLayout({ active, communityId, community, persistent = false, children }) {
   const shared = useCommunity();
@@ -37,7 +38,10 @@ export default function DashboardLayout({ active, communityId, community, persis
       <div className="dashboard-shell">
         <Sidebar community={resolvedCommunity} communityId={resolvedCommunityId} active={active}
                  loading={shared?.loading ?? !resolvedCommunity} />
-        <main className="dashboard-main">{children}</main>
+        <div className="dashboard-body">
+          <main className="dashboard-main">{children}</main>
+          <SiteFooter />
+        </div>
       </div>
     </div>
   );

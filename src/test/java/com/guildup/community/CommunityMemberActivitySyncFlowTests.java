@@ -125,7 +125,7 @@ class CommunityMemberActivitySyncFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sync.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.sync.lastSuccessfulSyncAt").value(FIRST_SYNC.toString()))
-                .andExpect(jsonPath("$.sync.nextSyncAvailableAt").value(FIRST_SYNC.plusSeconds(86400).toString()))
+                .andExpect(jsonPath("$.sync.nextSyncAvailableAt").value(FIRST_SYNC.plusSeconds(10800).toString()))
                 .andExpect(jsonPath("$.sync.syncAvailable").value(false))
                 .andExpect(jsonPath("$.activeMembers").value(2));
 
@@ -142,12 +142,12 @@ class CommunityMemberActivitySyncFlowTests {
         assertThat(accounts.count()).isEqualTo(2);
         assertThat(members.count()).isEqualTo(2);
         assertThat(snapshots.count()).isEqualTo(2);
-        verify(playerService).findByNames(eq("kakao"), eq(List.of("sa-gwa", "jul-mi")));
-        verify(matchService).findUniqueMatches(eq("kakao"), eq(List.of("match-1")));
+        verify(playerService).findByNamesFresh(eq("kakao"), eq(List.of("sa-gwa", "jul-mi")));
+        verify(matchService).findUniqueMatchesFresh(eq("kakao"), eq(List.of("match-1")));
     }
 
     @Test
-    void successCooldownIsSharedByEveryOperatorAndExpiresAfterExactly24Hours() throws Exception {
+    void successCooldownIsSharedByEveryOperatorAndExpiresAfterExactly3Hours() throws Exception {
         Fixture fixture = createFixture();
         memberships.save(new CommunityUser(fixture.community(), admin, CommunityUserRole.ADMIN));
         stubSuccessfulPubgLookup();
@@ -155,24 +155,24 @@ class CommunityMemberActivitySyncFlowTests {
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isTooManyRequests());
-        verify(matchService, times(1)).findUniqueMatches(eq("kakao"), anyList());
+        verify(matchService, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
 
-        now.set(FIRST_SYNC.plusSeconds(86400));
-        when(playerService.findByAccountIds(eq("kakao"), anyList())).thenReturn(List.of(
+        now.set(FIRST_SYNC.plusSeconds(10800));
+        when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 applePlayer(), julmiPlayer()
         ));
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isOk());
-        verify(matchService, times(2)).findUniqueMatches(eq("kakao"), anyList());
+        verify(matchService, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
     }
 
     @Test
-    void failedRefreshKeepsPreviousDataAndDoesNotRestart24HourCooldown() throws Exception {
+    void failedRefreshKeepsPreviousDataAndDoesNotRestart3HourCooldown() throws Exception {
         Fixture fixture = createFixture();
         stubSuccessfulPubgLookup();
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
 
-        now.set(FIRST_SYNC.plusSeconds(86400));
-        when(playerService.findByAccountIds(eq("kakao"), anyList()))
+        now.set(FIRST_SYNC.plusSeconds(10800));
+        when(playerService.findByAccountIdsFresh(eq("kakao"), anyList()))
                 .thenThrow(new PubgApiException("PUBG 장애"));
         mvc.perform(post(syncPath(fixture)).session(ownerSession))
                 .andExpect(status().isServiceUnavailable());
@@ -193,18 +193,54 @@ class CommunityMemberActivitySyncFlowTests {
     }
 
     @Test
+    void activityViewUsesCurrentNicknameAndRejectsSnapshotFromPreviousPubgAccount() throws Exception {
+        Fixture fixture = createFixture();
+        stubSuccessfulPubgLookup();
+        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
+
+        CommunityMemberAccount previous = accounts.findByCommunityMemberIdAndProvider(
+                fixture.apple().getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG
+        ).orElseThrow();
+        previous.updateExternalUsername("sa-gwa-renamed");
+        accounts.saveAndFlush(previous);
+        mvc.perform(get(listPath(fixture)).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.members[0].gameNickname").value("sa-gwa-renamed"));
+
+        accounts.delete(previous);
+        accounts.flush();
+        accounts.saveAndFlush(new CommunityMemberAccount(
+                fixture.apple(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG,
+                "account.apple.new",
+                "sa-gwa-new"
+        ));
+
+        mvc.perform(get(listPath(fixture)).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.members[0].pubgAccountId").value("account.apple.new"))
+                .andExpect(jsonPath("$.members[0].gameNickname").value("sa-gwa-new"))
+                .andExpect(jsonPath("$.members[0].status").value("ACCOUNT_VERIFICATION_REQUIRED"));
+        mvc.perform(get(detailPath(fixture, fixture.apple())).session(ownerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.member.gameNickname").value("sa-gwa-new"))
+                .andExpect(jsonPath("$.member.status").value("ACCOUNT_VERIFICATION_REQUIRED"))
+                .andExpect(jsonPath("$.matches").isEmpty());
+    }
+
+    @Test
     void simultaneousSyncRequestsExecutePubgLookupOnlyOnce() throws Exception {
         Fixture fixture = createFixture();
         memberships.save(new CommunityUser(fixture.community(), admin, CommunityUserRole.ADMIN));
         CountDownLatch enteredPubg = new CountDownLatch(1);
         CountDownLatch releasePubg = new CountDownLatch(1);
-        when(playerService.findByNames(eq("kakao"), anyList())).thenAnswer(ignored -> {
+        when(playerService.findByNamesFresh(eq("kakao"), anyList())).thenAnswer(ignored -> {
             enteredPubg.countDown();
             if (!releasePubg.await(5, TimeUnit.SECONDS)) throw new AssertionError("sync did not resume");
             return List.of(applePlayer(), julmiPlayer());
         });
-        when(playerService.findByAccountIds(eq("kakao"), anyList())).thenReturn(List.of());
-        when(matchService.findUniqueMatches(eq("kakao"), anyList())).thenReturn(matchMap());
+        when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
+        when(matchService.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(matchMap());
 
         try (var executor = Executors.newSingleThreadExecutor()) {
             var first = executor.submit(() -> mvc.perform(post(syncPath(fixture)).session(ownerSession))
@@ -217,8 +253,8 @@ class CommunityMemberActivitySyncFlowTests {
         } finally {
             releasePubg.countDown();
         }
-        verify(playerService, times(1)).findByNames(eq("kakao"), anyList());
-        verify(matchService, times(1)).findUniqueMatches(eq("kakao"), anyList());
+        verify(playerService, times(1)).findByNamesFresh(eq("kakao"), anyList());
+        verify(matchService, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
     }
 
     private Fixture createFixture() {
@@ -236,10 +272,10 @@ class CommunityMemberActivitySyncFlowTests {
     }
 
     private void stubSuccessfulPubgLookup() {
-        when(playerService.findByNames(eq("kakao"), anyList()))
+        when(playerService.findByNamesFresh(eq("kakao"), anyList()))
                 .thenReturn(List.of(applePlayer(), julmiPlayer()));
-        when(playerService.findByAccountIds(eq("kakao"), anyList())).thenReturn(List.of());
-        when(matchService.findUniqueMatches(eq("kakao"), anyList())).thenReturn(matchMap());
+        when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
+        when(matchService.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(matchMap());
     }
 
     private PubgPlayer applePlayer() {
