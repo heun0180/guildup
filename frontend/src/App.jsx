@@ -19,6 +19,7 @@ import RankingsPage from "./pages/RankingsPage.jsx";
 import KillCompetitionsPage from "./pages/KillCompetitionsPage.jsx";
 import FeedbackPage from "./pages/FeedbackPage.jsx";
 import CommunityNewsPage from "./pages/CommunityNewsPage.jsx";
+import CommunityBoardPage from "./pages/CommunityBoardPage.jsx";
 import BingoPage from "./pages/BingoPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import TermsPage from "./pages/TermsPage.jsx";
@@ -31,6 +32,7 @@ import { CommunityProvider, useCommunity } from "./community/CommunityContext.js
 const activeByPath = {
   "/community-dashboard.html": "dashboard",
   "/community-news.html": "news",
+  "/community-board.html": "board",
   "/members.html": "members",
   "/rankings.html": "rankings",
   "/kill-competitions.html": "kill-competitions",
@@ -100,6 +102,7 @@ export default function App() {
       <Route element={<CommunityRoutes />}>
         <Route path="/community-dashboard.html" element={<CommunityDashboardPage />} />
         <Route path="/community-news.html" element={<CommunityNewsPage />} />
+        <Route path="/community-board.html" element={<CommunityBoardPage />} />
         <Route path="/discord-connect.html" element={<DiscordConnectPage />} />
         <Route path="/members.html" element={<MembersPage />} />
         <Route path="/community-settings.html" element={<CommunitySettingsPage />} />

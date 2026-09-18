@@ -27,6 +27,9 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const newsUrl = validId
     ? `/community-news.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
+  const boardUrl = validId
+    ? `/community-board.html?communityId=${encodeURIComponent(communityId)}`
+    : "/communities.html";
   const rankingsUrl = validId
     ? `/rankings.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
@@ -43,6 +46,7 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const mainItems = [
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
     { id: "news", label: "공지 · 이벤트", icon: "calendar", href: newsUrl },
+    { id: "board", label: "게시판", icon: "message", href: boardUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
     { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
