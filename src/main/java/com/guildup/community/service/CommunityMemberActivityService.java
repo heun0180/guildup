@@ -9,6 +9,7 @@ import com.guildup.community.domain.CommunityMemberAccount;
 import com.guildup.community.domain.CommunityMemberActivityMatch;
 import com.guildup.community.domain.CommunityMemberActivitySnapshot;
 import com.guildup.community.domain.CommunityMemberStatus;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.dto.CommunityActivitySyncResponse;
 import com.guildup.community.dto.CommunityMemberActivityDetailResponse;
 import com.guildup.community.dto.CommunityMemberActivityListResponse;
@@ -40,8 +41,7 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class CommunityMemberActivityService {
 
-    private final CommunityAccessService accessService;
-    private final CommunityGameRepository gameRepository;
+    private final CommunityGameAccessService gameAccess;
     private final CommunityGameActivityRuleRepository ruleRepository;
     private final CommunityGameActivitySyncRepository syncRepository;
     private final CommunityMemberRepository memberRepository;
@@ -51,8 +51,7 @@ public class CommunityMemberActivityService {
     private final Clock clock;
 
     public CommunityMemberActivityService(
-            CommunityAccessService accessService,
-            CommunityGameRepository gameRepository,
+            CommunityGameAccessService gameAccess,
             CommunityGameActivityRuleRepository ruleRepository,
             CommunityGameActivitySyncRepository syncRepository,
             CommunityMemberRepository memberRepository,
@@ -61,8 +60,7 @@ public class CommunityMemberActivityService {
             CommunityActivitySyncPolicy syncPolicy,
             Clock clock
     ) {
-        this.accessService = accessService;
-        this.gameRepository = gameRepository;
+        this.gameAccess = gameAccess;
         this.ruleRepository = ruleRepository;
         this.syncRepository = syncRepository;
         this.memberRepository = memberRepository;
@@ -72,9 +70,8 @@ public class CommunityMemberActivityService {
         this.clock = clock;
     }
 
-    public CommunityMemberActivityListResponse getActivities(Long userId, Long communityId) {
-        accessService.requireCommunityAdmin(userId, communityId);
-        CommunityGame game = requireSupportedGame(communityId);
+    public CommunityMemberActivityListResponse getActivities(Long userId, Long communityId, Long communityGameId) {
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.ACTIVITY);
         CommunityGameActivityRule rule = requireRule(game.getId());
         List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
                 communityId, CommunityMemberStatus.ACTIVE
@@ -103,10 +100,10 @@ public class CommunityMemberActivityService {
     public CommunityMemberActivityDetailResponse getActivity(
             Long userId,
             Long communityId,
+            Long communityGameId,
             Long memberId
     ) {
-        accessService.requireCommunityAdmin(userId, communityId);
-        CommunityGame game = requireSupportedGame(communityId);
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.ACTIVITY);
         CommunityGameActivityRule rule = requireRule(game.getId());
         CommunityMember member = memberRepository.findById(memberId)
                 .filter(candidate -> candidate.getCommunity().getId().equals(communityId))
@@ -177,15 +174,6 @@ public class CommunityMemberActivityService {
                 (first, ignored) -> first,
                 LinkedHashMap::new
         ));
-    }
-
-    private CommunityGame requireSupportedGame(Long communityId) {
-        return gameRepository.findByCommunityIdOrderByIdAsc(communityId).stream()
-                .filter(game -> game.getGameType().supportsRosterActivityRule())
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
-                ));
     }
 
     private CommunityGameActivityRule requireRule(Long communityGameId) {

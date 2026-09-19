@@ -56,7 +56,7 @@ public class KillCompetitionParticipationStore {
         if (participants.existsByCompetitionIdAndCommunityMemberId(competitionId, member.getId())) {
             conflict("이미 참가한 킬내기입니다.");
         }
-        var identity = identities.find(member).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+        var identity = identities.find(member, competition.getCommunityGame()).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
                 "Discord 닉네임에서 PUBG 인게임 닉네임을 확인할 수 없습니다. 커뮤니티 닉네임 형식을 확인해 주세요."));
         return new JoinPreparation(member.getId(), identity.shard(), identity.nickname(), identity.accountId());
     }
@@ -70,7 +70,7 @@ public class KillCompetitionParticipationStore {
                         Objects.equals(candidate.getCommunity().getId(), communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "클랜원을 찾을 수 없습니다."));
         if (participants.existsByCompetitionIdAndCommunityMemberId(competitionId, memberId)) conflict("이미 신청 또는 참가한 클랜원입니다.");
-        var identity = identities.find(member).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+        var identity = identities.find(member, competition.getCommunityGame()).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
                 "선택한 클랜원의 PUBG 닉네임을 확인할 수 없습니다."));
         return new JoinPreparation(member.getId(), identity.shard(), identity.nickname(), identity.accountId());
     }

@@ -64,6 +64,15 @@ class BingoEventFlowTests {
         }
     }
 
+    @Test void persistsTheExplicitCommunityGameInsteadOfTheFirstGame() {
+        CommunityGame steam = games.save(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+
+        var created = service.create(owner.getId(), community.getId(), steam.getId(), request(3, 9));
+
+        assertThat(events.findById(created.id()).orElseThrow().getCommunityGame().getId())
+                .isEqualTo(steam.getId());
+    }
+
     @Test void storesMissionSpecificOptionsAsJson() {
         BingoEventRequest base = request(3, 9);
         List<BingoEventRequest.Cell> cells = new ArrayList<>(base.cells());
@@ -89,6 +98,7 @@ class BingoEventFlowTests {
         assertStatus(HttpStatus.FORBIDDEN, () -> service.create(member.getId(), community.getId(), request(3,9)));
         var created = service.create(owner.getId(), community.getId(), request(3,9));
         Community other = communities.save(new Community("다른 곳"));
+        games.save(new CommunityGame(other, GameType.BATTLEGROUNDS_KAKAO));
         memberships.save(new CommunityUser(other, owner, CommunityUserRole.OWNER));
         assertStatus(HttpStatus.NOT_FOUND, () -> service.get(owner.getId(), other.getId(), created.id()));
     }
@@ -124,12 +134,14 @@ class BingoEventFlowTests {
         assertThat(current.bingo().id()).isEqualTo(active.id());
 
         Community empty = communities.save(new Community("빈 커뮤니티"));
+        games.save(new CommunityGame(empty, GameType.BATTLEGROUNDS_KAKAO));
         memberships.save(new CommunityUser(empty, member, CommunityUserRole.MEMBER));
         assertThat(service.current(member.getId(), empty.getId()).type()).isEqualTo("NONE");
     }
 
     @Test void currentStaticRouteIsNotParsedAsNumericBingoId() throws Exception {
-        mvc.perform(get("/api/communities/{communityId}/bingos/current", community.getId()))
+        Long gameId = games.findByCommunityIdOrderByIdAsc(community.getId()).get(0).getId();
+        mvc.perform(get("/api/communities/{communityId}/games/{communityGameId}/bingos/current", community.getId(), gameId))
                 .andExpect(status().isUnauthorized());
     }
 

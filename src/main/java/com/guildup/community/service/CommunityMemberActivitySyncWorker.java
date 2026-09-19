@@ -27,6 +27,7 @@ import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.service.PubgMatchService;
 import com.guildup.pubg.service.PubgPlayerService;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -122,11 +123,11 @@ public class CommunityMemberActivitySyncWorker {
 
         Map<String, PubgPlayer> playersByAccountId = new LinkedHashMap<>();
         List<CommunityMemberAccount> newAccounts = resolveMissingAccounts(
-                game.getGameType().getPubgShard(), members, gameNicknames,
+                PubgGameSupport.requireShard(game.getGameType()), members, gameNicknames,
                 accountsByMemberId, playersByAccountId
         );
         loadStoredPlayers(
-                game.getGameType().getPubgShard(), accountsByMemberId, playersByAccountId
+                PubgGameSupport.requireShard(game.getGameType()), accountsByMemberId, playersByAccountId
         );
 
         Map<String, ClanMemberIdentity> clanMembersByAccountId = accountsByMemberId.values().stream()
@@ -144,7 +145,7 @@ public class CommunityMemberActivitySyncWorker {
                 .distinct()
                 .toList();
         Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatchesFresh(
-                game.getGameType().getPubgShard(), matchIds
+                PubgGameSupport.requireShard(game.getGameType()), matchIds
         );
         Instant synchronizedAt = clock.instant();
         Instant periodStart = synchronizedAt.minus(Duration.ofDays(rule.getActivityPeriodDays()));

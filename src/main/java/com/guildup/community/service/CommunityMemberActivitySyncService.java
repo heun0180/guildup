@@ -20,14 +20,14 @@ public class CommunityMemberActivitySyncService {
         this.activityService = activityService;
     }
 
-    public CommunityMemberActivityListResponse sync(Long userId, Long communityId) {
-        Long communityGameId = coordinator.begin(userId, communityId);
+    public CommunityMemberActivityListResponse sync(Long userId, Long communityId, Long communityGameId) {
+        coordinator.begin(userId, communityId, communityGameId);
         try {
             worker.synchronize(communityGameId);
         } catch (RuntimeException exception) {
             coordinator.fail(communityGameId);
             throw exception;
         }
-        return activityService.getActivities(userId, communityId);
+        return activityService.getActivities(userId, communityId, communityGameId);
     }
 }

@@ -5,12 +5,13 @@ import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { formatDateTime, remainingLabel, statusLabel, statusMessage } from "../killCompetitionView.js";
 
-const basePath = (communityId) => `/api/communities/${encodeURIComponent(communityId)}/kill-competitions`;
+const basePath = (communityId, communityGameId) => `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/kill-competitions`;
 
 export default function KillCompetitionsPage() {
   const navigate = useNavigate();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
+  const communityGameId = params.get("communityGameId");
   const competitionId = params.get("competitionId");
   const validId = /^\d+$/.test(communityId ?? "");
   const [items, setItems] = useState([]);
@@ -32,11 +33,11 @@ export default function KillCompetitionsPage() {
     if (!validId) { setMessage("올바른 커뮤니티를 선택해 주세요."); setLoading(false); return; }
     setLoading(true); setMessage("");
     try {
-      if (competitionId) setDetail(await api(`${basePath(communityId)}/${encodeURIComponent(competitionId)}`));
-      else setItems(await api(basePath(communityId)));
+      if (competitionId) setDetail(await api(`${basePath(communityId, communityGameId)}/${encodeURIComponent(competitionId)}`));
+      else setItems(await api(basePath(communityId, communityGameId)));
     } catch (error) { handleError(error, "킬내기를 불러오지 못했습니다."); }
     finally { setLoading(false); }
-  }, [communityId, competitionId, handleError, validId]);
+  }, [communityId, communityGameId, competitionId, handleError, validId]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -71,7 +72,7 @@ export default function KillCompetitionsPage() {
   async function mutate(path, options = { method: "POST" }) {
     if (busy) return;
     setBusy(true); setMessage("");
-    try { setDetail(await api(`${basePath(communityId)}/${detail.id}${path}`, options)); }
+    try { setDetail(await api(`${basePath(communityId, communityGameId)}/${detail.id}${path}`, options)); }
     catch (error) { handleError(error, "요청을 처리하지 못했습니다."); }
     finally { setBusy(false); }
   }
@@ -82,11 +83,11 @@ export default function KillCompetitionsPage() {
     const localEnd = form.get("endsAt");
     setBusy(true); setMessage("");
     try {
-      const created = await api(basePath(communityId), {
+      const created = await api(basePath(communityId, communityGameId), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: form.get("title"), gameMode: form.get("gameMode"), endsAt: new Date(localEnd).toISOString() }),
       });
-      navigate(`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&competitionId=${created.id}`);
+      navigate(`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}&competitionId=${created.id}`);
     } catch (error) { handleError(error, "킬내기를 만들지 못했습니다."); setBusy(false); }
   }
 
@@ -134,7 +135,7 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
     {loading ? <section className="panel kill-empty">킬내기를 불러오는 중입니다.</section>
       : items.length === 0 ? <section className="panel kill-empty"><Icon name="target" size={34} /><h2>아직 킬내기가 없습니다.</h2><p>첫 킬내기를 만들어 클랜원과 경쟁해 보세요.</p></section>
       : <div className="kill-card-grid">{items.map((item) => <a className="panel kill-card" key={item.id}
-          href={`/kill-competitions.html?communityId=${encodeURIComponent(new URLSearchParams(location.search).get("communityId"))}&competitionId=${item.id}`}>
+          href={`/kill-competitions.html?communityId=${encodeURIComponent(new URLSearchParams(location.search).get("communityId"))}&communityGameId=${encodeURIComponent(new URLSearchParams(location.search).get("communityGameId"))}&competitionId=${item.id}`}>
         <div className="kill-card-top"><span className={`kill-status status-${item.status.toLowerCase()}`}>{statusLabel(item.status)}</span><b>{item.gameMode}</b></div>
         <h2>{item.title}</h2><dl><div><dt>참가</dt><dd>{item.participantCount}명</dd></div><div><dt>생성자</dt><dd>{item.creatorNickname}</dd></div>
           <div><dt>종료 예정</dt><dd>{formatDateTime(item.endsAt)}</dd></div></dl>
@@ -159,7 +160,7 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, m
     detail.participants.filter((p) => Number(assignments[p.participantId]) === index + 1).length);
   const imbalance = assignedCounts.length && Math.max(...assignedCounts) - Math.min(...assignedCounts) > 1;
   return <>
-    <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}`}>← 킬내기 목록</a>
+    <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(new URLSearchParams(location.search).get("communityGameId"))}`}>← 킬내기 목록</a>
     <div className="page-heading kill-detail-heading"><div><p className="eyebrow">{detail.gameMode} Competition</p><h1>{detail.title}</h1>
       <p>생성자 {detail.creator.nickname} · 참가자 {detail.participantCount}명</p></div><span className={`kill-status status-${detail.status.toLowerCase()}`}>{statusLabel(detail.status)}</span></div>
     {message && <p className="message" role="alert">{message}</p>}

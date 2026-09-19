@@ -1,6 +1,7 @@
 import Icon from "./Icon.jsx";
 import { canAccessCommunityMenu, canManageCommunity } from "../communityAccess.js";
 import AppLink from "./AppLink.jsx";
+import { gameMenuItems } from "../gameMenu.js";
 
 export default function Sidebar({ community, communityId, active, loading = false }) {
   const canManage = canManageCommunity(community?.role);
@@ -14,12 +15,6 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const settingsUrl = validId && canManage
     ? `/community-settings.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
-  const activityUrl = validId && canManage
-    ? `/member-activities.html?communityId=${encodeURIComponent(communityId)}`
-    : null;
-  const teamMakerUrl = validId && canManage
-    ? `/team-maker.html?communityId=${encodeURIComponent(communityId)}`
-    : null;
   const integrationsUrl = validId && canManage
     ? `/integrations.html?communityId=${encodeURIComponent(communityId)}`
     : null;
@@ -33,12 +28,6 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const rankingsUrl = validId
     ? `/rankings.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
-  const killCompetitionsUrl = validId
-    ? `/kill-competitions.html?communityId=${encodeURIComponent(communityId)}`
-    : "/communities.html";
-  const bingoUrl = validId
-    ? `/bingos.html?communityId=${encodeURIComponent(communityId)}`
-    : "/communities.html";
   const feedbackUrl = validId
     ? `/feedback.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
@@ -49,19 +38,16 @@ export default function Sidebar({ community, communityId, active, loading = fals
     { id: "board", label: "게시판", icon: "message", href: boardUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
-    { id: "kill-competitions", label: "킬내기", icon: "target", href: killCompetitionsUrl },
-    { id: "bingos", label: "빙고", icon: "bingo", href: bingoUrl },
     { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
   ];
   const managementItems = [
-    { id: "activity", label: "인게임 활동", icon: "activity", href: activityUrl },
-    { id: "team-maker", label: "팀 만들기", icon: "game", href: teamMakerUrl },
     { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
   ].filter((item) => canAccessCommunityMenu(community?.role, item.id));
+  const gameGroups = gameMenuItems(community, communityId);
 
   function renderItem(item) {
     return item.href ? (
-      <AppLink className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.id}
+      <AppLink className={`sidebar-item${active === item.id ? " is-active" : ""}`} href={item.href} key={item.key || item.id}
          aria-current={active === item.id ? "page" : undefined}>
         <Icon name={item.icon} />
         <span>{item.label}</span>
@@ -92,6 +78,10 @@ export default function Sidebar({ community, communityId, active, loading = fals
 
       <nav className="sidebar-nav">
         {mainItems.map(renderItem)}
+        {gameGroups.map((game) => <div key={game.communityGameId}>
+          <div className="sidebar-section-divider" role="separator"><span>{game.gameName}</span></div>
+          {game.items.map(renderItem)}
+        </div>)}
         {managementItems.length > 0 && <>
           <div className="sidebar-section-divider" role="separator">
             <span>관리자 전용</span>

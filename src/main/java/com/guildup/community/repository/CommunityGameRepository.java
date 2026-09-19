@@ -18,8 +18,6 @@ public interface CommunityGameRepository extends JpaRepository<CommunityGame, Lo
 
     List<CommunityGame> findByCommunityIdInOrderByIdAsc(Collection<Long> communityIds);
 
-    Optional<CommunityGame> findFirstByCommunityIdOrderByIdAsc(Long communityId);
-
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select game from CommunityGame game where game.id = :id")
     Optional<CommunityGame> findByIdForUpdate(Long id);

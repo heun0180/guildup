@@ -79,6 +79,16 @@ class BingoAggregationFlowTests {
         verify(factService,times(1)).facts(any(),anySet());
     }
 
+    @Test void aggregationUsesTheGameStoredOnTheEvent(){
+        CommunityGame steam = games.save(new CommunityGame(community,GameType.BATTLEGROUNDS_STEAM));
+        var event=events.create(owner.getId(),community.getId(),steam.getId(),request());
+        when(pubgPlayers.findByAccountIdsFresh(eq("steam"),anyList())).thenReturn(List.of());
+
+        aggregation.aggregate(owner.getId(),community.getId(),event.id());
+
+        verify(pubgPlayers).findByAccountIdsFresh(eq("steam"),anyList());
+    }
+
     @Test void rejectsAggregationUntilThirtyMinutesHavePassed(){
         var event=events.create(owner.getId(),community.getId(),request());
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of());

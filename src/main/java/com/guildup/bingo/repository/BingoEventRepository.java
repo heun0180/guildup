@@ -8,10 +8,14 @@ import java.util.*;
 
 public interface BingoEventRepository extends JpaRepository<BingoEvent, Long> {
     @EntityGraph(attributePaths = "cells")
+    List<BingoEvent> findByCommunityGameIdOrderByStartsAtDesc(Long communityGameId);
     List<BingoEvent> findByCommunityIdOrderByStartsAtDesc(Long communityId);
 
     @EntityGraph(attributePaths = "cells")
     Optional<BingoEvent> findWithCellsById(Long id);
+
+    @EntityGraph(attributePaths = "cells")
+    Optional<BingoEvent> findWithCellsByIdAndCommunityGameId(Long id, Long communityGameId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @EntityGraph(attributePaths = "cells")
@@ -19,6 +23,6 @@ public interface BingoEventRepository extends JpaRepository<BingoEvent, Long> {
     Optional<BingoEvent> findForUpdate(@Param("id") Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select event from BingoEvent event where event.community.id = :communityId order by event.startsAt asc, event.id asc")
-    List<BingoEvent> findByCommunityIdForUpdate(@Param("communityId") Long communityId);
+    @Query("select event from BingoEvent event where event.communityGame.id = :communityGameId order by event.startsAt asc, event.id asc")
+    List<BingoEvent> findByCommunityGameIdForUpdate(@Param("communityGameId") Long communityGameId);
 }

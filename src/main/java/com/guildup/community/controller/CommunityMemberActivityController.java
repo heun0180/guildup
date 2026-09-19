@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 클랜원 활동 요약 목록과 한 클랜원의 경기 상세를 제공한다. */
 @RestController
-@RequestMapping("/api/communities/{communityId}")
+@RequestMapping("/api/communities/{communityId}/games/{communityGameId}/activities")
 public class CommunityMemberActivityController {
 
     private final CommunityMemberActivityService activityService;
@@ -28,34 +28,37 @@ public class CommunityMemberActivityController {
         this.syncService = syncService;
     }
 
-    @PostMapping("/member-activities/sync")
+    @PostMapping("/sync")
     public CommunityMemberActivityListResponse syncActivities(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             HttpSession session
     ) {
         return syncService.sync(
-                CurrentUserSession.requireUserId(session), communityId
+                CurrentUserSession.requireUserId(session), communityId, communityGameId
         );
     }
 
-    @GetMapping("/member-activities")
+    @GetMapping
     public CommunityMemberActivityListResponse getActivities(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             HttpSession session
     ) {
         return activityService.getActivities(
-                CurrentUserSession.requireUserId(session), communityId
+                CurrentUserSession.requireUserId(session), communityId, communityGameId
         );
     }
 
-    @GetMapping("/members/{memberId}/activity")
+    @GetMapping("/members/{memberId}")
     public CommunityMemberActivityDetailResponse getActivity(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @PathVariable Long memberId,
             HttpSession session
     ) {
         return activityService.getActivity(
-                CurrentUserSession.requireUserId(session), communityId, memberId
+                CurrentUserSession.requireUserId(session), communityId, communityGameId, memberId
         );
     }
 }

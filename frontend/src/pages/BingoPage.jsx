@@ -31,6 +31,8 @@ const remaining = (value) => {const ms=new Date(value).getTime()-Date.now();if(m
 export default function BingoPage() {
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
+  const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
+  const bingoApi = `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/bingos`;
   const admin = canManageCommunity(community?.role);
   const managing = isBingoManagementView(community?.role, window.location.search);
   const [items,setItems]=useState([]), [selected,setSelected]=useState(null), [loading,setLoading]=useState(true);
@@ -44,10 +46,10 @@ export default function BingoPage() {
     setLoading(true); setMessage("");
     try {
       if (managing) {
-        setItems(await api(`/api/communities/${communityId}/bingos`));
+        setItems(await api(bingoApi));
         setCurrentType("NONE");
       } else {
-        const current = await api(`/api/communities/${communityId}/bingos/current`);
+        const current = await api(`${bingoApi}/current`);
         setCurrentType(current.type);
         setSelected(current.bingo);
         setItems([]);
@@ -55,11 +57,11 @@ export default function BingoPage() {
     }
     catch (error) { if (!redirectToLogin(error)) setMessage(error.message); }
     finally { setLoading(false); }
-  },[communityId,managing]);
+  },[bingoApi,managing]);
   useEffect(()=>{ load(); },[load]);
 
   async function open(id) {
-    try { setSelected(await api(`/api/communities/${communityId}/bingos/${id}`)); setViewedBoard(null); setEditing(false); }
+    try { setSelected(await api(`${bingoApi}/${id}`)); setViewedBoard(null); setEditing(false); }
     catch(error){ setMessage(error.message); }
   }
   function startCreate(){ setForm(initialForm()); setEditingId(null); setSelected(null); setEditing(true); }
@@ -70,17 +72,17 @@ export default function BingoPage() {
     if(form.cells.some(c=>!c.configured)){ setMessage("모든 빙고 칸의 미션을 설정해 주세요."); return; }
     const payload={...form,startsAt:instant(form.startsAt),endsAt:instant(form.endsAt),cells:form.cells.map(cell=>({position:cell.position,missionType:cell.missionType,aggregationType:cell.aggregationType,operator:cell.operator,targetValue:cell.targetValue,occurrenceTarget:cell.occurrenceTarget,options:cell.options||{},customTitle:cell.customTitle||""}))};
     delete payload.locked;
-    try { const created=await api(`/api/communities/${communityId}/bingos${editingId?`/${editingId}`:""}`,{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); setSelected(created);setEditing(false);setEditingId(null);await load(); }
+    try { const created=await api(`${bingoApi}${editingId?`/${editingId}`:""}`,{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); setSelected(created);setEditing(false);setEditingId(null);await load(); }
     catch(error){ setMessage(error.message); }
   }
-  async function aggregate(){ try { await api(`/api/communities/${communityId}/bingos/${selected.id}/aggregate`,{method:"POST"}); await open(selected.id); await load(); } catch(error){setMessage(error.message);} }
-  async function remove(){ if(!window.confirm("이 빙고를 삭제하거나 취소할까요?")) return; try {await api(`/api/communities/${communityId}/bingos/${selected.id}`,{method:"DELETE"});setSelected(null);await load();}catch(error){setMessage(error.message);} }
-  async function showCell(cell){ setCellModal(cell); setCompletions([]); try{setCompletions(await api(`/api/communities/${communityId}/bingos/${selected.id}/cells/${cell.id}/completions`));}catch(error){setMessage(error.message);} }
-  async function viewParticipant(participantId){ try{setViewedBoard(await api(`/api/communities/${communityId}/bingos/${selected.id}/participants/${participantId}`));}catch(error){setMessage(error.message);} }
+  async function aggregate(){ try { await api(`${bingoApi}/${selected.id}/aggregate`,{method:"POST"}); await open(selected.id); await load(); } catch(error){setMessage(error.message);} }
+  async function remove(){ if(!window.confirm("이 빙고를 삭제하거나 취소할까요?")) return; try {await api(`${bingoApi}/${selected.id}`,{method:"DELETE"});setSelected(null);await load();}catch(error){setMessage(error.message);} }
+  async function showCell(cell){ setCellModal(cell); setCompletions([]); try{setCompletions(await api(`${bingoApi}/${selected.id}/cells/${cell.id}/completions`));}catch(error){setMessage(error.message);} }
+  async function viewParticipant(participantId){ try{setViewedBoard(await api(`${bingoApi}/${selected.id}/participants/${participantId}`));}catch(error){setMessage(error.message);} }
 
   const groups=useMemo(()=>groupManagedBingos(items),[items]);
   const currentScreen=currentBingoScreen(currentType);
-  const moveTo=(view)=>window.location.assign(`/bingos.html?communityId=${encodeURIComponent(communityId)}${view?`&view=${view}`:""}`);
+  const moveTo=(view)=>window.location.assign(`/bingos.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}${view?`&view=${view}`:""}`);
 
   return <DashboardLayout active="bingos" communityId={communityId}>
     <div className="dashboard-content bingo-content">

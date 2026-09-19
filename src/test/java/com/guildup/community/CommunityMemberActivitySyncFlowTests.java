@@ -259,7 +259,7 @@ class CommunityMemberActivitySyncFlowTests {
 
     private Fixture createFixture() {
         Community community = communityService.createCommunity("치즈 클랜", owner.getId());
-        CommunityGame game = games.findFirstByCommunityIdOrderByIdAsc(community.getId()).orElseThrow();
+        CommunityGame game = games.findByCommunityIdOrderByIdAsc(community.getId()).get(0);
         memberships.flush();
         CommunityMember apple = members.save(new CommunityMember(community, "sa-gwa"));
         CommunityMember julmi = members.save(new CommunityMember(community, "jul-mi"));
@@ -304,7 +304,8 @@ class CommunityMemberActivitySyncFlowTests {
     }
 
     private String listPath(Fixture fixture) {
-        return "/api/communities/" + fixture.community().getId() + "/member-activities";
+        return "/api/communities/" + fixture.community().getId() + "/games/"
+                + fixture.game().getId() + "/activities";
     }
 
     private String syncPath(Fixture fixture) {
@@ -312,8 +313,7 @@ class CommunityMemberActivitySyncFlowTests {
     }
 
     private String detailPath(Fixture fixture, CommunityMember member) {
-        return "/api/communities/" + fixture.community().getId()
-                + "/members/" + member.getId() + "/activity";
+        return listPath(fixture) + "/members/" + member.getId();
     }
 
     private record Fixture(

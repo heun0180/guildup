@@ -20,6 +20,8 @@ export default function MemberActivitiesPage() {
   const navigate = useNavigate();
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
+  const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
+  const gameApi = `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}`;
   const validId = /^\d+$/.test(communityId ?? "");
   const [activities, setActivities] = useState(null);
   const [search, setSearch] = useState("");
@@ -39,10 +41,10 @@ export default function MemberActivitiesPage() {
         const result = await loadActivityPageData({
           loadCommunity: () => Promise.resolve(community),
           loadNicknameStatus: () => loadGameNicknameStatus({
-            loadStatus: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`),
-            loadRule: () => api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule`),
+            loadStatus: () => api(`${gameApi}/nickname-rule/status`),
+            loadRule: () => api(`${gameApi}/nickname-rule`),
           }),
-          loadActivities: () => api(`/api/communities/${encodeURIComponent(communityId)}/member-activities`),
+          loadActivities: () => api(`${gameApi}/activities`),
         });
         if (cancelled) return;
         setActivities(result.activities);
@@ -103,7 +105,7 @@ export default function MemberActivitiesPage() {
   }
 
   function openDetail(memberId) {
-    navigate(`/member-activity.html?communityId=${encodeURIComponent(communityId)}&memberId=${encodeURIComponent(memberId)}`);
+    navigate(`/member-activity.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}&memberId=${encodeURIComponent(memberId)}`);
   }
 
   async function syncActivities() {
@@ -112,14 +114,14 @@ export default function MemberActivitiesPage() {
     setMessage("");
     try {
       const result = await api(
-        `/api/communities/${encodeURIComponent(communityId)}/member-activities/sync`,
+        `${gameApi}/activities/sync`,
         { method: "POST" },
       );
       setActivities(result);
     } catch (error) {
       if (!redirectToLogin(error)) {
         if (error.status === 409 || error.status === 429) {
-          const latest = await api(`/api/communities/${encodeURIComponent(communityId)}/member-activities`)
+          const latest = await api(`${gameApi}/activities`)
             .catch(() => null);
           if (latest) setActivities(latest);
         }
@@ -158,7 +160,7 @@ export default function MemberActivitiesPage() {
             <h2>인게임 닉네임이 설정되지 않았습니다.</h2>
             <p>활동 정보를 조회하려면 클랜원의 인게임 닉네임을 먼저 설정해야 합니다.</p>
           </div>
-          <a className="secondary-button" href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}`}>
+          <a className="secondary-button" href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}`}>
             인게임 닉네임 설정
           </a>
         </section>}

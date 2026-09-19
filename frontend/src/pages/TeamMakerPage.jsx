@@ -9,6 +9,8 @@ const damage = (value) => value == null ? "-" : new Intl.NumberFormat("ko-KR", {
 
 export default function TeamMakerPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
+  const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
+  const teamMakerApi = `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/team-maker`;
   const validId = /^\d+$/.test(communityId ?? "");
   const [participants, setParticipants] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -27,7 +29,7 @@ export default function TeamMakerPage() {
       setLoading(false);
       return;
     }
-    api(`/api/communities/${encodeURIComponent(communityId)}/team-maker/participants`)
+    api(`${teamMakerApi}/participants`)
       .then((data) => {
         setParticipants(data.participants);
         setSelectedIds(new Set(data.participants.map((participant) => participant.memberId)));
@@ -40,7 +42,7 @@ export default function TeamMakerPage() {
         }
       })
       .finally(() => setLoading(false));
-  }, [communityId, validId]);
+  }, [communityId, communityGameId, teamMakerApi, validId]);
 
   const selectedCount = selectedIds.size;
   const selectedSeasonNames = useMemo(() => [
@@ -78,7 +80,7 @@ export default function TeamMakerPage() {
     setMessage("");
     setResult(null);
     try {
-      const generated = await api(`/api/communities/${encodeURIComponent(communityId)}/team-maker/generate`, {
+      const generated = await api(`${teamMakerApi}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -101,7 +103,7 @@ export default function TeamMakerPage() {
     setGenerating(true);
     setMessage("");
     try {
-      const next = await api(`/api/communities/${encodeURIComponent(communityId)}/team-maker/rebalance`, {
+      const next = await api(`${teamMakerApi}/rebalance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -143,7 +145,7 @@ export default function TeamMakerPage() {
     setGenerating(true);
     setMessage("");
     try {
-      const next = await api(`/api/communities/${encodeURIComponent(communityId)}/team-maker/rebalance`, {
+      const next = await api(`${teamMakerApi}/rebalance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

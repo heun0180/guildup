@@ -2,6 +2,7 @@ package com.guildup.killcompetition.domain;
 
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityMember;
+import com.guildup.community.domain.CommunityGame;
 import jakarta.persistence.*;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -25,6 +26,10 @@ public class KillCompetition {
     @JoinColumn(name = "community_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Community community;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "community_game_id", nullable = false)
+    private CommunityGame communityGame;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "created_by_member_id", nullable = false)
@@ -67,9 +72,10 @@ public class KillCompetition {
 
     protected KillCompetition() {}
 
-    public KillCompetition(Community community, CommunityMember createdBy, String title,
+    public KillCompetition(Community community, CommunityGame communityGame, CommunityMember createdBy, String title,
                            KillCompetitionGameMode gameMode, Instant endsAt, Instant now) {
         this.community = community;
+        this.communityGame = communityGame;
         this.createdBy = createdBy;
         this.title = title;
         this.gameMode = gameMode;
@@ -138,6 +144,7 @@ public class KillCompetition {
 
     public Long getId() { return id; }
     public Community getCommunity() { return community; }
+    public CommunityGame getCommunityGame() { return communityGame; }
     public CommunityMember getCreatedBy() { return createdBy; }
     public String getTitle() { return title; }
     public KillCompetitionGameMode getGameMode() { return gameMode; }

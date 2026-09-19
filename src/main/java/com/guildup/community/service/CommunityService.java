@@ -11,6 +11,8 @@ import com.guildup.community.domain.CommunityUserRole;
 import com.guildup.community.domain.CommunityGame;
 import com.guildup.community.domain.CommunityGameActivityRule;
 import com.guildup.community.domain.GameType;
+import com.guildup.community.domain.GameCapability;
+import com.guildup.community.dto.CommunityGameResponse;
 import com.guildup.community.dto.MyCommunityResponse;
 import com.guildup.community.dto.CommunityDashboardResponse;
 import com.guildup.user.repository.UserRepository;
@@ -21,7 +23,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /** 커뮤니티 생성과 조회를 담당하는 애플리케이션 서비스다. */
@@ -66,7 +67,7 @@ public class CommunityService {
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         Community community = communityRepository.save(new Community(name.trim()));
         CommunityGame communityGame = communityGames.save(new CommunityGame(community, gameType));
-        if (gameType.supportsRosterActivityRule()) {
+        if (gameType.supports(GameCapability.ACTIVITY)) {
             activityRules.save(CommunityGameActivityRule.defaultRule(communityGame));
         }
         memberships.save(new CommunityUser(community, user, CommunityUserRole.OWNER));
@@ -85,17 +86,14 @@ public class CommunityService {
         if (accessible.isEmpty()) {
             return List.of();
         }
-        Map<Long, GameType> gameTypes = communityGames.findByCommunityIdInOrderByIdAsc(
+        Map<Long, List<CommunityGameResponse>> gamesByCommunity = communityGames.findByCommunityIdInOrderByIdAsc(
                         accessible.stream().map(item -> item.getCommunity().getId()).toList()
                 ).stream()
-                .collect(Collectors.toMap(
-                        game -> game.getCommunity().getId(),
-                        CommunityGame::getGameType,
-                        (first, ignored) -> first
-                ));
+                .collect(Collectors.groupingBy(game -> game.getCommunity().getId(),
+                        Collectors.mapping(CommunityGameResponse::from, Collectors.toList())));
         return accessible.stream()
                 .map(item -> MyCommunityResponse.from(
-                        item, gameTypes.get(item.getCommunity().getId())
+                        item, gamesByCommunity.getOrDefault(item.getCommunity().getId(), List.of())
                 ))
                 .toList();
     }
@@ -105,13 +103,13 @@ public class CommunityService {
         var membership = access.requireAccess(userId, communityId);
         var community = membership.getCommunity();
         var connection = connections.findByCommunityId(communityId).orElse(null);
-        GameType gameType = communityGames.findFirstByCommunityIdOrderByIdAsc(communityId)
-                .map(CommunityGame::getGameType)
-                .orElse(null);
+        List<CommunityGameResponse> games = communityGames.findByCommunityIdOrderByIdAsc(communityId)
+                .stream().map(CommunityGameResponse::from).toList();
+        GameType gameType = games.isEmpty() ? null : games.get(0).gameType();
         return new CommunityDashboardResponse(community.getId(), community.getName(), membership.getRole(),
                 connection != null, connection == null ? null : connection.getDiscordGuildId(),
                 connection == null ? null : connection.getDiscordGuildName(),
                 connection == null ? null : connection.getLastMemberSyncedAt(), gameType,
-                gameType == null ? null : gameType.getDisplayName());
+                gameType == null ? null : gameType.getDisplayName(), games);
     }
 }

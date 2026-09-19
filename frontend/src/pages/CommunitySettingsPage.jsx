@@ -30,6 +30,10 @@ export default function CommunitySettingsPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
   const encodedId = encodeURIComponent(communityId || "");
+  const nicknameGame = community?.games?.find((game) => game.capabilities?.includes("NICKNAME_SYNC"));
+  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
+  const nicknameApi = nicknameGame ? `/api/communities/${encodedId}/games/${nicknameGame.communityGameId}/nickname-rule` : null;
+  const activityApi = activityGame ? `/api/communities/${encodedId}/games/${activityGame.communityGameId}/activity-rule` : null;
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
   const [roleSettings, setRoleSettings] = useState(null);
@@ -50,13 +54,13 @@ export default function CommunitySettingsPage() {
         community.discordConnected
           ? api(`/api/communities/${encodedId}/member-role-settings`)
           : Promise.resolve({ roles: [] }),
-        community.discordConnected
+        community.discordConnected && nicknameApi
           ? loadGameNicknameStatus({
-              loadStatus: () => api(`/api/communities/${encodedId}/game-nickname-rule/status`),
-              loadRule: () => api(`/api/communities/${encodedId}/game-nickname-rule`),
+              loadStatus: () => api(`${nicknameApi}/status`),
+              loadRule: () => api(nicknameApi),
             })
           : Promise.resolve({ configured: false }),
-        api(`/api/communities/${encodedId}/activity-rule`),
+        activityApi ? api(activityApi) : Promise.resolve(null),
         api(`/api/communities/${encodedId}/users`),
       ]);
       if (cancelled) return;
@@ -73,9 +77,10 @@ export default function CommunitySettingsPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [community, encodedId, validId]);
+  }, [community, encodedId, validId, nicknameApi, activityApi]);
 
   const settingsUrl = (path) => `${path}?communityId=${encodedId}`;
+  const gameSettingsUrl = (path, game) => `${path}?communityId=${encodedId}&communityGameId=${encodeURIComponent(game?.communityGameId || "")}`;
   const discordStatus = !community?.discordConnected
     ? { state: "required", label: "연결 필요", title: "Discord 서버 연결이 필요합니다.", description: "서버를 연결한 뒤 클랜원 역할을 선택할 수 있습니다." }
     : roleSettings === UNKNOWN_STATUS
@@ -113,8 +118,8 @@ export default function CommunitySettingsPage() {
         {message && <p className="message" role="alert">{message}</p>}
         {!loading && community && <section className="settings-menu-grid" aria-label="커뮤니티 설정 목록">
           <SettingsCard icon="discord" tone="discord" title="Discord 클랜원 역할 설정" description="어떤 Discord 역할을 GuildUp 클랜원으로 인식할지 선택합니다." status={discordStatus} href={community.discordConnected ? settingsUrl("/discord-member-role-settings.html") : settingsUrl("/discord-connect.html")} buttonLabel={community.discordConnected ? "역할 설정으로 이동" : "Discord 연결하기"} />
-          <SettingsCard icon="game" tone="activity" title="인게임 닉네임 설정" description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={settingsUrl("/game-nickname-settings.html")} buttonLabel="닉네임 설정으로 이동" />
-          <SettingsCard icon="activity" tone="activity" title="클랜 활동 규칙" description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={settingsUrl("/activity-rule-settings.html")} buttonLabel="활동 규칙으로 이동" />
+          {nicknameGame && <SettingsCard icon="game" tone="activity" title={`${nicknameGame.gameName} 인게임 닉네임 설정`} description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={gameSettingsUrl("/game-nickname-settings.html", nicknameGame)} buttonLabel="닉네임 설정으로 이동" />}
+          {activityGame && <SettingsCard icon="activity" tone="activity" title={`${activityGame.gameName} 클랜 활동 규칙`} description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={gameSettingsUrl("/activity-rule-settings.html", activityGame)} buttonLabel="활동 규칙으로 이동" />}
           <SettingsCard icon="users" tone="members" title="GuildUp 커뮤니티 권한" description="커뮤니티 사용자와 GuildUp 관리자 역할을 관리합니다." status={permissionStatus} href={settingsUrl("/community-role-settings.html")} buttonLabel="권한 설정으로 이동" />
         </section>}
       </div>

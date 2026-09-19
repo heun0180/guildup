@@ -97,6 +97,7 @@ function PreviewResults({ preview, saved = false, saving = false, onSave }) {
 export default function GameNicknameSettingsPage() {
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
+  const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
   const validId = /^\d+$/.test(communityId ?? "");
   const [rule, setRule] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -108,7 +109,7 @@ export default function GameNicknameSettingsPage() {
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
   const [success, setSuccess] = useState("");
 
-  const endpoint = `/api/communities/${encodeURIComponent(communityId || "")}/game-nickname-rule`;
+  const endpoint = `/api/communities/${encodeURIComponent(communityId || "")}/games/${encodeURIComponent(communityGameId || "")}/nickname-rule`;
 
   const showError = useCallback((error, fallback) => {
     if (redirectToLogin(error)) return;

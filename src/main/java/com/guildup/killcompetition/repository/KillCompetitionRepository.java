@@ -10,11 +10,19 @@ import java.time.Instant;
 
 public interface KillCompetitionRepository extends JpaRepository<KillCompetition, Long> {
     @EntityGraph(attributePaths = {"createdBy", "participants", "participants.communityMember", "participants.team", "teams"})
-    List<KillCompetition> findByCommunityIdOrderByCreatedAtDesc(Long communityId);
+    List<KillCompetition> findByCommunityGameIdOrderByCreatedAtDesc(Long communityGameId);
+
+    @EntityGraph(attributePaths = {"createdBy", "participants", "participants.communityMember", "participants.team", "teams"})
+    @Query("select distinct competition from KillCompetition competition where competition.id = :id and competition.community.id = :communityId and competition.communityGame.id = :communityGameId")
+    Optional<KillCompetition> findDetail(@Param("communityId") Long communityId, @Param("communityGameId") Long communityGameId, @Param("id") Long id);
 
     @EntityGraph(attributePaths = {"createdBy", "participants", "participants.communityMember", "participants.team", "teams"})
     @Query("select distinct competition from KillCompetition competition where competition.id = :id and competition.community.id = :communityId")
     Optional<KillCompetition> findDetail(@Param("communityId") Long communityId, @Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select competition from KillCompetition competition where competition.id = :id and competition.community.id = :communityId and competition.communityGame.id = :communityGameId")
+    Optional<KillCompetition> findForUpdate(@Param("communityId") Long communityId, @Param("communityGameId") Long communityGameId, @Param("id") Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select competition from KillCompetition competition where competition.id = :id and competition.community.id = :communityId")

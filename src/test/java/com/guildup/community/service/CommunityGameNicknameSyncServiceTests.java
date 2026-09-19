@@ -18,6 +18,7 @@ import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
 import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.service.PubgPlayerService;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -53,6 +54,7 @@ class CommunityGameNicknameSyncServiceTests {
     void reappliesSavedRuleAndReplacesExistingPubgAccount() {
         Community community = new Community("GuildUp");
         CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO);
+        identify(community, game);
         CommunityMember newMember = member(1L, community, "new-player");
         CommunityMember storedMember = member(2L, community, "correct-player");
         CommunityMemberAccount storedAccount = new CommunityMemberAccount(
@@ -69,7 +71,8 @@ class CommunityGameNicknameSyncServiceTests {
                 "sample",
                 "sample"
         );
-        when(games.findFirstByCommunityIdOrderByIdAsc(10L)).thenReturn(Optional.of(game));
+        when(games.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
+        when(games.findById(20L)).thenReturn(Optional.of(game));
         when(rules.findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
                 .thenReturn(Optional.of(rule));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, CommunityMemberStatus.ACTIVE))
@@ -82,7 +85,7 @@ class CommunityGameNicknameSyncServiceTests {
                         new PubgPlayer("account-2", "correct-player", List.of())
                 ));
 
-        var result = service.synchronize(5L, 10L);
+        var result = service.synchronize(5L, 10L, 20L);
 
         assertThat(result.totalMembers()).isEqualTo(2);
         assertThat(result.synchronizedMembers()).isEqualTo(2);
@@ -106,13 +109,14 @@ class CommunityGameNicknameSyncServiceTests {
                                     && account.getExternalUserId().equals("account-2")
                                     && account.getExternalUsername().equals("correct-player"));
         }));
-        verify(access).requireManagementAccess(5L, 10L);
+        verify(access).requireCommunityAdmin(5L, 10L);
     }
 
     @Test
     void removesStaleAccountWhenRuleNicknameDoesNotResolve() {
         Community community = new Community("GuildUp");
         CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO);
+        identify(community, game);
         CommunityMember member = member(1L, community, "not-found-player");
         CommunityMemberAccount staleAccount = new CommunityMemberAccount(
                 member, ExternalAccountProvider.PUBG, "stale-account", "stale-player"
@@ -128,7 +132,8 @@ class CommunityGameNicknameSyncServiceTests {
                 "sample",
                 "sample"
         );
-        when(games.findFirstByCommunityIdOrderByIdAsc(10L)).thenReturn(Optional.of(game));
+        when(games.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
+        when(games.findById(20L)).thenReturn(Optional.of(game));
         when(rules.findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
                 .thenReturn(Optional.of(rule));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, CommunityMemberStatus.ACTIVE))
@@ -137,7 +142,7 @@ class CommunityGameNicknameSyncServiceTests {
                 .thenReturn(List.of(staleAccount));
         when(players.findByNamesFresh("kakao", List.of("not-found-player"))).thenReturn(List.of());
 
-        var result = service.synchronize(5L, 10L);
+        var result = service.synchronize(5L, 10L, 20L);
 
         assertThat(result.synchronizedMembers()).isZero();
         assertThat(result.failedMembers()).isEqualTo(1);
@@ -149,11 +154,13 @@ class CommunityGameNicknameSyncServiceTests {
     void requiresSavedRuleBeforeCallingPubg() {
         Community community = new Community("GuildUp");
         CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM);
-        when(games.findFirstByCommunityIdOrderByIdAsc(10L)).thenReturn(Optional.of(game));
+        identify(community, game);
+        when(games.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
+        when(games.findById(20L)).thenReturn(Optional.of(game));
         when(rules.findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_STEAM))
                 .thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.synchronize(5L, 10L))
+        assertThatThrownBy(() -> service.synchronize(5L, 10L, 20L))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("인게임 닉네임 규칙");
         verify(players, never()).findByNamesFresh(org.mockito.ArgumentMatchers.anyString(), anyList());
@@ -166,5 +173,10 @@ class CommunityGameNicknameSyncServiceTests {
         when(member.getNickname()).thenReturn(nickname);
         when(member.getStatus()).thenReturn(CommunityMemberStatus.ACTIVE);
         return member;
+    }
+
+    private void identify(Community community, CommunityGame game) {
+        ReflectionTestUtils.setField(community, "id", 10L);
+        ReflectionTestUtils.setField(game, "id", 20L);
     }
 }

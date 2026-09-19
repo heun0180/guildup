@@ -1,31 +1,35 @@
 package com.guildup.community.domain;
 
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.Set;
+
 /** 커뮤니티가 활동하는 게임 종류다. */
 public enum GameType {
-    BATTLEGROUNDS_KAKAO("배틀그라운드 카카오", "kakao", true),
-    BATTLEGROUNDS_STEAM("배틀그라운드 스팀", "steam", true);
+    BATTLEGROUNDS_KAKAO("배틀그라운드 카카오", pubgCapabilities()),
+    BATTLEGROUNDS_STEAM("배틀그라운드 스팀", pubgCapabilities());
 
     private final String displayName;
-    private final String pubgShard;
-    private final boolean rosterActivityRuleSupported;
+    private final Set<GameCapability> capabilities;
 
-    GameType(String displayName, String pubgShard, boolean rosterActivityRuleSupported) {
+    GameType(String displayName, Set<GameCapability> capabilities) {
         this.displayName = displayName;
-        this.pubgShard = pubgShard;
-        this.rosterActivityRuleSupported = rosterActivityRuleSupported;
+        this.capabilities = Collections.unmodifiableSet(EnumSet.copyOf(capabilities));
     }
 
     public String getDisplayName() {
         return displayName;
     }
 
-    /** 추후 PUBG API 요청에서 사용할 플랫폼 shard다. */
-    public String getPubgShard() {
-        return pubgShard;
+    public Set<GameCapability> getCapabilities() {
+        return capabilities;
     }
 
-    /** 같은 팀의 클랜원 수를 기준으로 활동을 판정할 수 있는 게임인지 나타낸다. */
-    public boolean supportsRosterActivityRule() {
-        return rosterActivityRuleSupported;
+    public boolean supports(GameCapability capability) {
+        return capabilities.contains(capability);
+    }
+
+    private static Set<GameCapability> pubgCapabilities() {
+        return EnumSet.allOf(GameCapability.class);
     }
 }

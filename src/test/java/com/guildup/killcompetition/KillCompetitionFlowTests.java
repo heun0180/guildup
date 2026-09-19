@@ -88,6 +88,32 @@ class KillCompetitionFlowTests {
     }
 
     @Test
+    void persistsRequestedCommunityGameAndSettlementUsesItInsteadOfTheFirstGame() {
+        CommunityGame steam = communityGames.save(
+                new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+        var created = competitions.create(
+                creator.user().getId(), community.getId(), steam.getId(),
+                new KillCompetitionCreateRequest(
+                        "Steam 킬내기", KillCompetitionGameMode.SOLO,
+                        clock.instant().plus(Duration.ofMinutes(30)))
+        );
+
+        assertThat(competitionRepository.findById(created.id()).orElseThrow().getCommunityGame().getId())
+                .isEqualTo(steam.getId());
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        clock.set(started.endsAt().plusSeconds(1));
+        mockKills(Map.of("account-생성자", 1));
+
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), created.id());
+        clock.set(pending.resultPublishAt());
+        settlements.publishDueResult(created.id());
+
+        verify(aggregator).aggregate(eq("steam"), any(), any(), anyList());
+    }
+
+    @Test
     void nicknameIsRequiredAndRecruitmentCloseStartsSoloWithServerTime() {
         Person noPubg = person("닉네임없음", CommunityUserRole.MEMBER, false);
         var created = create(KillCompetitionGameMode.SOLO);

@@ -10,6 +10,7 @@ import com.guildup.community.repository.CommunityRepository;
 import com.guildup.community.service.CommunityAccessService;
 import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.*;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,12 +49,12 @@ public class BingoAggregationService {
         access.requireCommunityAdmin(userId, communityId); Instant now = clock.instant();
         communities.findForUpdate(communityId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
-        List<BingoEvent> communityEvents = events.findByCommunityIdForUpdate(communityId);
-        communityEvents.stream().filter(value -> value.getStatus() == BingoStatus.ACTIVE)
-                .forEach(value -> value.refreshStatus(now));
         BingoEvent event = events.findForUpdate(bingoId)
                 .filter(value -> value.getCommunity().getId().equals(communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
+        List<BingoEvent> communityEvents = events.findByCommunityGameIdForUpdate(event.getCommunityGame().getId());
+        communityEvents.stream().filter(value -> value.getStatus() == BingoStatus.ACTIVE)
+                .forEach(value -> value.refreshStatus(now));
         boolean anotherActive = communityEvents.stream().anyMatch(value -> !value.getId().equals(event.getId())
                 && value.getStatus() == BingoStatus.ACTIVE);
         if (!anotherActive) event.refreshStatus(now);
@@ -72,10 +73,7 @@ public class BingoAggregationService {
                     && !now.isBefore(event.getEndsAt().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
             return new BingoAggregationResponse(event.getId(), 0, 0, event.getStatus().name(), now);
         }
-        String shard = games.findByCommunityIdOrderByIdAsc(communityId).stream()
-                .map(CommunityGame::getGameType).filter(type -> type.supportsRosterActivityRule())
-                .findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "배틀그라운드 게임 설정을 찾을 수 없습니다.")).getPubgShard();
+        String shard = PubgGameSupport.requireShard(event.getCommunityGame().getGameType());
         Map<String, BingoParticipant> byAccount = connected.stream().collect(Collectors.toMap(
                 BingoParticipant::getPubgAccountId, Function.identity(), (a,b)->a, LinkedHashMap::new));
         List<PubgPlayer> loadedPlayers = players.findByAccountIdsFresh(shard, new ArrayList<>(byAccount.keySet()));

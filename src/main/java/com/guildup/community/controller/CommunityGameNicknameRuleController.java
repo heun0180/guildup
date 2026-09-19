@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 커뮤니티의 인게임 닉네임 추출 규칙 조회, 미리보기와 저장 API다. */
 @RestController
-@RequestMapping("/api/communities/{communityId}/game-nickname-rule")
+@RequestMapping("/api/communities/{communityId}/games/{communityGameId}/nickname-rule")
 public class CommunityGameNicknameRuleController {
 
     private final CommunityGameNicknameRuleService ruleService;
@@ -34,54 +34,58 @@ public class CommunityGameNicknameRuleController {
     }
 
     @GetMapping
-    public GameNicknameRuleResponse getRule(@PathVariable Long communityId, HttpSession session) {
-        return ruleService.getRule(CurrentUserSession.requireUserId(session), communityId);
+    public GameNicknameRuleResponse getRule(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
+        return ruleService.getRule(CurrentUserSession.requireUserId(session), communityId, communityGameId);
     }
 
     @GetMapping("/status")
-    public GameNicknameRuleStatusResponse getStatus(@PathVariable Long communityId, HttpSession session) {
-        return ruleService.getStatus(CurrentUserSession.requireUserId(session), communityId);
+    public GameNicknameRuleStatusResponse getStatus(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
+        return ruleService.getStatus(CurrentUserSession.requireUserId(session), communityId, communityGameId);
     }
 
     @PostMapping("/preview")
     public GameNicknameRulePreviewResponse preview(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @RequestBody GameNicknameRuleRequest request,
             HttpSession session
     ) {
         return ruleService.preview(
-                CurrentUserSession.requireUserId(session), communityId, request.gameNickname()
+                CurrentUserSession.requireUserId(session), communityId, communityGameId, request.gameNickname()
         );
     }
 
     @GetMapping("/preview")
     public GameNicknameRulePreviewResponse previewSavedRule(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             HttpSession session
     ) {
         return ruleService.previewSavedRule(
-                CurrentUserSession.requireUserId(session), communityId
+                CurrentUserSession.requireUserId(session), communityId, communityGameId
         );
     }
 
     @PutMapping
     public GameNicknameRuleResponse save(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @RequestBody GameNicknameRuleRequest request,
             HttpSession session
     ) {
         return ruleService.save(
-                CurrentUserSession.requireUserId(session), communityId, request.gameNickname()
+                CurrentUserSession.requireUserId(session), communityId, communityGameId, request.gameNickname()
         );
     }
 
     @PostMapping("/sync")
     public CommunityGameNicknameSyncResponse synchronize(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             HttpSession session
     ) {
         return syncService.synchronize(
-                CurrentUserSession.requireUserId(session), communityId
+                CurrentUserSession.requireUserId(session), communityId, communityGameId
         );
     }
 }

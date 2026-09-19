@@ -148,7 +148,7 @@ class CommunityFlowTests {
     @Test
     void createsReadsAndUpdatesOneActivityRulePerCommunityGame() throws Exception {
         Community mine = service.createCommunity("치즈 클랜", user.getId());
-        String path = "/api/communities/" + mine.getId() + "/activity-rule";
+        String path = gameBase(mine) + "/activity-rule";
 
         mvc.perform(get(path).session(session))
                 .andExpect(status().isOk())
@@ -191,7 +191,7 @@ class CommunityFlowTests {
     void rejectsInvalidActivityRulesAndMemberUpdates() throws Exception {
         Community community = service.createCommunity("공유", other.getId());
         memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
-        String path = "/api/communities/" + community.getId() + "/activity-rule";
+        String path = gameBase(community) + "/activity-rule";
 
         mvc.perform(get(path).session(session)).andExpect(status().isOk());
         for (String body : new String[]{
@@ -206,7 +206,7 @@ class CommunityFlowTests {
         }
 
         Community owned = service.createCommunity("관리", user.getId());
-        String ownedPath = "/api/communities/" + owned.getId() + "/activity-rule";
+        String ownedPath = gameBase(owned) + "/activity-rule";
         mvc.perform(put(ownedPath).session(session).contentType("application/json")
                         .content("{\"minimumClanMembersInRoster\":2}"))
                 .andExpect(status().isBadRequest());
@@ -362,7 +362,7 @@ class CommunityFlowTests {
                 )));
         String base = "/api/communities/" + community.getId();
 
-        mvc.perform(post(base + "/game-nickname-rule/sync").session(session))
+        mvc.perform(post(gameBase(community) + "/nickname-rule/sync").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalMembers").value(1))
                 .andExpect(jsonPath("$.synchronizedMembers").value(1))
@@ -401,7 +401,7 @@ class CommunityFlowTests {
                 )));
         String base = "/api/communities/" + community.getId();
 
-        mvc.perform(post(base + "/game-nickname-rule/sync").session(session))
+        mvc.perform(post(gameBase(community) + "/nickname-rule/sync").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.createdAccounts").value(0))
                 .andExpect(jsonPath("$.updatedAccounts").value(1))
@@ -665,7 +665,7 @@ class CommunityFlowTests {
     void memberCannotAccessTeamMakerManagementApis() throws Exception {
         Community community = service.createCommunity("공유", other.getId());
         memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
-        String base = "/api/communities/" + community.getId() + "/team-maker";
+        String base = gameBase(community) + "/team-maker";
 
         mvc.perform(get(base + "/participants").session(session))
                 .andExpect(status().isForbidden());
@@ -792,9 +792,9 @@ class CommunityFlowTests {
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/discord/guilds/123456/roles").session(session))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/communities/" + community.getId() + "/member-activities").session(session))
+        mvc.perform(get(gameBase(community) + "/activities").session(session))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/communities/" + community.getId() + "/members/1/activity").session(session))
+        mvc.perform(get(gameBase(community) + "/activities/members/1").session(session))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(jda);
     }
@@ -811,7 +811,7 @@ class CommunityFlowTests {
         var otherMember = mockDiscordMember("888", "julmi", "절미(95) jul-mi");
         var unmatchedMember = mockDiscordMember("777", "potato", "감자");
         loadMembers(guild, currentMember, otherMember, unmatchedMember);
-        String path = "/api/communities/" + mine.getId() + "/game-nickname-rule";
+        String path = gameBase(mine) + "/nickname-rule";
 
         mvc.perform(post(path + "/preview").session(session).contentType("application/json")
                         .content("{\"gameNickname\":\"sa-gwa\"}"))
@@ -837,7 +837,7 @@ class CommunityFlowTests {
     void memberCannotPreviewOrSaveGameNicknameRule() throws Exception {
         Community community = service.createCommunity("공유", other.getId());
         memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER));
-        String path = "/api/communities/" + community.getId() + "/game-nickname-rule";
+        String path = gameBase(community) + "/nickname-rule";
 
         mvc.perform(get(path).session(session))
                 .andExpect(status().isForbidden());
@@ -859,6 +859,11 @@ class CommunityFlowTests {
         var guild = org.mockito.Mockito.mock(net.dv8tion.jda.api.entities.Guild.class);
         org.mockito.Mockito.when(jda.getGuildById(id)).thenReturn(guild);
         return guild;
+    }
+
+    private String gameBase(Community community) {
+        Long gameId = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).get(0).getId();
+        return "/api/communities/" + community.getId() + "/games/" + gameId;
     }
 
     @SuppressWarnings("unchecked")

@@ -11,6 +11,9 @@ export default function MembersPage() {
   const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
+  const nicknameGame = community?.games?.find((game) => game.capabilities?.includes("NICKNAME_SYNC"));
+  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
+  const gameApi = nicknameGame ? `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(nicknameGame.communityGameId)}` : null;
   const guildId = params.get("guildId");
   const discordRoles = params.get("discordRoles") === "true";
   const communityValid = /^\d+$/.test(communityId ?? "");
@@ -101,13 +104,13 @@ export default function MembersPage() {
         .catch((error) => {
           if (!redirectToLogin(error) && error.status !== 404) setMemberRolesConfigured(null);
         }),
-      api(`/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/status`)
+      (gameApi ? api(`${gameApi}/nickname-rule/status`) : Promise.resolve({ configured: false }))
         .then((status) => setNicknameRuleConfigured(status.configured))
         .catch((error) => {
           if (!redirectToLogin(error)) setNicknameRuleConfigured(false);
         }),
     ]);
-  }, [communityId, communityValid]);
+  }, [communityId, communityValid, gameApi]);
 
   async function addMember(event) {
     event.preventDefault();
@@ -137,7 +140,7 @@ export default function MembersPage() {
     setSuccess("");
     try {
       const result = await api(
-        `/api/communities/${encodeURIComponent(communityId)}/game-nickname-rule/sync`,
+        `${gameApi}/nickname-rule/sync`,
         { method: "POST" },
       );
       await loadCommunityMembers();
@@ -219,7 +222,7 @@ export default function MembersPage() {
                     href={`/game-nickname-settings.html?communityId=${encodeURIComponent(communityId)}`}>
                   <Icon name="game" size={17} />인게임 닉네임 설정 필요
                 </a>}
-              <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}`}>
+              <a className="secondary-button" href={`/member-activities.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(activityGame?.communityGameId || "")}`}>
                 <Icon name="activity" size={17} />인게임 활동 상태
               </a>
               {discordConnected && <a className="secondary-button"

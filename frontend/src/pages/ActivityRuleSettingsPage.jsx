@@ -8,8 +8,9 @@ import { useCommunity } from "../community/CommunityContext.jsx";
 export default function ActivityRuleSettingsPage() {
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
+  const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
   const encodedId = encodeURIComponent(communityId || "");
-  const endpoint = `/api/communities/${encodedId}/activity-rule`;
+  const endpoint = `/api/communities/${encodedId}/games/${encodeURIComponent(communityGameId || "")}/activity-rule`;
   const [rule, setRule] = useState(null);
   const [periodDays, setPeriodDays] = useState(14);
   const [minimumMembers, setMinimumMembers] = useState(2);

@@ -8,6 +8,7 @@ export default function IntegrationsPage() {
 
   const encodedCommunityId = encodeURIComponent(communityId || "");
   const canManage = community?.role === "OWNER" || community?.role === "ADMIN";
+  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
   const discordFeatures = [
     {
       id: "roles",
@@ -16,12 +17,12 @@ export default function IntegrationsPage() {
       icon: "users",
       href: `/community-settings.html?communityId=${encodedCommunityId}#role-settings-title`,
     },
-    {
+    activityGame && {
       id: "activity",
       title: "Discord 활동",
       description: "동기화된 클랜원의 활동 기록을 확인합니다.",
       icon: "activity",
-      href: `/member-activities.html?communityId=${encodedCommunityId}`,
+      href: `/member-activities.html?communityId=${encodedCommunityId}&communityGameId=${encodeURIComponent(activityGame.communityGameId)}`,
     },
     canManage && {
       id: "voice-activity",

@@ -10,6 +10,7 @@ export default function MemberActivityDetailPage() {
   const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
+  const communityGameId = params.get("communityGameId");
   const memberId = params.get("memberId");
   const validIds = /^\d+$/.test(communityId ?? "") && /^\d+$/.test(memberId ?? "");
   const [activity, setActivity] = useState(null);
@@ -22,7 +23,7 @@ export default function MemberActivityDetailPage() {
     async function load() {
       setLoading(true);
       try {
-        const result = await api(`/api/communities/${encodeURIComponent(communityId)}/members/${encodeURIComponent(memberId)}/activity`);
+        const result = await api(`/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/activities/members/${encodeURIComponent(memberId)}`);
         if (cancelled) return;
         setActivity(result);
       } catch (error) {
@@ -39,7 +40,7 @@ export default function MemberActivityDetailPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [communityId, memberId, validIds]);
+  }, [communityId, communityGameId, memberId, validIds]);
 
   const status = activityStatus(activity?.status);
   const formatPlayedAt = (value) => new Intl.DateTimeFormat("ko-KR", {
@@ -50,7 +51,7 @@ export default function MemberActivityDetailPage() {
     <DashboardLayout active="activity" communityId={communityId} community={community}
                      loadCommunity={false} onError={setMessage}>
       <div className="dashboard-content activity-content">
-        <a className="activity-back-link" href={`/member-activities.html?communityId=${encodeURIComponent(communityId || "")}`}>
+        <a className="activity-back-link" href={`/member-activities.html?communityId=${encodeURIComponent(communityId || "")}&communityGameId=${encodeURIComponent(communityGameId || "")}`}>
           <span aria-hidden="true">←</span> 클랜원 활동
         </a>
 

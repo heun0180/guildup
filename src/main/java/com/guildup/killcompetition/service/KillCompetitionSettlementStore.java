@@ -7,6 +7,7 @@ import com.guildup.community.service.CommunityScoreService;
 import com.guildup.community.service.CurrentCommunityMemberService;
 import com.guildup.killcompetition.domain.*;
 import com.guildup.killcompetition.repository.*;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -147,9 +148,7 @@ public class KillCompetitionSettlementStore {
     }
 
     private SettlementWork work(KillCompetition competition, Instant end, Instant claimAt) {
-        String shard = communityGames.findFirstByCommunityIdOrderByIdAsc(competition.getCommunity().getId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "커뮤니티 PUBG 게임 설정이 없습니다."))
-                .getGameType().getPubgShard();
+        String shard = PubgGameSupport.requireShard(competition.getCommunityGame().getGameType());
         return new SettlementWork(competition.getId(), competition.getCommunity().getId(), shard,
                 competition.getStartedAt(), end, claimAt,
                 competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)

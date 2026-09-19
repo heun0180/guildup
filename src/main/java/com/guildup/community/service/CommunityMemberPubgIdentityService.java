@@ -3,12 +3,13 @@ package com.guildup.community.service;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.domain.CommunityMemberAccount;
+import com.guildup.community.domain.CommunityGame;
 import com.guildup.community.domain.CommunityGameNicknameRule;
 import com.guildup.community.repository.CommunityGameNicknameRuleRepository;
-import com.guildup.community.repository.CommunityGameRepository;
 import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
 import com.guildup.community.service.nickname.NicknameRuleCandidate;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,23 +20,19 @@ import java.util.Optional;
 @Transactional(readOnly = true)
 public class CommunityMemberPubgIdentityService {
     private final CommunityMemberAccountRepository accounts;
-    private final CommunityGameRepository games;
     private final CommunityGameNicknameRuleRepository nicknameRules;
     private final GameNicknameRuleInferenceService nicknameInference;
 
     public CommunityMemberPubgIdentityService(CommunityMemberAccountRepository accounts,
-                                              CommunityGameRepository games,
                                               CommunityGameNicknameRuleRepository nicknameRules,
                                               GameNicknameRuleInferenceService nicknameInference) {
         this.accounts = accounts;
-        this.games = games;
         this.nicknameRules = nicknameRules;
         this.nicknameInference = nicknameInference;
     }
 
-    public Optional<PubgIdentity> find(CommunityMember member) {
-        return games.findFirstByCommunityIdOrderByIdAsc(member.getCommunity().getId()).flatMap(game -> {
-            String shard = game.getGameType().getPubgShard();
+    public Optional<PubgIdentity> find(CommunityMember member, CommunityGame game) {
+            String shard = PubgGameSupport.requireShard(game.getGameType());
             Optional<CommunityMemberAccount> stored = accounts.findByCommunityMemberIdAndProvider(
                     member.getId(), ExternalAccountProvider.PUBG).filter(this::usable);
             if (stored.isPresent()) {
@@ -47,7 +44,6 @@ public class CommunityMemberPubgIdentityService {
                     .flatMap(rule -> nicknameInference.extract(candidate(rule), member.getNickname()))
                     .filter(nickname -> !nickname.isBlank())
                     .map(nickname -> new PubgIdentity(shard, nickname, null));
-        });
     }
 
     private NicknameRuleCandidate candidate(CommunityGameNicknameRule rule) {

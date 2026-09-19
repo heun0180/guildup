@@ -6,6 +6,7 @@ import com.guildup.community.domain.CommunityGameNicknameRule;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.domain.CommunityMemberAccount;
 import com.guildup.community.domain.CommunityMemberStatus;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.dto.TeamGenerationRequest;
 import com.guildup.community.dto.TeamGenerationResponse;
 import com.guildup.community.dto.TeamMakerParticipantResponse;
@@ -21,8 +22,10 @@ import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.model.PubgSeasonStats;
 import com.guildup.pubg.service.PubgPlayerService;
 import com.guildup.pubg.service.PubgSeasonService;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -38,31 +41,29 @@ import java.util.stream.Collectors;
 /** 운영진 팀 만들기 화면의 참가자 조회, 시즌 통계 계산과 팀 편성을 조율한다. */
 @Service
 public class CommunityTeamMakerService {
-    private final CommunityAccessService accessService;
+    private final CommunityGameAccessService gameAccess;
     private final CommunityMemberRepository memberRepository;
     private final CommunityMemberAccountRepository accountRepository;
-    private final CommunityGameRepository gameRepository;
     private final CommunityGameNicknameRuleRepository nicknameRuleRepository;
     private final GameNicknameRuleInferenceService nicknameInferenceService;
     private final PubgPlayerService playerService;
     private final PubgSeasonService seasonService;
     private final TeamBalanceService balanceService;
 
+    @Autowired
     public CommunityTeamMakerService(
-            CommunityAccessService accessService,
+            CommunityGameAccessService gameAccess,
             CommunityMemberRepository memberRepository,
             CommunityMemberAccountRepository accountRepository,
-            CommunityGameRepository gameRepository,
             CommunityGameNicknameRuleRepository nicknameRuleRepository,
             GameNicknameRuleInferenceService nicknameInferenceService,
             PubgPlayerService playerService,
             PubgSeasonService seasonService,
             TeamBalanceService balanceService
     ) {
-        this.accessService = accessService;
+        this.gameAccess = gameAccess;
         this.memberRepository = memberRepository;
         this.accountRepository = accountRepository;
-        this.gameRepository = gameRepository;
         this.nicknameRuleRepository = nicknameRuleRepository;
         this.nicknameInferenceService = nicknameInferenceService;
         this.playerService = playerService;
@@ -70,22 +71,36 @@ public class CommunityTeamMakerService {
         this.balanceService = balanceService;
     }
 
+    CommunityTeamMakerService(CommunityAccessService accessService,
+            CommunityMemberRepository memberRepository,
+            CommunityMemberAccountRepository accountRepository,
+            CommunityGameRepository gameRepository,
+            CommunityGameNicknameRuleRepository nicknameRuleRepository,
+            GameNicknameRuleInferenceService nicknameInferenceService,
+            PubgPlayerService playerService, PubgSeasonService seasonService,
+            TeamBalanceService balanceService) {
+        this(new CommunityGameAccessService(accessService, gameRepository), memberRepository,
+                accountRepository, nicknameRuleRepository, nicknameInferenceService,
+                playerService, seasonService, balanceService);
+    }
+
     @Transactional(readOnly = true)
-    public TeamMakerParticipantsResponse getParticipants(Long userId, Long communityId) {
-        accessService.requireManagementAccess(userId, communityId);
-        CommunityGame game = requireGame(communityId);
+    public TeamMakerParticipantsResponse getParticipants(Long userId, Long communityId, Long communityGameId) {
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.TEAM_MAKER);
         return new TeamMakerParticipantsResponse(loadCandidates(communityId, game).stream()
                 .map(candidate -> TeamMakerParticipantResponse.selectable(
                         candidate.member().getId(), candidate.member().getNickname(), candidate.pubgNickname()
                 ))
                 .toList());
     }
+    public TeamMakerParticipantsResponse getParticipants(Long userId, Long communityId) {
+        return getParticipants(userId, communityId, only(userId, communityId));
+    }
 
     @Transactional(readOnly = true)
-    public TeamGenerationResponse generate(Long userId, Long communityId, TeamGenerationRequest request) {
-        accessService.requireManagementAccess(userId, communityId);
+    public TeamGenerationResponse generate(Long userId, Long communityId, Long communityGameId, TeamGenerationRequest request) {
         validateGenerationRequest(request);
-        CommunityGame game = requireGame(communityId);
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.TEAM_MAKER);
         Map<Long, Candidate> candidates = loadCandidates(communityId, game).stream()
                 .collect(Collectors.toMap(candidate -> candidate.member().getId(), Function.identity(),
                         (first, ignored) -> first, LinkedHashMap::new));
@@ -98,7 +113,7 @@ public class CommunityTeamMakerService {
             selected.add(candidate);
         }
 
-        String shard = game.getGameType().getPubgShard();
+        String shard = PubgGameSupport.requireShard(game.getGameType());
         resolveAccountIds(shard, selected);
         PubgSeasonService.SeasonPair seasons = seasonService.getCurrentAndPrevious(shard);
         List<String> selectedSeasonIds = new ArrayList<>();
@@ -142,9 +157,12 @@ public class CommunityTeamMakerService {
                 measured, List.of(), result.teams(), result.summary()
         );
     }
+    public TeamGenerationResponse generate(Long userId, Long communityId, TeamGenerationRequest request) {
+        return generate(userId, communityId, only(userId, communityId), request);
+    }
 
-    public TeamGenerationResponse rebalance(Long userId, Long communityId, TeamRebalanceRequest request) {
-        accessService.requireManagementAccess(userId, communityId);
+    public TeamGenerationResponse rebalance(Long userId, Long communityId, Long communityGameId, TeamRebalanceRequest request) {
+        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.TEAM_MAKER);
         if (request == null || request.participants() == null || request.participants().isEmpty()) {
             throw badRequest("다시 생성할 참가자 통계가 없습니다.");
         }
@@ -158,6 +176,13 @@ public class CommunityTeamMakerService {
         return new TeamGenerationResponse(
                 null, null, List.of(), participants, List.of(), result.teams(), result.summary()
         );
+    }
+    public TeamGenerationResponse rebalance(Long userId, Long communityId, TeamRebalanceRequest request) {
+        return rebalance(userId, communityId, only(userId, communityId), request);
+    }
+
+    private Long only(Long userId, Long communityId) {
+        return gameAccess.requireOnlyManageable(userId, communityId, GameCapability.TEAM_MAKER).getId();
     }
 
     private List<Candidate> loadCandidates(Long communityId, CommunityGame game) {
@@ -251,11 +276,6 @@ public class CommunityTeamMakerService {
 
     private void validateTeamSize(int size) {
         if (size < 1 || size > 10) throw badRequest("팀당 최대 인원은 1명부터 10명까지 선택할 수 있습니다.");
-    }
-
-    private CommunityGame requireGame(Long communityId) {
-        return gameRepository.findFirstByCommunityIdOrderByIdAsc(communityId)
-                .orElseThrow(() -> badRequest("커뮤니티의 PUBG 플랫폼 설정을 찾을 수 없습니다."));
     }
 
     private long seed(Long requested) { return requested == null ? System.nanoTime() : requested; }

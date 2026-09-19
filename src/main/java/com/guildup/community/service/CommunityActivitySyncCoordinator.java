@@ -3,6 +3,7 @@ package com.guildup.community.service;
 import com.guildup.community.domain.CommunityGame;
 import com.guildup.community.domain.CommunityGameActivitySync;
 import com.guildup.community.domain.CommunityGameActivitySyncStatus;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.dto.CommunityActivitySyncResponse;
 import com.guildup.community.repository.CommunityGameActivitySyncRepository;
 import com.guildup.community.repository.CommunityGameRepository;
@@ -17,20 +18,20 @@ import java.time.Clock;
 @Service
 public class CommunityActivitySyncCoordinator {
 
-    private final CommunityAccessService accessService;
+    private final CommunityGameAccessService gameAccess;
     private final CommunityGameRepository gameRepository;
     private final CommunityGameActivitySyncRepository syncRepository;
     private final CommunityActivitySyncPolicy syncPolicy;
     private final Clock clock;
 
     public CommunityActivitySyncCoordinator(
-            CommunityAccessService accessService,
+            CommunityGameAccessService gameAccess,
             CommunityGameRepository gameRepository,
             CommunityGameActivitySyncRepository syncRepository,
             CommunityActivitySyncPolicy syncPolicy,
             Clock clock
     ) {
-        this.accessService = accessService;
+        this.gameAccess = gameAccess;
         this.gameRepository = gameRepository;
         this.syncRepository = syncRepository;
         this.syncPolicy = syncPolicy;
@@ -38,10 +39,9 @@ public class CommunityActivitySyncCoordinator {
     }
 
     @Transactional
-    public Long begin(Long userId, Long communityId) {
-        accessService.requireManagementAccess(userId, communityId);
-        CommunityGame selected = requireSupportedGame(communityId);
-        CommunityGame game = gameRepository.findByIdForUpdate(selected.getId())
+    public Long begin(Long userId, Long communityId, Long communityGameId) {
+        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.ACTIVITY);
+        CommunityGame game = gameRepository.findByIdForUpdate(communityGameId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
                 ));
@@ -72,12 +72,4 @@ public class CommunityActivitySyncCoordinator {
         });
     }
 
-    private CommunityGame requireSupportedGame(Long communityId) {
-        return gameRepository.findByCommunityIdOrderByIdAsc(communityId).stream()
-                .filter(game -> game.getGameType().supportsRosterActivityRule())
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
-                ));
-    }
 }

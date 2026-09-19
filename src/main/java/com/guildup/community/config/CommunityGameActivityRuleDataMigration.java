@@ -1,6 +1,7 @@
 package com.guildup.community.config;
 
 import com.guildup.community.domain.CommunityGameActivityRule;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.repository.CommunityGameActivityRuleRepository;
 import com.guildup.community.repository.CommunityGameRepository;
 import org.springframework.boot.ApplicationArguments;
@@ -27,7 +28,7 @@ public class CommunityGameActivityRuleDataMigration implements ApplicationRunner
     @Transactional
     public void run(ApplicationArguments args) {
         communityGameRepository.findAll().stream()
-                .filter(game -> game.getGameType().supportsRosterActivityRule())
+                .filter(game -> game.supports(GameCapability.ACTIVITY))
                 .filter(game -> ruleRepository.findByCommunityGameId(game.getId()).isEmpty())
                 .map(CommunityGameActivityRule::defaultRule)
                 .forEach(ruleRepository::save);

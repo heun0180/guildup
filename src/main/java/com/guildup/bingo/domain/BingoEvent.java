@@ -2,6 +2,7 @@ package com.guildup.bingo.domain;
 
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityUser;
+import com.guildup.community.domain.CommunityGame;
 import jakarta.persistence.*;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -22,6 +23,8 @@ public class BingoEvent {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "community_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE) private Community community;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "community_game_id", nullable = false)
+    private CommunityGame communityGame;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "created_by_community_user_id", nullable = false)
     private CommunityUser createdBy;
     @Column(nullable = false, length = 100) private String title;
@@ -43,10 +46,10 @@ public class BingoEvent {
 
     protected BingoEvent() {}
 
-    public BingoEvent(Community community, CommunityUser createdBy, String title, String description,
+    public BingoEvent(Community community, CommunityGame communityGame, CommunityUser createdBy, String title, String description,
                       int boardSize, int targetLines, boolean blackoutEnabled, boolean allowLateJoin,
                       Instant startsAt, Instant endsAt, BingoStatus status, Instant now) {
-        this.community = community; this.createdBy = createdBy; this.title = title;
+        this.community = community; this.communityGame = communityGame; this.createdBy = createdBy; this.title = title;
         this.description = description; this.boardSize = boardSize; this.targetLines = targetLines;
         this.blackoutEnabled = blackoutEnabled; this.allowLateJoin = allowLateJoin;
         this.startsAt = startsAt; this.endsAt = endsAt; this.status = status;
@@ -76,6 +79,7 @@ public class BingoEvent {
 
     public Long getId() { return id; }
     public Community getCommunity() { return community; }
+    public CommunityGame getCommunityGame() { return communityGame; }
     public CommunityUser getCreatedBy() { return createdBy; }
     public String getTitle() { return title; }
     public String getDescription() { return description; }

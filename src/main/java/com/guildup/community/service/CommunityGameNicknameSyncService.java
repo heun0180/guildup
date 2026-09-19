@@ -6,6 +6,7 @@ import com.guildup.community.domain.CommunityGameNicknameRule;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.domain.CommunityMemberAccount;
 import com.guildup.community.domain.CommunityMemberStatus;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.dto.CommunityGameNicknameSyncResponse;
 import com.guildup.community.repository.CommunityGameNicknameRuleRepository;
 import com.guildup.community.repository.CommunityGameRepository;
@@ -15,8 +16,10 @@ import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
 import com.guildup.community.service.nickname.NicknameRuleCandidate;
 import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.service.PubgPlayerService;
+import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -35,25 +38,23 @@ import java.util.stream.Collectors;
 @Service
 public class CommunityGameNicknameSyncService {
 
-    private final CommunityAccessService accessService;
-    private final CommunityGameRepository gameRepository;
+    private final CommunityGameAccessService gameAccess;
     private final CommunityGameNicknameRuleRepository ruleRepository;
     private final CommunityMemberRepository memberRepository;
     private final CommunityMemberAccountRepository accountRepository;
     private final GameNicknameRuleInferenceService nicknameInference;
     private final PubgPlayerService playerService;
 
+    @Autowired
     public CommunityGameNicknameSyncService(
-            CommunityAccessService accessService,
-            CommunityGameRepository gameRepository,
+            CommunityGameAccessService gameAccess,
             CommunityGameNicknameRuleRepository ruleRepository,
             CommunityMemberRepository memberRepository,
             CommunityMemberAccountRepository accountRepository,
             GameNicknameRuleInferenceService nicknameInference,
             PubgPlayerService playerService
     ) {
-        this.accessService = accessService;
-        this.gameRepository = gameRepository;
+        this.gameAccess = gameAccess;
         this.ruleRepository = ruleRepository;
         this.memberRepository = memberRepository;
         this.accountRepository = accountRepository;
@@ -61,13 +62,20 @@ public class CommunityGameNicknameSyncService {
         this.playerService = playerService;
     }
 
+    CommunityGameNicknameSyncService(CommunityAccessService accessService,
+            CommunityGameRepository games,
+            CommunityGameNicknameRuleRepository ruleRepository,
+            CommunityMemberRepository memberRepository,
+            CommunityMemberAccountRepository accountRepository,
+            GameNicknameRuleInferenceService nicknameInference,
+            PubgPlayerService playerService) {
+        this(new CommunityGameAccessService(accessService, games), ruleRepository, memberRepository,
+                accountRepository, nicknameInference, playerService);
+    }
+
     @Transactional
-    public CommunityGameNicknameSyncResponse synchronize(Long userId, Long communityId) {
-        accessService.requireManagementAccess(userId, communityId);
-        CommunityGame game = gameRepository.findFirstByCommunityIdOrderByIdAsc(communityId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "커뮤니티에서 사용할 게임이 설정되지 않았습니다."
-                ));
+    public CommunityGameNicknameSyncResponse synchronize(Long userId, Long communityId, Long communityGameId) {
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.NICKNAME_SYNC);
         CommunityGameNicknameRule rule = ruleRepository
                 .findByCommunityIdAndGameType(communityId, game.getGameType())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -101,7 +109,7 @@ public class CommunityGameNicknameSyncService {
                 ));
         List<String> namesToLookup = extractedNames.values().stream().distinct().toList();
         Map<String, PubgPlayer> playersByName = playerService
-                .findByNamesFresh(game.getGameType().getPubgShard(), namesToLookup).stream()
+                .findByNamesFresh(PubgGameSupport.requireShard(game.getGameType()), namesToLookup).stream()
                 .filter(player -> player.name() != null && player.accountId() != null)
                 .collect(Collectors.toMap(
                         player -> normalize(player.name()),
@@ -145,6 +153,11 @@ public class CommunityGameNicknameSyncService {
                 updatedAccounts,
                 failedMembers
         );
+    }
+
+    public CommunityGameNicknameSyncResponse synchronize(Long userId, Long communityId) {
+        return synchronize(userId, communityId,
+                gameAccess.requireOnlyManageable(userId, communityId, GameCapability.NICKNAME_SYNC).getId());
     }
 
     private NicknameRuleCandidate candidate(CommunityGameNicknameRule rule) {

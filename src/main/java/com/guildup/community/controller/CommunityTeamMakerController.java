@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/communities/{communityId}/team-maker")
+@RequestMapping("/api/communities/{communityId}/games/{communityGameId}/team-maker")
 public class CommunityTeamMakerController {
     private final CommunityTeamMakerService service;
 
@@ -24,25 +24,27 @@ public class CommunityTeamMakerController {
     }
 
     @GetMapping("/participants")
-    public TeamMakerParticipantsResponse participants(@PathVariable Long communityId, HttpSession session) {
-        return service.getParticipants(CurrentUserSession.requireUserId(session), communityId);
+    public TeamMakerParticipantsResponse participants(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
+        return service.getParticipants(CurrentUserSession.requireUserId(session), communityId, communityGameId);
     }
 
     @PostMapping("/generate")
     public TeamGenerationResponse generate(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @RequestBody TeamGenerationRequest request,
             HttpSession session
     ) {
-        return service.generate(CurrentUserSession.requireUserId(session), communityId, request);
+        return service.generate(CurrentUserSession.requireUserId(session), communityId, communityGameId, request);
     }
 
     @PostMapping("/rebalance")
     public TeamGenerationResponse rebalance(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @RequestBody TeamRebalanceRequest request,
             HttpSession session
     ) {
-        return service.rebalance(CurrentUserSession.requireUserId(session), communityId, request);
+        return service.rebalance(CurrentUserSession.requireUserId(session), communityId, communityGameId, request);
     }
 }

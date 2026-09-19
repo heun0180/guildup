@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** 커뮤니티의 게임 활동 규칙 조회 및 변경 API다. */
 @RestController
-@RequestMapping("/api/communities/{communityId}/activity-rule")
+@RequestMapping("/api/communities/{communityId}/games/{communityGameId}/activity-rule")
 public class CommunityGameActivityRuleController {
 
     private final CommunityGameActivityRuleService ruleService;
@@ -26,20 +26,23 @@ public class CommunityGameActivityRuleController {
     @GetMapping
     public CommunityGameActivityRuleResponse getRule(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             HttpSession session
     ) {
-        return ruleService.getRule(CurrentUserSession.requireUserId(session), communityId);
+        return ruleService.getRule(CurrentUserSession.requireUserId(session), communityId, communityGameId);
     }
 
     @PutMapping
     public CommunityGameActivityRuleResponse updateRule(
             @PathVariable Long communityId,
+            @PathVariable Long communityGameId,
             @RequestBody CommunityGameActivityRuleRequest request,
             HttpSession session
     ) {
         return ruleService.updateRule(
                 CurrentUserSession.requireUserId(session),
                 communityId,
+                communityGameId,
                 request.activityPeriodDays(),
                 request.minimumClanMembersInRoster()
         );

@@ -27,8 +27,8 @@ class CommunityDomainTests {
     @Test
     void battlegroundGameTypesOwnTheirDisplayNamesAndPubgShards() {
         assertThat(GameType.BATTLEGROUNDS_KAKAO.getDisplayName()).isEqualTo("배틀그라운드 카카오");
-        assertThat(GameType.BATTLEGROUNDS_KAKAO.getPubgShard()).isEqualTo("kakao");
+        assertThat(com.guildup.pubg.support.PubgGameSupport.requireShard(GameType.BATTLEGROUNDS_KAKAO)).isEqualTo("kakao");
         assertThat(GameType.BATTLEGROUNDS_STEAM.getDisplayName()).isEqualTo("배틀그라운드 스팀");
-        assertThat(GameType.BATTLEGROUNDS_STEAM.getPubgShard()).isEqualTo("steam");
+        assertThat(com.guildup.pubg.support.PubgGameSupport.requireShard(GameType.BATTLEGROUNDS_STEAM)).isEqualTo("steam");
     }
 }

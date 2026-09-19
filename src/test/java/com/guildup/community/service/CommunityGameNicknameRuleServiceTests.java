@@ -24,6 +24,7 @@ import net.dv8tion.jda.api.utils.concurrent.Task;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -56,10 +57,13 @@ class CommunityGameNicknameRuleServiceTests {
     );
 
     private final Community community = new Community("GuildUp");
+    private final CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO);
     private final Guild guild = mock(Guild.class);
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(community, "id", 10L);
+        ReflectionTestUtils.setField(game, "id", 20L);
         CommunityUser membership = mock(CommunityUser.class);
         when(membership.getCommunity()).thenReturn(community);
         when(accessService.requireAccess(1L, 10L)).thenReturn(membership);
@@ -73,8 +77,8 @@ class CommunityGameNicknameRuleServiceTests {
                 )));
         when(ruleRepository.save(any(CommunityGameNicknameRule.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        when(communityGameRepository.findFirstByCommunityIdOrderByIdAsc(10L))
-                .thenReturn(Optional.of(new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO)));
+        when(communityGameRepository.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
+        when(communityGameRepository.findById(20L)).thenReturn(Optional.of(game));
     }
 
     @Test
@@ -84,7 +88,7 @@ class CommunityGameNicknameRuleServiceTests {
         Member potato = member("3", "potato", "감자");
         loadMembers(administrator, julmi, potato);
 
-        var result = ruleService.preview(1L, 10L, "sa-gwa");
+        var result = ruleService.preview(1L, 10L, 20L, "sa-gwa");
 
         assertThat(result.totalMembers()).isEqualTo(3);
         assertThat(result.successfulMembers()).isEqualTo(2);
@@ -112,9 +116,9 @@ class CommunityGameNicknameRuleServiceTests {
             return rule;
         });
 
-        var saved = ruleService.save(1L, 10L, "sa-gwa");
-        var loaded = ruleService.getRule(1L, 10L);
-        var savedPreview = ruleService.previewSavedRule(1L, 10L);
+        var saved = ruleService.save(1L, 10L, 20L, "sa-gwa");
+        var loaded = ruleService.getRule(1L, 10L, 20L);
+        var savedPreview = ruleService.previewSavedRule(1L, 10L, 20L);
 
         assertThat(saved.configured()).isTrue();
         assertThat(loaded.configured()).isTrue();
@@ -131,8 +135,8 @@ class CommunityGameNicknameRuleServiceTests {
         Member administrator = member("admin", "admin", "sa-gwa 애플 93");
         loadMembers(administrator);
 
-        ruleService.preview(1L, 10L, "sa-gwa");
-        ruleService.save(1L, 10L, "sa-gwa");
+        ruleService.preview(1L, 10L, 20L, "sa-gwa");
+        ruleService.save(1L, 10L, 20L, "sa-gwa");
 
         verify(accessService, org.mockito.Mockito.times(2)).requireManagementAccess(1L, 10L);
     }
@@ -142,10 +146,10 @@ class CommunityGameNicknameRuleServiceTests {
         when(ruleRepository.existsByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
                 .thenReturn(true);
 
-        var result = ruleService.getStatus(1L, 10L);
+        var result = ruleService.getStatus(1L, 10L, 20L);
 
         assertThat(result.configured()).isTrue();
-        verify(accessService).requireAccess(1L, 10L);
+        verify(accessService).requireCommunityMember(1L, 10L);
         verify(ruleRepository).existsByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO);
     }
 
@@ -154,7 +158,7 @@ class CommunityGameNicknameRuleServiceTests {
         when(connectionService.getRequiredConnection(10L))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Discord 서버 연결이 필요합니다."));
 
-        assertThatThrownBy(() -> ruleService.preview(1L, 10L, "sa-gwa"))
+        assertThatThrownBy(() -> ruleService.preview(1L, 10L, 20L, "sa-gwa"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Discord 서버 연결");
     }
@@ -163,10 +167,11 @@ class CommunityGameNicknameRuleServiceTests {
     void usesTheCommunitySelectedSteamGameForNicknameRules() {
         Member administrator = member("admin", "admin", "sa-gwa 애플 93");
         loadMembers(administrator);
-        when(communityGameRepository.findFirstByCommunityIdOrderByIdAsc(10L))
-                .thenReturn(Optional.of(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM)));
+        CommunityGame steamGame = new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM);
+        ReflectionTestUtils.setField(steamGame, "id", 21L);
+        when(communityGameRepository.findById(21L)).thenReturn(Optional.of(steamGame));
 
-        var result = ruleService.save(1L, 10L, "sa-gwa");
+        var result = ruleService.save(1L, 10L, 21L, "sa-gwa");
 
         assertThat(result.gameType()).isEqualTo("BATTLEGROUNDS_STEAM");
         verify(ruleRepository).findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_STEAM);

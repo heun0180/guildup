@@ -4,6 +4,7 @@ import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityGameNicknameRule;
 import com.guildup.community.domain.GameType;
+import com.guildup.community.domain.GameCapability;
 import com.guildup.community.dto.GameNicknameExtractionStatus;
 import com.guildup.community.dto.GameNicknameMemberPreviewResponse;
 import com.guildup.community.dto.GameNicknameRulePreviewResponse;
@@ -20,6 +21,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -30,6 +32,7 @@ import java.util.List;
 public class CommunityGameNicknameRuleService {
 
     private final CommunityAccessService accessService;
+    private final CommunityGameAccessService gameAccess;
     private final DiscordCommunityConnectionService connectionService;
     private final UserExternalAccountRepository userAccountRepository;
     private final CommunityGameNicknameRuleRepository ruleRepository;
@@ -38,8 +41,10 @@ public class CommunityGameNicknameRuleService {
     private final DiscordMemberService discordMemberService;
     private final GameNicknameRuleInferenceService inferenceService;
 
+    @Autowired
     public CommunityGameNicknameRuleService(
             CommunityAccessService accessService,
+            CommunityGameAccessService gameAccess,
             DiscordCommunityConnectionService connectionService,
             UserExternalAccountRepository userAccountRepository,
             CommunityGameNicknameRuleRepository ruleRepository,
@@ -49,6 +54,7 @@ public class CommunityGameNicknameRuleService {
             GameNicknameRuleInferenceService inferenceService
     ) {
         this.accessService = accessService;
+        this.gameAccess = gameAccess;
         this.connectionService = connectionService;
         this.userAccountRepository = userAccountRepository;
         this.ruleRepository = ruleRepository;
@@ -58,10 +64,23 @@ public class CommunityGameNicknameRuleService {
         this.inferenceService = inferenceService;
     }
 
+    CommunityGameNicknameRuleService(CommunityAccessService accessService,
+            DiscordCommunityConnectionService connectionService,
+            UserExternalAccountRepository userAccountRepository,
+            CommunityGameNicknameRuleRepository ruleRepository,
+            CommunityGameRepository communityGameRepository,
+            DiscordGuildService discordGuildService,
+            DiscordMemberService discordMemberService,
+            GameNicknameRuleInferenceService inferenceService) {
+        this(accessService, new CommunityGameAccessService(accessService, communityGameRepository),
+                connectionService, userAccountRepository, ruleRepository, communityGameRepository,
+                discordGuildService, discordMemberService, inferenceService);
+    }
+
     @Transactional(readOnly = true)
-    public GameNicknameRuleResponse getRule(Long userId, Long communityId) {
+    public GameNicknameRuleResponse getRule(Long userId, Long communityId, Long communityGameId) {
         accessService.requireManagementAccess(userId, communityId);
-        GameType gameType = requireGameType(communityId);
+        GameType gameType = requireGameType(userId, communityId, communityGameId, true);
         DiscordContext context = loadDiscordContext(userId, communityId);
         return ruleRepository.findByCommunityIdAndGameType(communityId, gameType)
                 .map(rule -> toResponse(rule, context.currentDiscordNickname()))
@@ -70,26 +89,28 @@ public class CommunityGameNicknameRuleService {
                         null, null, null, null
                 ));
     }
+    public GameNicknameRuleResponse getRule(Long userId, Long communityId) { return getRule(userId, communityId, only(userId, communityId, true)); }
 
     @Transactional(readOnly = true)
-    public GameNicknameRuleStatusResponse getStatus(Long userId, Long communityId) {
-        accessService.requireAccess(userId, communityId);
-        GameType gameType = requireGameType(communityId);
+    public GameNicknameRuleStatusResponse getStatus(Long userId, Long communityId, Long communityGameId) {
+        GameType gameType = requireGameType(userId, communityId, communityGameId, false);
         return new GameNicknameRuleStatusResponse(
                 ruleRepository.existsByCommunityIdAndGameType(communityId, gameType)
         );
     }
+    public GameNicknameRuleStatusResponse getStatus(Long userId, Long communityId) { return getStatus(userId, communityId, only(userId, communityId, false)); }
 
     @Transactional(readOnly = true)
-    public GameNicknameRulePreviewResponse preview(Long userId, Long communityId, String enteredGameNickname) {
+    public GameNicknameRulePreviewResponse preview(Long userId, Long communityId, Long communityGameId, String enteredGameNickname) {
         accessService.requireManagementAccess(userId, communityId);
-        return analyzeAuthorized(userId, communityId, requireGameType(communityId), enteredGameNickname).response();
+        return analyzeAuthorized(userId, communityId, requireGameType(userId, communityId, communityGameId, true), enteredGameNickname).response();
     }
+    public GameNicknameRulePreviewResponse preview(Long userId, Long communityId, String nickname) { return preview(userId, communityId, only(userId, communityId, true), nickname); }
 
     @Transactional(readOnly = true)
-    public GameNicknameRulePreviewResponse previewSavedRule(Long userId, Long communityId) {
+    public GameNicknameRulePreviewResponse previewSavedRule(Long userId, Long communityId, Long communityGameId) {
         accessService.requireManagementAccess(userId, communityId);
-        GameType gameType = requireGameType(communityId);
+        GameType gameType = requireGameType(userId, communityId, communityGameId, true);
         CommunityGameNicknameRule rule = ruleRepository
                 .findByCommunityIdAndGameType(communityId, gameType)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
@@ -97,11 +118,12 @@ public class CommunityGameNicknameRuleService {
         DiscordContext context = loadDiscordContext(userId, communityId);
         return createPreview(context, gameType, rule.getSampleGameNickname(), toCandidate(rule));
     }
+    public GameNicknameRulePreviewResponse previewSavedRule(Long userId, Long communityId) { return previewSavedRule(userId, communityId, only(userId, communityId, true)); }
 
     @Transactional
-    public GameNicknameRuleResponse save(Long userId, Long communityId, String enteredGameNickname) {
+    public GameNicknameRuleResponse save(Long userId, Long communityId, Long communityGameId, String enteredGameNickname) {
         Community community = accessService.requireManagementAccess(userId, communityId).getCommunity();
-        GameType gameType = requireGameType(communityId);
+        GameType gameType = requireGameType(userId, communityId, communityGameId, true);
         Analysis analysis = analyzeAuthorized(userId, communityId, gameType, enteredGameNickname);
         NicknameRuleCandidate candidate = analysis.candidate();
         CommunityGameNicknameRule rule;
@@ -123,6 +145,13 @@ public class CommunityGameNicknameRuleService {
         }
         CommunityGameNicknameRule saved = ruleRepository.save(rule);
         return toResponse(saved, analysis.response().currentDiscordNickname());
+    }
+    public GameNicknameRuleResponse save(Long userId, Long communityId, String nickname) { return save(userId, communityId, only(userId, communityId, true), nickname); }
+
+    private Long only(Long userId, Long communityId, boolean management) {
+        return (management
+                ? gameAccess.requireOnlyManageable(userId, communityId, GameCapability.NICKNAME_SYNC)
+                : gameAccess.requireOnlyAccessible(userId, communityId, GameCapability.NICKNAME_SYNC)).getId();
     }
 
     private Analysis analyzeAuthorized(
@@ -170,11 +199,11 @@ public class CommunityGameNicknameRuleService {
         );
     }
 
-    private GameType requireGameType(Long communityId) {
-        return communityGameRepository.findFirstByCommunityIdOrderByIdAsc(communityId)
-                .map(game -> game.getGameType())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "커뮤니티에서 사용할 게임이 설정되지 않았습니다."));
+    private GameType requireGameType(Long userId, Long communityId, Long communityGameId, boolean management) {
+        return (management
+                ? gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.NICKNAME_SYNC)
+                : gameAccess.requireAccessible(userId, communityId, communityGameId, GameCapability.NICKNAME_SYNC))
+                .getGameType();
     }
 
     private DiscordContext loadDiscordContext(Long userId, Long communityId) {

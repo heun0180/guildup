@@ -58,4 +58,8 @@ public class CommunityGame {
     public GameType getGameType() {
         return gameType;
     }
+
+    public boolean supports(GameCapability capability) {
+        return gameType.supports(capability);
+    }
 }

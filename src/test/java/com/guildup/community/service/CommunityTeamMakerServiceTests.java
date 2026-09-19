@@ -53,10 +53,12 @@ class CommunityTeamMakerServiceTests {
         member = new CommunityMember(community, "절미");
         ReflectionTestUtils.setField(member, "id", 20L);
         CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO);
+        ReflectionTestUtils.setField(game, "id", 30L);
         CommunityMemberAccount account = new CommunityMemberAccount(
                 member, ExternalAccountProvider.PUBG, "account.20", "jul-mi"
         );
-        when(games.findFirstByCommunityIdOrderByIdAsc(10L)).thenReturn(Optional.of(game));
+        when(games.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
+        when(games.findById(30L)).thenReturn(Optional.of(game));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, com.guildup.community.domain.CommunityMemberStatus.ACTIVE))
                 .thenReturn(List.of(member));
         when(accounts.findByCommunityIdAndProvider(10L, ExternalAccountProvider.PUBG))
@@ -72,7 +74,7 @@ class CommunityTeamMakerServiceTests {
         when(seasons.getCombinedStats("kakao", List.of("account.20"), List.of("current", "previous")))
                 .thenReturn(Map.of("account.20", new PubgSeasonStats("account.20", 1_600, 6)));
 
-        var response = service.generate(1L, 10L,
+        var response = service.generate(1L, 10L, 30L,
                 new TeamGenerationRequest(List.of(20L), true, true, 4, 1L));
 
         assertThat(response.missingStatsParticipants()).isEmpty();
@@ -85,7 +87,7 @@ class CommunityTeamMakerServiceTests {
         when(seasons.getCombinedStats("kakao", List.of("account.20"), List.of("current")))
                 .thenReturn(Map.of("account.20", PubgSeasonStats.empty("account.20")));
 
-        var response = service.generate(1L, 10L,
+        var response = service.generate(1L, 10L, 30L,
                 new TeamGenerationRequest(List.of(20L), true, false, 4, 1L));
 
         assertThat(response.teams()).isEmpty();
@@ -97,7 +99,7 @@ class CommunityTeamMakerServiceTests {
     void propagatesPubgApiFailure() {
         when(seasons.getCurrentAndPrevious("kakao")).thenThrow(new PubgApiException("PUBG 장애"));
 
-        assertThatThrownBy(() -> service.generate(1L, 10L,
+        assertThatThrownBy(() -> service.generate(1L, 10L, 30L,
                 new TeamGenerationRequest(List.of(20L), true, false, 4, 1L)))
                 .isInstanceOf(PubgApiException.class)
                 .hasMessageContaining("PUBG 장애");
@@ -105,7 +107,7 @@ class CommunityTeamMakerServiceTests {
 
     @Test
     void acceptsManuallyEnteredAverageDamageForMissingSeasonStats() {
-        var response = service.rebalance(1L, 10L, new com.guildup.community.dto.TeamRebalanceRequest(
+        var response = service.rebalance(1L, 10L, 30L, new com.guildup.community.dto.TeamRebalanceRequest(
                 List.of(new com.guildup.community.dto.TeamMakerParticipantResponse(
                         20L, "절미", "jul-mi", 325.5, 1L, 325.5
                 )),
@@ -122,11 +124,11 @@ class CommunityTeamMakerServiceTests {
 
     @Test
     void deniesNonManagerAccess() {
-        when(access.requireManagementAccess(1L, 10L)).thenThrow(
+        when(access.requireCommunityAdmin(1L, 10L)).thenThrow(
                 new ResponseStatusException(HttpStatus.FORBIDDEN, "denied")
         );
 
-        assertThatThrownBy(() -> service.getParticipants(1L, 10L))
+        assertThatThrownBy(() -> service.getParticipants(1L, 10L, 30L))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(error -> assertThat(((ResponseStatusException) error).getStatusCode())
                         .isEqualTo(HttpStatus.FORBIDDEN));

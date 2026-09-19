@@ -6,6 +6,7 @@ import com.guildup.bingo.repository.*;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.CommunityRepository;
 import com.guildup.community.service.CommunityAccessService;
+import com.guildup.community.service.CommunityGameAccessService;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,25 +23,28 @@ public class BingoEventService {
     private final BingoEventRepository events; private final BingoParticipantRepository participants;
     private final BingoProgressRepository progress; private final BingoLineCompletionRepository lines;
     private final CommunityRepository communities; private final CommunityAccessService access;
+    private final CommunityGameAccessService gameAccess;
     private final BingoParticipantEnrollmentService enrollment; private final Clock clock;
 
     public BingoEventService(BingoEventRepository events, BingoParticipantRepository participants,
                              BingoProgressRepository progress, BingoLineCompletionRepository lines,
                              CommunityRepository communities, CommunityAccessService access,
+                             CommunityGameAccessService gameAccess,
                              BingoParticipantEnrollmentService enrollment, Clock clock) {
         this.events = events; this.participants = participants; this.progress = progress; this.lines = lines;
-        this.communities = communities; this.access = access; this.enrollment = enrollment; this.clock = clock;
+        this.communities = communities; this.access = access; this.gameAccess = gameAccess; this.enrollment = enrollment; this.clock = clock;
     }
 
     @Transactional
-    public BingoDetailResponse create(Long userId, Long communityId, BingoEventRequest request) {
+    public BingoDetailResponse create(Long userId, Long communityId, Long communityGameId, BingoEventRequest request) {
+        CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser admin = access.requireCommunityAdmin(userId, communityId); validate(request);
         Community community = lockCommunity(communityId); Instant now = clock.instant();
-        List<BingoEvent> existing = refreshCommunityStatuses(communityId, now);
+        List<BingoEvent> existing = refreshCommunityStatuses(communityGameId, now);
         BingoStatus status = request.status() == BingoStatus.DRAFT ? BingoStatus.DRAFT
                 : request.startsAt().isAfter(now) ? BingoStatus.SCHEDULED : BingoStatus.ACTIVE;
         requireAvailableStatus(existing, status, null);
-        BingoEvent event = new BingoEvent(community, admin, request.title().trim(), clean(request.description()),
+        BingoEvent event = new BingoEvent(community, game, admin, request.title().trim(), clean(request.description()),
                 request.boardSize(), request.targetLines(), request.blackoutEnabled(), request.allowLateJoin(),
                 request.startsAt(), request.endsAt(), status, now);
         addCells(event, request.cells()); events.save(event);
@@ -48,11 +52,17 @@ public class BingoEventService {
         return detail(event, userId, admin, false);
     }
 
+    public BingoDetailResponse create(Long userId, Long communityId, BingoEventRequest request) {
+        Long gameId = gameAccess.requireOnlyManageable(userId, communityId, GameCapability.BINGO).getId();
+        return create(userId, communityId, gameId, request);
+    }
+
     @Transactional
-    public List<BingoSummaryResponse> list(Long userId, Long communityId) {
+    public List<BingoSummaryResponse> list(Long userId, Long communityId, Long communityGameId) {
+        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser membership = access.requireCommunityAdmin(userId, communityId); Instant now = clock.instant();
-        lockCommunity(communityId); refreshCommunityStatuses(communityId, now);
-        return events.findByCommunityIdOrderByStartsAtDesc(communityId).stream().map(event -> {
+        lockCommunity(communityId); refreshCommunityStatuses(communityGameId, now);
+        return events.findByCommunityGameIdOrderByStartsAtDesc(communityGameId).stream().map(event -> {
             ensureParticipation(event, membership, now);
             List<BingoParticipant> rows = participants.findByEventIdOrderByIdAsc(event.getId());
             BingoParticipant me = rows.stream().filter(p -> p.getCommunityUser().getUser().getId().equals(userId)).findFirst().orElse(null);
@@ -60,12 +70,16 @@ public class BingoEventService {
             return BingoSummaryResponse.from(event, rows.size(), completed, me == null ? null : me.getLineCount());
         }).toList();
     }
+    public List<BingoSummaryResponse> list(Long userId, Long communityId) {
+        return list(userId, communityId, gameAccess.requireOnlyManageable(userId, communityId, GameCapability.BINGO).getId());
+    }
 
     @Transactional
-    public BingoCurrentResponse current(Long userId, Long communityId) {
+    public BingoCurrentResponse current(Long userId, Long communityId, Long communityGameId) {
+        gameAccess.requireAccessible(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser membership = access.requireCommunityMember(userId, communityId); Instant now = clock.instant();
         lockCommunity(communityId);
-        List<BingoEvent> communityEvents = refreshCommunityStatuses(communityId, now);
+        List<BingoEvent> communityEvents = refreshCommunityStatuses(communityGameId, now);
         BingoEvent active = communityEvents.stream().filter(event -> event.getStatus() == BingoStatus.ACTIVE)
                 .min(Comparator.comparing(BingoEvent::getStartsAt).thenComparing(BingoEvent::getId)).orElse(null);
         if (active != null) {
@@ -77,22 +91,30 @@ public class BingoEventService {
         return scheduled == null ? BingoCurrentResponse.none()
                 : BingoCurrentResponse.scheduled(detail(scheduled, userId, membership, false));
     }
-
-    @Transactional
-    public BingoDetailResponse get(Long userId, Long communityId, Long bingoId) {
-        CommunityUser membership = access.requireCommunityMember(userId, communityId);
-        Instant now = clock.instant(); lockCommunity(communityId); refreshCommunityStatuses(communityId, now);
-        BingoEvent event = requireEvent(communityId, bingoId);
-        requireVisible(event, membership); ensureParticipation(event, membership, now);
-        return detail(event, userId, membership, true);
+    public BingoCurrentResponse current(Long userId, Long communityId) {
+        return current(userId, communityId, gameAccess.requireOnlyAccessible(userId, communityId, GameCapability.BINGO).getId());
     }
 
     @Transactional
-    public BingoDetailResponse update(Long userId, Long communityId, Long bingoId, BingoEventRequest request) {
+    public BingoDetailResponse get(Long userId, Long communityId, Long communityGameId, Long bingoId) {
+        gameAccess.requireAccessible(userId, communityId, communityGameId, GameCapability.BINGO);
+        CommunityUser membership = access.requireCommunityMember(userId, communityId);
+        Instant now = clock.instant(); lockCommunity(communityId); refreshCommunityStatuses(communityGameId, now);
+        BingoEvent event = requireEvent(communityId, communityGameId, bingoId);
+        requireVisible(event, membership); ensureParticipation(event, membership, now);
+        return detail(event, userId, membership, true);
+    }
+    public BingoDetailResponse get(Long userId, Long communityId, Long bingoId) {
+        return get(userId, communityId, gameAccess.requireOnlyAccessible(userId, communityId, GameCapability.BINGO).getId(), bingoId);
+    }
+
+    @Transactional
+    public BingoDetailResponse update(Long userId, Long communityId, Long communityGameId, Long bingoId, BingoEventRequest request) {
+        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser admin = access.requireCommunityAdmin(userId, communityId);
         Instant now = clock.instant(); lockCommunity(communityId);
-        List<BingoEvent> existing = refreshCommunityStatuses(communityId, now);
-        BingoEvent event = requireEventForUpdate(communityId, bingoId);
+        List<BingoEvent> existing = refreshCommunityStatuses(communityGameId, now);
+        BingoEvent event = requireEventForUpdate(communityId, communityGameId, bingoId);
         if (event.getStatus() == BingoStatus.COMPLETED || event.getStatus() == BingoStatus.CANCELLED || event.getStatus() == BingoStatus.SETTLING)
             throw conflict("종료되었거나 정산 중인 빙고는 수정할 수 없습니다.");
         if (event.getStatus() == BingoStatus.ACTIVE) {
@@ -111,35 +133,50 @@ public class BingoEventService {
         }
         return detail(event, userId, admin, true);
     }
+    public BingoDetailResponse update(Long userId, Long communityId, Long bingoId, BingoEventRequest request) {
+        return update(userId, communityId, gameAccess.requireOnlyManageable(userId, communityId, GameCapability.BINGO).getId(), bingoId, request);
+    }
 
     @Transactional
-    public void deleteOrCancel(Long userId, Long communityId, Long bingoId) {
+    public void deleteOrCancel(Long userId, Long communityId, Long communityGameId, Long bingoId) {
+        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
         access.requireCommunityAdmin(userId, communityId); Instant now = clock.instant(); lockCommunity(communityId);
-        refreshCommunityStatuses(communityId, now); BingoEvent event = requireEventForUpdate(communityId, bingoId);
+        refreshCommunityStatuses(communityGameId, now); BingoEvent event = requireEventForUpdate(communityId, communityGameId, bingoId);
         if (event.getStatus() == BingoStatus.DRAFT || event.getStatus() == BingoStatus.SCHEDULED) events.delete(event);
         else if (event.getStatus() != BingoStatus.COMPLETED) event.cancel(clock.instant());
         else throw conflict("완료된 빙고는 삭제할 수 없습니다.");
     }
+    public void deleteOrCancel(Long userId, Long communityId, Long bingoId) {
+        deleteOrCancel(userId, communityId, gameAccess.requireOnlyManageable(userId, communityId, GameCapability.BINGO).getId(), bingoId);
+    }
 
     @Transactional
-    public List<BingoCellCompletionResponse> completions(Long userId, Long communityId, Long bingoId, Long cellId) {
+    public List<BingoCellCompletionResponse> completions(Long userId, Long communityId, Long communityGameId, Long bingoId, Long cellId) {
+        gameAccess.requireAccessible(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser membership = access.requireCommunityMember(userId, communityId); Instant now = clock.instant();
-        lockCommunity(communityId); refreshCommunityStatuses(communityId, now);
-        BingoEvent event = requireEvent(communityId, bingoId); requireVisible(event, membership);
+        lockCommunity(communityId); refreshCommunityStatuses(communityGameId, now);
+        BingoEvent event = requireEvent(communityId, communityGameId, bingoId); requireVisible(event, membership);
         if (event.getCells().stream().noneMatch(cell -> cell.getId().equals(cellId))) throw notFound();
         return progress.findCompletions(cellId).stream().map(row -> new BingoCellCompletionResponse(
                 row.getParticipant().getCommunityUser().getUser().getNickname(), row.getCompletedAt())).toList();
     }
+    public List<BingoCellCompletionResponse> completions(Long userId, Long communityId, Long bingoId, Long cellId) {
+        return completions(userId, communityId, gameAccess.requireOnlyAccessible(userId, communityId, GameCapability.BINGO).getId(), bingoId, cellId);
+    }
 
     @Transactional
-    public BingoDetailResponse.PlayerBoard participantBoard(Long userId, Long communityId, Long bingoId, Long participantId) {
+    public BingoDetailResponse.PlayerBoard participantBoard(Long userId, Long communityId, Long communityGameId, Long bingoId, Long participantId) {
+        gameAccess.requireAccessible(userId, communityId, communityGameId, GameCapability.BINGO);
         CommunityUser membership = access.requireCommunityMember(userId, communityId); Instant now = clock.instant();
-        lockCommunity(communityId); refreshCommunityStatuses(communityId, now);
-        BingoEvent event = requireEvent(communityId, bingoId); requireVisible(event, membership);
+        lockCommunity(communityId); refreshCommunityStatuses(communityGameId, now);
+        BingoEvent event = requireEvent(communityId, communityGameId, bingoId); requireVisible(event, membership);
         BingoParticipant participant = participants.findById(participantId)
                 .filter(value -> value.getEvent().getId().equals(bingoId))
                 .orElseThrow(this::notFound);
         return board(participant, progress.findByParticipantIdOrderByCellPositionAsc(participantId));
+    }
+    public BingoDetailResponse.PlayerBoard participantBoard(Long userId, Long communityId, Long bingoId, Long participantId) {
+        return participantBoard(userId, communityId, gameAccess.requireOnlyAccessible(userId, communityId, GameCapability.BINGO).getId(), bingoId, participantId);
     }
 
     private void ensureParticipation(BingoEvent event, CommunityUser membership, Instant now) {
@@ -153,8 +190,8 @@ public class BingoEventService {
         return communities.findForUpdate(communityId).orElseThrow(this::notFound);
     }
 
-    private List<BingoEvent> refreshCommunityStatuses(Long communityId, Instant now) {
-        List<BingoEvent> communityEvents = events.findByCommunityIdForUpdate(communityId);
+    private List<BingoEvent> refreshCommunityStatuses(Long communityGameId, Instant now) {
+        List<BingoEvent> communityEvents = events.findByCommunityGameIdForUpdate(communityGameId);
         communityEvents.stream().filter(event -> event.getStatus() == BingoStatus.ACTIVE)
                 .forEach(event -> event.refreshStatus(now));
         boolean activeExists = communityEvents.stream().anyMatch(event -> event.getStatus() == BingoStatus.ACTIVE);
@@ -265,8 +302,8 @@ public class BingoEventService {
     }
     private String displayOption(Map<String,Object> options, String key) { return Objects.toString(options.get(key), ""); }
     private String display(BigDecimal value) { return value.stripTrailingZeros().toPlainString(); }
-    private BingoEvent requireEvent(Long communityId, Long id) { return events.findWithCellsById(id).filter(e -> e.getCommunity().getId().equals(communityId)).orElseThrow(this::notFound); }
-    private BingoEvent requireEventForUpdate(Long communityId, Long id) { return events.findForUpdate(id).filter(e -> e.getCommunity().getId().equals(communityId)).orElseThrow(this::notFound); }
+    private BingoEvent requireEvent(Long communityId, Long communityGameId, Long id) { return events.findWithCellsByIdAndCommunityGameId(id, communityGameId).filter(e -> e.getCommunity().getId().equals(communityId)).orElseThrow(this::notFound); }
+    private BingoEvent requireEventForUpdate(Long communityId, Long communityGameId, Long id) { return events.findForUpdate(id).filter(e -> e.getCommunity().getId().equals(communityId) && e.getCommunityGame().getId().equals(communityGameId)).orElseThrow(this::notFound); }
     private boolean isAdmin(CommunityUser user) { return user.getRole() == CommunityUserRole.OWNER || user.getRole() == CommunityUserRole.ADMIN; }
     private String clean(String value) { return value == null || value.isBlank() ? null : value.trim(); }
     private void bad(String message) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
