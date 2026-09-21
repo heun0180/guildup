@@ -27,8 +27,10 @@ public class KillCompetition {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private Community community;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "community_game_id", nullable = false)
+    // 기존 운영 데이터의 게임 경계를 backfill하기 전에도 Hibernate가 컬럼을 추가할 수 있어야 한다.
+    // 새 킬내기는 생성자에서 항상 게임을 지정하며, 시작 마이그레이션이 단일 게임 커뮤니티를 채운다.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "community_game_id")
     private CommunityGame communityGame;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
