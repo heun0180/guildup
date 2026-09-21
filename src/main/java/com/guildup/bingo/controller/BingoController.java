@@ -18,6 +18,11 @@ public class BingoController {
     @GetMapping public List<BingoSummaryResponse> list(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
         return bingos.list(CurrentUserSession.requireUserId(session), communityId, communityGameId);
     }
+    @GetMapping("/catalog")
+    public BingoCatalogResponse catalog(HttpSession session) {
+        CurrentUserSession.requireUserId(session);
+        return BingoCatalogResponse.current();
+    }
     @GetMapping("/current")
     public BingoCurrentResponse current(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
         return bingos.current(CurrentUserSession.requireUserId(session), communityId, communityGameId);

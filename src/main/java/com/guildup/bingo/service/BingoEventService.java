@@ -2,6 +2,8 @@ package com.guildup.bingo.service;
 
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.dto.*;
+import com.guildup.bingo.mission.BingoItemCatalog;
+import com.guildup.bingo.mission.BingoMapCatalog;
 import com.guildup.bingo.repository.*;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.CommunityRepository;
@@ -228,7 +230,8 @@ public class BingoEventService {
         BingoParticipant me = participantRows.stream().filter(p -> p.getCommunityUser().getUser().getId().equals(userId)).findFirst().orElse(null);
         List<BingoDetailResponse.Cell> cells = event.getCells().stream().map(cell -> new BingoDetailResponse.Cell(
                 cell.getId(), cell.getPosition(), cell.getMissionType().name(), cell.getAggregationType().name(),
-                cell.getOperator().name(), cell.getTargetValue(), cell.getOccurrenceTarget(), cell.getOptions(), title(cell))).toList();
+                cell.getOperator().name(), cell.getTargetValue(), cell.getOccurrenceTarget(), cell.getOptions(),
+                cell.getCustomTitle(), title(cell))).toList();
         List<BingoDetailResponse.Participant> summaries = includeParticipants ? participantRows.stream().map(p -> {
             int completed = (int) byParticipant.get(p.getId()).stream().filter(BingoProgress::isCompleted).count();
             return new BingoDetailResponse.Participant(p.getId(), p.getCommunityUser().getUser().getNickname(), completed,
@@ -259,8 +262,32 @@ public class BingoEventService {
         if (positions.size() != required || positions.stream().anyMatch(p -> p < 0 || p >= required)) bad("빙고 칸 위치가 올바르지 않습니다.");
         request.cells().forEach(cell -> {
             if (cell.missionType() == null || cell.aggregationType() == null || cell.targetValue() == null || cell.targetValue().signum() < 0) bad("미션 조건을 모두 입력해 주세요.");
+            if (cell.missionType() == BingoMissionType.KILL_BET_WIN) {
+                if (cell.aggregationType() != BingoAggregationType.EVENT_TOTAL || cell.occurrenceTarget() != null)
+                    bad("킬내기 승리는 기간 누적으로만 집계할 수 있습니다.");
+                if (cell.operator() != null && cell.operator() != BingoOperator.GREATER_THAN_OR_EQUAL)
+                    bad("킬내기 승리는 목표 횟수 이상으로만 판정할 수 있습니다.");
+                if (cell.targetValue().compareTo(BigDecimal.ONE) < 0 || cell.targetValue().stripTrailingZeros().scale() > 0)
+                    bad("킬내기 목표 승리 횟수는 1 이상의 정수여야 합니다.");
+            }
             if (cell.aggregationType() == BingoAggregationType.MATCH_OCCURRENCES && (cell.occurrenceTarget() == null || cell.occurrenceTarget() < 1)) bad("달성 경기 수를 입력해 주세요.");
+            validateOptions(cell);
         });
+    }
+    private void validateOptions(BingoEventRequest.Cell cell) {
+        Map<String,Object> options = cell.options() == null ? Map.of() : cell.options();
+        if (cell.missionType() == BingoMissionType.KILL_BET_WIN && !options.isEmpty())
+            bad("킬내기 승리에는 PUBG 경기 조건을 설정할 수 없습니다.");
+        String itemId = Objects.toString(options.get("itemId"), null);
+        if (itemId != null && itemId.isBlank()) itemId = null;
+        if ((cell.missionType() == BingoMissionType.ITEM_PICKUP || cell.missionType() == BingoMissionType.ITEM_USE) && itemId == null)
+            bad("아이템을 선택해 주세요.");
+        if (itemId != null && !BingoItemCatalog.supported(itemId)) bad("지원하지 않는 PUBG 아이템입니다.");
+        if (cell.missionType() == BingoMissionType.ITEM_USE && !BingoItemCatalog.usable(itemId)) bad("사용 이벤트를 확인할 수 없는 아이템입니다.");
+        String map = Objects.toString(options.get("map"), null);
+        if (map != null && !map.isBlank() && !BingoMapCatalog.supported(map)) bad("지원하지 않는 PUBG 맵입니다.");
+        if ((cell.missionType() == BingoMissionType.PLAY_WITH_CLAN_MEMBERS || cell.missionType() == BingoMissionType.RIDE_WITH_CLAN_MEMBERS)
+                && optionNumber(options, "clanMemberCount", 0) < 1) bad("필요한 클랜원 수를 입력해 주세요.");
     }
     private void addCells(BingoEvent event, List<BingoEventRequest.Cell> cells) {
         cells.stream().sorted(Comparator.comparingInt(BingoEventRequest.Cell::position)).forEach(cell -> event.addCell(new BingoCell(
@@ -270,6 +297,15 @@ public class BingoEventService {
     private String title(BingoCell cell) {
         if (cell.getCustomTitle() != null && !cell.getCustomTitle().isBlank()) return cell.getCustomTitle();
         Map<String,Object> options = cell.getOptions();
+        if (cell.getMissionType() == BingoMissionType.KILL_BET_WIN)
+            return "킬내기 " + display(cell.getTargetValue()) + "회 승리";
+        if (cell.getMissionType() == BingoMissionType.ITEM_PICKUP || cell.getMissionType() == BingoMissionType.ITEM_USE) {
+            String action = cell.getMissionType() == BingoMissionType.ITEM_PICKUP ? "획득" : "사용";
+            String phrase = BingoItemCatalog.displayName(displayOption(options,"itemId")) + " " + display(cell.getTargetValue()) + "회 " + action;
+            return cell.getAggregationType() == BingoAggregationType.EVENT_TOTAL ? phrase
+                    : cell.getAggregationType() == BingoAggregationType.SINGLE_MATCH ? "한 경기 " + phrase
+                    : "한 경기 " + phrase + " " + cell.getOccurrenceTarget() + "경기";
+        }
         String base = switch (cell.getMissionType()) {
             case KILLS -> "킬"; case DAMAGE_DEALT -> "딜"; case ASSISTS -> "어시스트"; case DBNOS -> "기절";
             case HEADSHOT_KILLS -> "헤드샷 킬"; case LONG_DISTANCE_KILL -> displayOption(options,"distance") + "m 이상 킬";
@@ -280,10 +316,19 @@ public class BingoEventService {
             case SURVIVAL_TIME -> "생존"; case MATCHES_PLAYED -> "경기 플레이"; case HEALS -> "회복 아이템 사용";
             case BOOSTS -> "부스트 아이템 사용"; case WALK_DISTANCE -> "도보 이동"; case RIDE_DISTANCE -> "차량 이동";
             case SWIM_DISTANCE -> "수영"; case PARACHUTE_DISTANCE -> "낙하산 이동"; case REVIVES -> "팀원 부활";
-            case CARRY -> "다운된 팀원 업기"; case PLAY_WITH_CLAN_MEMBERS -> "클랜원과 같은 매치 플레이";
+            case CARRY -> "다운된 팀원 업기"; case PLAY_WITH_CLAN_MEMBERS -> "클랜원과 같은 팀 플레이";
             case THROWABLE_USED -> displayOption(options,"throwable") + " 사용"; case CARE_PACKAGE_PICKUP -> "보급상자 아이템 획득";
             case FLARE_GUN_USED -> "플레어건 사용"; case VAULT_COUNT -> "파쿠르"; case LEDGE_GRAB_COUNT -> "난간 잡기";
             case WHEEL_DESTROY_COUNT -> "차량 타이어 파괴";
+            case VEHICLE_DESTROY_COUNT -> "차량 파괴"; case VEHICLE_DAMAGE -> "차량 피해";
+            case ARMOR_DESTROY_COUNT -> "적 방어구 파괴"; case FREEFALL_DISTANCE -> "자유낙하 이동";
+            case ITEM_PICKUP -> BingoItemCatalog.displayName(displayOption(options,"itemId")) + " 획득";
+            case ITEM_USE -> BingoItemCatalog.displayName(displayOption(options,"itemId")) + " 사용";
+            case ENEMY_LOOTBOX_PICKUP -> "적 데스박스 아이템 획득";
+            case EMERGENCY_PICKUP_RIDE -> "비상호출 탑승";
+            case BREACHABLE_WALL_DESTROY_COUNT -> "파괴 가능한 벽 파괴";
+            case RIDE_WITH_CLAN_MEMBERS -> "클랜원 " + displayOption(options,"clanMemberCount") + "명과 같은 차량 탑승";
+            case KILL_BET_WIN -> "킬내기 승리";
         };
         String target = displayTarget(cell);
         return switch (cell.getAggregationType()) {
@@ -294,13 +339,16 @@ public class BingoEventService {
     }
     private String displayTarget(BingoCell cell) {
         return switch (cell.getMissionType()) {
-            case WALK_DISTANCE, RIDE_DISTANCE, PARACHUTE_DISTANCE -> display(cell.getTargetValue().divide(BigDecimal.valueOf(1000))) + "km";
+            case WALK_DISTANCE, RIDE_DISTANCE, PARACHUTE_DISTANCE, FREEFALL_DISTANCE -> display(cell.getTargetValue().divide(BigDecimal.valueOf(1000))) + "km";
             case SWIM_DISTANCE -> display(cell.getTargetValue()) + "m";
             case SURVIVAL_TIME -> display(cell.getTargetValue().divide(BigDecimal.valueOf(60))) + "분";
             default -> display(cell.getTargetValue());
         };
     }
     private String displayOption(Map<String,Object> options, String key) { return Objects.toString(options.get(key), ""); }
+    private int optionNumber(Map<String,Object> options, String key, int fallback) {
+        Object value = options.get(key); return value instanceof Number number ? number.intValue() : fallback;
+    }
     private String display(BigDecimal value) { return value.stripTrailingZeros().toPlainString(); }
     private BingoEvent requireEvent(Long communityId, Long communityGameId, Long id) { return events.findWithCellsByIdAndCommunityGameId(id, communityGameId).filter(e -> e.getCommunity().getId().equals(communityId)).orElseThrow(this::notFound); }
     private BingoEvent requireEventForUpdate(Long communityId, Long communityGameId, Long id) { return events.findForUpdate(id).filter(e -> e.getCommunity().getId().equals(communityId) && e.getCommunityGame().getId().equals(communityGameId)).orElseThrow(this::notFound); }

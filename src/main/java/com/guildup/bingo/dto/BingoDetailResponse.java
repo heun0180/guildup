@@ -13,7 +13,7 @@ public record BingoDetailResponse(
 ) {
     public record Cell(Long id, int position, String missionType, String aggregationType,
                        String operator, BigDecimal targetValue, Integer occurrenceTarget,
-                       Map<String, Object> options, String title) {}
+                       Map<String, Object> options, String customTitle, String title) {}
     public record PlayerBoard(Long participantId, String nickname, boolean pubgConnected,
                               String pubgNickname, int completedCells, int lineCount,
                               Instant targetLinesCompletedAt, Instant blackoutCompletedAt,

@@ -8,12 +8,22 @@ import java.util.*;
 public record PlayerMatchFacts(
         String matchId, Instant playedAt, String mapName, String gameMode,
         Map<String, BigDecimal> metrics, List<KillFact> kills,
-        Map<String, Integer> throwableUses, int clanMembersInMatch,
+        Map<String, Integer> throwableUses, Map<String, Integer> pickedItems,
+        Map<String, Integer> usedItems, Map<String, Integer> carePackageItems,
+        Map<String, Integer> destroyedArmor, int clanMembersInTeam,
         Instant latestEvidenceAt
 ) {
     public PlayerMatchFacts {
         metrics = Map.copyOf(metrics); kills = List.copyOf(kills);
         throwableUses = Map.copyOf(throwableUses);
+        pickedItems = Map.copyOf(pickedItems); usedItems = Map.copyOf(usedItems);
+        carePackageItems = Map.copyOf(carePackageItems); destroyedArmor = Map.copyOf(destroyedArmor);
+    }
+    public PlayerMatchFacts(String matchId, Instant playedAt, String mapName, String gameMode,
+            Map<String, BigDecimal> metrics, List<KillFact> kills, Map<String, Integer> throwableUses,
+            int clanMembersInTeam, Instant latestEvidenceAt) {
+        this(matchId, playedAt, mapName, gameMode, metrics, kills, throwableUses,
+                Map.of(), Map.of(), Map.of(), Map.of(), clanMembersInTeam, latestEvidenceAt);
     }
     public BigDecimal metric(String key) { return metrics.getOrDefault(key, BigDecimal.ZERO); }
     public record KillFact(String weapon, String weaponCategory, String throwable,

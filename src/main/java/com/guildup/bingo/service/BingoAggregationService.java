@@ -4,7 +4,10 @@ import com.guildup.bingo.domain.*;
 import com.guildup.bingo.dto.BingoAggregationResponse;
 import com.guildup.bingo.mission.*;
 import com.guildup.bingo.repository.*;
+import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityGame;
+import com.guildup.community.domain.CommunityMemberStatus;
+import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.repository.CommunityGameRepository;
 import com.guildup.community.repository.CommunityRepository;
 import com.guildup.community.service.CommunityAccessService;
@@ -25,23 +28,25 @@ import java.util.stream.Collectors;
 public class BingoAggregationService {
     private final BingoEventRepository events; private final BingoParticipantRepository participants;
     private final BingoProgressRepository progress; private final BingoProcessedMatchRepository processed;
-    private final BingoLineCompletionRepository lineCompletions; private final CommunityGameRepository games;
+    private final CommunityGameRepository games;
     private final CommunityRepository communities;
+    private final CommunityMemberAccountRepository memberAccounts;
     private final CommunityAccessService access; private final BingoParticipantEnrollmentService enrollment;
     private final PubgPlayerService players; private final PubgMatchService matches; private final PubgBingoFactService facts;
-    private final BingoMissionEngine missions; private final BingoLineCalculator lineCalculator; private final Clock clock;
+    private final BingoMissionEngine missions; private final BingoProgressCompletionService completions; private final Clock clock;
 
     public BingoAggregationService(BingoEventRepository events, BingoParticipantRepository participants,
             BingoProgressRepository progress, BingoProcessedMatchRepository processed,
-            BingoLineCompletionRepository lineCompletions, CommunityGameRepository games, CommunityRepository communities,
+            CommunityGameRepository games, CommunityRepository communities,
+            CommunityMemberAccountRepository memberAccounts,
             CommunityAccessService access, BingoParticipantEnrollmentService enrollment,
             PubgPlayerService players, PubgMatchService matches, PubgBingoFactService facts,
-            BingoMissionEngine missions, BingoLineCalculator lineCalculator, Clock clock) {
+            BingoMissionEngine missions, BingoProgressCompletionService completions, Clock clock) {
         this.events=events; this.participants=participants; this.progress=progress; this.processed=processed;
-        this.lineCompletions=lineCompletions; this.games=games; this.communities=communities;
+        this.games=games; this.communities=communities; this.memberAccounts=memberAccounts;
         this.access=access; this.enrollment=enrollment;
         this.players=players; this.matches=matches; this.facts=facts; this.missions=missions;
-        this.lineCalculator=lineCalculator; this.clock=clock;
+        this.completions=completions; this.clock=clock;
     }
 
     @Transactional
@@ -91,7 +96,11 @@ public class BingoAggregationService {
         List<PubgMatch> ordered = loadedMatches.values().stream().filter(match -> match.playedAt() != null)
                 .sorted(Comparator.comparing(PubgMatch::playedAt).thenComparing(PubgMatch::matchId)).toList();
         int processedCount = 0; Set<Long> updated = new LinkedHashSet<>();
-        Set<String> communityAccounts = byAccount.keySet();
+        Set<String> communityAccounts = memberAccounts.findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG)
+                .stream().filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
+                .map(account -> account.getExternalUserId()).filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        communityAccounts.addAll(byAccount.keySet());
         for (PubgMatch match : ordered) {
             if (match.playedAt().isBefore(event.getStartsAt()) || match.playedAt().isAfter(event.getEndsAt())) continue;
             boolean needed = byAccount.values().stream().anyMatch(participant ->
@@ -106,12 +115,14 @@ public class BingoAggregationService {
                 BingoParticipant locked = participants.findForUpdate(participant.getId()).orElseThrow();
                 List<BingoProgress> rows = progress.findByParticipantIdOrderByCellPositionAsc(locked.getId());
                 for (BingoProgress row : rows) {
+                    if (row.getCell().getMissionType().source() != BingoMissionSource.PUBG_MATCH) continue;
                     BingoMissionEngine.Outcome outcome = missions.apply(row.getCell(), row, playerFacts);
                     row.apply(outcome.value(), outcome.occurrences(), outcome.completed(), match.matchId(),
                             playerFacts.latestEvidenceAt(), now);
                 }
                 processed.save(new BingoProcessedMatch(event, locked, match.matchId(), match.playedAt(), now));
-                updateLines(event, locked, rows, playerFacts.latestEvidenceAt() == null ? match.playedAt() : playerFacts.latestEvidenceAt());
+                completions.updateLines(event, locked, rows,
+                        playerFacts.latestEvidenceAt() == null ? match.playedAt() : playerFacts.latestEvidenceAt());
                 processedCount++; updated.add(locked.getId());
             }
         }
@@ -120,17 +131,4 @@ public class BingoAggregationService {
         return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), now);
     }
 
-    private void updateLines(BingoEvent event, BingoParticipant participant, List<BingoProgress> rows, Instant completedAt) {
-        Set<Integer> positions = rows.stream().filter(BingoProgress::isCompleted)
-                .map(row -> row.getCell().getPosition()).collect(Collectors.toSet());
-        Set<String> completed = lineCalculator.completedLines(event.getBoardSize(), positions);
-        Set<String> existing = lineCompletions.findByParticipantId(participant.getId()).stream()
-                .map(BingoLineCompletion::getLineKey).collect(Collectors.toSet());
-        completed.stream().filter(key -> !existing.contains(key))
-                .forEach(key -> lineCompletions.save(new BingoLineCompletion(participant, key, completedAt)));
-        boolean blackout = rows.size() == event.getBoardSize() * event.getBoardSize()
-                && rows.stream().allMatch(BingoProgress::isCompleted);
-        participant.updateLines(completed.size(), completed.size() >= event.getTargetLines(),
-                event.isBlackoutEnabled() && blackout, completedAt);
-    }
 }

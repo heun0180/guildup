@@ -33,6 +33,12 @@ public class BingoMissionEngine {
 
     public BigDecimal value(BingoMissionType type, PlayerMatchFacts facts, Map<String, Object> options) {
         return switch (type) {
+            case KILLS -> {
+                String weapon = string(options, "weapon"), category = string(options, "weaponCategory");
+                if (weapon != null && !weapon.isBlank()) yield countKills(facts, kill -> BingoWeaponCatalog.same(weapon, kill.weapon()));
+                if (category != null && !category.isBlank()) yield countKills(facts, kill -> Objects.equals(category, kill.weaponCategory()));
+                yield facts.metric(type.name());
+            }
             case LONG_DISTANCE_KILL -> countKills(facts, kill -> kill.distance() >= number(options, "distance", 0));
             case WEAPON_KILLS -> countKills(facts, kill -> BingoWeaponCatalog.same(string(options, "weapon"), kill.weapon()));
             case WEAPON_CATEGORY_KILLS -> countKills(facts, kill -> Objects.equals(string(options, "weaponCategory"), kill.weaponCategory()));
@@ -41,10 +47,23 @@ public class BingoMissionEngine {
             case THROWABLE_USED -> BigDecimal.valueOf(facts.throwableUses().entrySet().stream()
                     .filter(e -> BingoWeaponCatalog.same(string(options, "throwable"), e.getKey()))
                     .mapToInt(Map.Entry::getValue).sum());
-            case PLAY_WITH_CLAN_MEMBERS -> BigDecimal.valueOf(facts.clanMembersInMatch() >= number(options, "clanMemberCount", 1) ? 1 : 0);
+            case PLAY_WITH_CLAN_MEMBERS -> BigDecimal.valueOf(facts.clanMembersInTeam() >= number(options, "clanMemberCount", 1) ? 1 : 0);
+            case ITEM_PICKUP -> itemCount(facts.pickedItems(), string(options, "itemId"));
+            case ITEM_USE -> itemCount(facts.usedItems(), string(options, "itemId"));
+            case CARE_PACKAGE_PICKUP -> blank(string(options, "itemId"))
+                    ? facts.metric(type.name()) : itemCount(facts.carePackageItems(), string(options, "itemId"));
+            case ARMOR_DESTROY_COUNT -> blank(string(options, "itemId"))
+                    ? facts.metric(type.name()) : itemCount(facts.destroyedArmor(), string(options, "itemId"));
+            case RIDE_WITH_CLAN_MEMBERS -> BigDecimal.valueOf(
+                    facts.metric("MAX_CLAN_VEHICLE_PASSENGERS").doubleValue() >= number(options, "clanMemberCount", 1) ? 1 : 0);
             default -> facts.metric(type.name());
         };
     }
+
+    private BigDecimal itemCount(Map<String, Integer> values, String itemId) {
+        return BigDecimal.valueOf(itemId == null ? 0 : values.getOrDefault(itemId, 0));
+    }
+    private boolean blank(String value) { return value == null || value.isBlank(); }
 
     private BigDecimal countKills(PlayerMatchFacts facts, java.util.function.Predicate<PlayerMatchFacts.KillFact> test) {
         return BigDecimal.valueOf(facts.kills().stream().filter(test).count());
@@ -53,7 +72,8 @@ public class BingoMissionEngine {
         String map = string(options, "map");
         String mode = string(options, "gameMode");
         return (map == null || map.isBlank() || map.equalsIgnoreCase(facts.mapName()))
-                && (mode == null || mode.isBlank() || mode.equalsIgnoreCase(facts.gameMode()));
+                && (mode == null || mode.isBlank() || mode.equalsIgnoreCase(facts.gameMode()))
+                && (!Boolean.TRUE.equals(options.get("clanPlayRequired")) || facts.clanMembersInTeam() >= 1);
     }
     private boolean compare(BigDecimal actual, BingoOperator operator, BigDecimal target) {
         int comparison = actual.compareTo(target);

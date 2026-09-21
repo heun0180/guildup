@@ -1,5 +1,6 @@
 package com.guildup.killcompetition.service;
 
+import com.guildup.bingo.service.BingoGuildUpContentService;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.repository.CommunityGameRepository;
 import com.guildup.community.service.CommunityAccessService;
@@ -31,6 +32,7 @@ public class KillCompetitionSettlementStore {
     private final CurrentCommunityMemberService currentMembers;
     private final CommunityAccessService access;
     private final CommunityScoreService scores;
+    private final BingoGuildUpContentService bingoContent;
     private final Clock clock;
 
     public KillCompetitionSettlementStore(KillCompetitionRepository competitions,
@@ -38,9 +40,11 @@ public class KillCompetitionSettlementStore {
                                           CommunityGameRepository communityGames,
                                           CurrentCommunityMemberService currentMembers,
                                           CommunityAccessService access,
-                                          CommunityScoreService scores, Clock clock) {
+                                          CommunityScoreService scores,
+                                          BingoGuildUpContentService bingoContent, Clock clock) {
         this.competitions = competitions; this.matchResults = matchResults; this.communityGames = communityGames;
-        this.currentMembers = currentMembers; this.access = access; this.scores = scores; this.clock = clock;
+        this.currentMembers = currentMembers; this.access = access; this.scores = scores;
+        this.bingoContent = bingoContent; this.clock = clock;
     }
 
     @Transactional
@@ -124,11 +128,13 @@ public class KillCompetitionSettlementStore {
                 competition, byId.get(row.participantId()), row.matchId(), row.startedAt(), row.kills())).toList());
 
         Instant completedAt = clock.instant();
+        List<CommunityMember> winners = winnerMembers(competition);
         if (competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).count() >= 4) {
-            winnerMembers(competition).stream().sorted(Comparator.comparing(CommunityMember::getId))
+            winners.stream().sorted(Comparator.comparing(CommunityMember::getId))
                     .forEach(member -> scores.addKillCompetitionWinIfEligible(member, competition.getId(), completedAt));
         }
         competition.complete(completedAt);
+        bingoContent.applyCompletedKillCompetition(competition, winners, completedAt);
     }
 
     @Transactional

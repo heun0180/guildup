@@ -135,6 +135,36 @@ class BingoAggregationFlowTests {
         verifyNoInteractions(pubgPlayers,pubgMatches,factService);
     }
 
+    @Test void cellClanPlayRequirementIgnoresPersonalStatsFromSoloMatches(){
+        BingoEventRequest base=request();
+        List<BingoEventRequest.Cell> cells=base.cells().stream().map(cell -> new BingoEventRequest.Cell(
+                cell.position(),cell.missionType(),cell.aggregationType(),cell.operator(),
+                BigDecimal.TEN,cell.occurrenceTarget(),Map.of("clanPlayRequired",true),cell.customTitle())).toList();
+        BingoEventRequest clanOnly=new BingoEventRequest(base.title(),base.description(),base.startsAt(),base.endsAt(),
+                base.boardSize(),base.targetLines(),base.blackoutEnabled(),base.allowLateJoin(),base.status(),cells);
+        var event=events.create(owner.getId(),community.getId(),clanOnly);
+        Instant soloAt=clock.instant().minus(Duration.ofMinutes(30));
+        Instant clanAt=clock.instant().minus(Duration.ofMinutes(10));
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a","ApplePUBG",List.of("solo","clan"))));
+        when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(Map.of(
+                "solo",match("solo",soloAt),"clan",match("clan",clanAt)));
+        when(factService.facts(argThat(m->m != null && m.matchId().equals("solo")),anySet()))
+                .thenReturn(Map.of("account-a",facts("solo",soloAt,5,0)));
+        when(factService.facts(argThat(m->m != null && m.matchId().equals("clan")),anySet()))
+                .thenReturn(Map.of("account-a",facts("clan",clanAt,5,1)));
+
+        var result=aggregation.aggregate(owner.getId(),community.getId(),event.id());
+
+        BingoParticipant participant=participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        assertThat(result.processedMatches()).isEqualTo(2);
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()))
+                .allSatisfy(row -> {
+                    assertThat(row.getCurrentValue()).isEqualByComparingTo("5");
+                    assertThat(row.isCompleted()).isFalse();
+                });
+    }
+
     private BingoEventRequest request(){
         List<BingoEventRequest.Cell> cells=new ArrayList<>();
         for(int i=0;i<9;i++) cells.add(new BingoEventRequest.Cell(i,BingoMissionType.KILLS,BingoAggregationType.EVENT_TOTAL,
@@ -143,6 +173,7 @@ class BingoAggregationFlowTests {
     }
     private PubgMatch match(String id,Instant at){return new PubgMatch(id,at,"squad",List.of(new PubgTeam(List.of(new PubgParticipant("account-a","ApplePUBG",5)))));}
     private PlayerMatchFacts facts(String id,Instant at,int kills){return new PlayerMatchFacts(id,at,"Erangel_Main","squad",Map.of("KILLS",BigDecimal.valueOf(kills)),List.of(),Map.of(),0,at);}
+    private PlayerMatchFacts facts(String id,Instant at,int kills,int clanMembersInTeam){return new PlayerMatchFacts(id,at,"Erangel_Main","squad",Map.of("KILLS",BigDecimal.valueOf(kills)),List.of(),Map.of(),clanMembersInTeam,at);}
 
     @TestConfiguration static class ClockConfiguration {
         @Bean @Primary MutableClock bingoClock(){return new MutableClock();}

@@ -86,6 +86,26 @@ class BingoEventFlowTests {
                 .containsEntry("weapon", "M416");
     }
 
+    @Test void createsKillBetWinWithFixedEventTotalAndAutomaticTitle() {
+        BingoEventRequest request = killBetRequest(BingoAggregationType.EVENT_TOTAL, Map.of(), BigDecimal.valueOf(2));
+
+        var created = service.create(owner.getId(), community.getId(), request);
+
+        assertThat(created.cells().getFirst().missionType()).isEqualTo("KILL_BET_WIN");
+        assertThat(created.cells().getFirst().aggregationType()).isEqualTo("EVENT_TOTAL");
+        assertThat(created.cells().getFirst().title()).isEqualTo("킬내기 2회 승리");
+        assertThat(BingoMissionType.values()).hasSize(41);
+        assertStatus(HttpStatus.FORBIDDEN, () -> service.create(member.getId(), community.getId(), request));
+    }
+
+    @Test void rejectsMatchAggregationAndPubgOptionsForKillBetWin() {
+        assertBadRequest(() -> service.create(owner.getId(), community.getId(),
+                killBetRequest(BingoAggregationType.SINGLE_MATCH, Map.of(), BigDecimal.ONE)));
+        assertBadRequest(() -> service.create(owner.getId(), community.getId(),
+                killBetRequest(BingoAggregationType.EVENT_TOTAL,
+                        Map.of("clanPlayRequired", true), BigDecimal.ONE)));
+    }
+
     @Test void rejectsWrongMissionCountAndInvalidTime() {
         assertBadRequest(() -> service.create(owner.getId(), community.getId(), request(3, 8)));
         BingoEventRequest valid = request(3,9);
@@ -145,6 +165,12 @@ class BingoEventFlowTests {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test void catalogStaticRouteIsNotParsedAsNumericBingoId() throws Exception {
+        Long gameId = games.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId();
+        mvc.perform(get("/api/communities/{communityId}/games/{communityGameId}/bingos/catalog", community.getId(), gameId))
+                .andExpect(status().isUnauthorized());
+    }
+
     @Test void rejectsDraftTransitionWhenActiveOrScheduledSlotIsOccupied() {
         service.create(owner.getId(), community.getId(), activeRequest("진행"));
         service.create(owner.getId(), community.getId(), scheduledRequest("예정", 2));
@@ -183,6 +209,16 @@ class BingoEventFlowTests {
                 BingoAggregationType.EVENT_TOTAL, BingoOperator.GREATER_THAN_OR_EQUAL,
                 BigDecimal.valueOf(5), null, Map.of(), null));
         return new BingoEventRequest("가을 빙고", "설명", start, end, size, 1, true, false, BingoStatus.SCHEDULED, cells);
+    }
+    private BingoEventRequest killBetRequest(BingoAggregationType aggregationType,
+                                             Map<String,Object> options, BigDecimal target) {
+        BingoEventRequest base = request(3, 9);
+        List<BingoEventRequest.Cell> cells = new ArrayList<>(base.cells());
+        cells.set(0, new BingoEventRequest.Cell(0, BingoMissionType.KILL_BET_WIN,
+                aggregationType, BingoOperator.GREATER_THAN_OR_EQUAL, target,
+                aggregationType == BingoAggregationType.MATCH_OCCURRENCES ? 1 : null, options, null));
+        return new BingoEventRequest("킬내기 빙고", null, base.startsAt(), base.endsAt(),
+                3, 1, false, false, BingoStatus.SCHEDULED, cells);
     }
     private BingoEventRequest activeRequest(String title) {
         BingoEventRequest base = request(3, 9);

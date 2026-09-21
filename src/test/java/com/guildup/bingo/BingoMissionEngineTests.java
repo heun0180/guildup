@@ -15,6 +15,16 @@ class BingoMissionEngineTests {
     Instant playedAt = Instant.parse("2026-09-22T12:00:00Z");
 
     @Test
+    void keepsAllFortyExistingMissionNamesAndAddsKillBetWinAsGuildUpContent() {
+        assertThat(BingoMissionType.values()).hasSize(41);
+        assertThat(BingoMissionType.values()).contains(BingoMissionType.KILLS, BingoMissionType.WHEEL_DESTROY_COUNT,
+                BingoMissionType.VEHICLE_DESTROY_COUNT, BingoMissionType.RIDE_WITH_CLAN_MEMBERS,
+                BingoMissionType.KILL_BET_WIN);
+        assertThat(BingoMissionType.KILLS.source()).isEqualTo(BingoMissionSource.PUBG_MATCH);
+        assertThat(BingoMissionType.KILL_BET_WIN.source()).isEqualTo(BingoMissionSource.GUILDUP_CONTENT);
+    }
+
+    @Test
     void eventTotalSingleMatchAndOccurrencesUseOneRuleModel() {
         PlayerMatchFacts first = facts(Map.of("KILLS", bd(4)));
         BingoProgress total = progress(cell(BingoMissionType.KILLS, BingoAggregationType.EVENT_TOTAL, 7, null, null));
@@ -50,6 +60,64 @@ class BingoMissionEngineTests {
                 BingoMissionType.VAULT_COUNT, BingoMissionType.LEDGE_GRAB_COUNT,
                 BingoMissionType.CARE_PACKAGE_PICKUP, BingoMissionType.WHEEL_DESTROY_COUNT))
             assertThat(engine.value(type, facts, Map.of())).isEqualByComparingTo(facts.metric(type.name()));
+    }
+
+    @Test
+    void clanPlayRequirementAppliesOnlyToTheConfiguredCell() {
+        BingoProgress clanOnly = progress(cell(BingoMissionType.KILLS, BingoAggregationType.EVENT_TOTAL,
+                5, null, Map.of("clanPlayRequired", true)));
+        BingoProgress personalAllowed = progress(cell(BingoMissionType.KILLS, BingoAggregationType.EVENT_TOTAL,
+                5, null, Map.of()));
+        PlayerMatchFacts solo = new PlayerMatchFacts("solo", playedAt, "Erangel_Main", "squad",
+                Map.of("KILLS", bd(5)), List.of(), Map.of(), 0, playedAt);
+
+        apply(clanOnly, solo);
+        apply(personalAllowed, solo);
+
+        assertThat(clanOnly.getCurrentValue()).isZero();
+        assertThat(clanOnly.isCompleted()).isFalse();
+        assertThat(personalAllowed.getCurrentValue()).isEqualByComparingTo("5");
+        assertThat(personalAllowed.isCompleted()).isTrue();
+    }
+
+    @Test
+    void newMissionsReuseFactsAndMatchOnlyConfiguredItemsAndVehicleClanCount() {
+        PlayerMatchFacts facts = new PlayerMatchFacts("m", playedAt, "Tiger_Main", "squad",
+                Map.of("VEHICLE_DESTROY_COUNT",bd(2),"VEHICLE_DAMAGE",bd(600),"ARMOR_DESTROY_COUNT",bd(1),
+                        "FREEFALL_DISTANCE",bd(1200),"ENEMY_LOOTBOX_PICKUP",bd(4),"EMERGENCY_PICKUP_RIDE",bd(1),
+                        "BREACHABLE_WALL_DESTROY_COUNT",bd(3),"MAX_CLAN_VEHICLE_PASSENGERS",bd(2)),
+                List.of(), Map.of(), Map.of("Item_Heal_FirstAid_C",2),
+                Map.of("Item_Tiger_SelfRevive_C",1), Map.of(), Map.of(), 2, playedAt);
+
+        assertValue(facts, BingoMissionType.VEHICLE_DESTROY_COUNT, Map.of(), 2);
+        assertValue(facts, BingoMissionType.VEHICLE_DAMAGE, Map.of(), 600);
+        assertValue(facts, BingoMissionType.ARMOR_DESTROY_COUNT, Map.of(), 1);
+        assertValue(facts, BingoMissionType.FREEFALL_DISTANCE, Map.of(), 1200);
+        assertValue(facts, BingoMissionType.ITEM_PICKUP, Map.of("itemId","Item_Heal_FirstAid_C"), 2);
+        assertValue(facts, BingoMissionType.ITEM_PICKUP, Map.of("itemId","Item_Heal_MedKit_C"), 0);
+        assertValue(facts, BingoMissionType.ITEM_USE, Map.of("itemId","Item_Tiger_SelfRevive_C"), 1);
+        assertValue(facts, BingoMissionType.ENEMY_LOOTBOX_PICKUP, Map.of(), 4);
+        assertValue(facts, BingoMissionType.EMERGENCY_PICKUP_RIDE, Map.of(), 1);
+        assertValue(facts, BingoMissionType.BREACHABLE_WALL_DESTROY_COUNT, Map.of(), 3);
+        assertValue(facts, BingoMissionType.RIDE_WITH_CLAN_MEMBERS, Map.of("clanMemberCount",2), 1);
+        assertValue(facts, BingoMissionType.RIDE_WITH_CLAN_MEMBERS, Map.of("clanMemberCount",3), 0);
+    }
+
+    @Test
+    void vehicleDestroySupportsEventTotalSingleMatchAndOccurrenceAggregation() {
+        PlayerMatchFacts one = facts(Map.of("VEHICLE_DESTROY_COUNT", bd(1)));
+        PlayerMatchFacts two = facts(Map.of("VEHICLE_DESTROY_COUNT", bd(2)));
+        BingoProgress total = progress(cell(BingoMissionType.VEHICLE_DESTROY_COUNT, BingoAggregationType.EVENT_TOTAL, 3, null, null));
+        apply(total, one); apply(total, two);
+        assertThat(total.getCurrentValue()).isEqualByComparingTo("3"); assertThat(total.isCompleted()).isTrue();
+
+        BingoProgress single = progress(cell(BingoMissionType.VEHICLE_DESTROY_COUNT, BingoAggregationType.SINGLE_MATCH, 2, null, null));
+        apply(single, one); apply(single, two);
+        assertThat(single.getCurrentValue()).isEqualByComparingTo("2"); assertThat(single.isCompleted()).isTrue();
+
+        BingoProgress occurrences = progress(cell(BingoMissionType.VEHICLE_DESTROY_COUNT, BingoAggregationType.MATCH_OCCURRENCES, 2, 2, null));
+        apply(occurrences, two); apply(occurrences, one); apply(occurrences, two);
+        assertThat(occurrences.getOccurrenceCount()).isEqualTo(2); assertThat(occurrences.isCompleted()).isTrue();
     }
 
     @Test
