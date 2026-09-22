@@ -44,6 +44,15 @@ export function formatBingoKstDateTime(value) {
   }).format(new Date(value)) : "-";
 }
 
+export function bingoParticipantNames(participant) {
+  const discordNickname = participant?.nickname?.trim() || "알 수 없는 참가자";
+  const pubgNickname = participant?.pubgNickname?.trim();
+  return {
+    primary: pubgNickname || discordNickname,
+    secondary: pubgNickname && pubgNickname !== discordNickname ? discordNickname : null,
+  };
+}
+
 export function bingoAggregationCooldown(lastAggregatedAt, now = Date.now()) {
   if (!lastAggregatedAt) return { disabled: false, remainingMs: 0, label: "빙고 집계" };
   const remainingMs = Math.max(0, new Date(lastAggregatedAt).getTime() + 30 * 60 * 1000 - now);

@@ -59,6 +59,11 @@ class BingoAggregationFlowTests {
 
     @Test void aggregatesOnlyActualMatchTimeOnceAndCompletesLinesAndBlackout(){
         var event=events.create(owner.getId(),community.getId(),request());
+        var detail=events.get(owner.getId(),community.getId(),event.id());
+        assertThat(detail.participants()).singleElement().satisfies(participant -> {
+            assertThat(participant.nickname()).isEqualTo("애플");
+            assertThat(participant.pubgNickname()).isEqualTo("ApplePUBG");
+        });
         Instant before=Instant.parse("2026-09-22T10:59:59Z"), inside=Instant.parse("2026-09-22T11:30:00Z"), after=Instant.parse("2026-09-22T14:00:01Z");
         List<PubgPlayer> playerRows=List.of(new PubgPlayer("account-a","ApplePUBG",List.of("before","late-api","after")));
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(playerRows);

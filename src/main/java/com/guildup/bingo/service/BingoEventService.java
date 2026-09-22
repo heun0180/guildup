@@ -234,7 +234,8 @@ public class BingoEventService {
                 cell.getCustomTitle(), title(cell))).toList();
         List<BingoDetailResponse.Participant> summaries = includeParticipants ? participantRows.stream().map(p -> {
             int completed = (int) byParticipant.get(p.getId()).stream().filter(BingoProgress::isCompleted).count();
-            return new BingoDetailResponse.Participant(p.getId(), p.getCommunityUser().getUser().getNickname(), completed,
+            return new BingoDetailResponse.Participant(p.getId(), p.getCommunityUser().getUser().getNickname(),
+                    p.getPubgNickname(), completed,
                     p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt());
         }).toList() : List.of();
         return new BingoDetailResponse(event.getId(), event.getTitle(), event.getDescription(), event.getBoardSize(),

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { bingoAggregationCooldown, currentBingoScreen, formatBingoKstDateTime, formatBingoLocalDateTime, groupManagedBingos, isBingoManagementView } from "../src/bingoView.js";
+import { bingoAggregationCooldown, bingoParticipantNames, currentBingoScreen, formatBingoKstDateTime, formatBingoLocalDateTime, groupManagedBingos, isBingoManagementView } from "../src/bingoView.js";
 
 test("MEMBER는 관리 쿼리로 접근해도 관리 화면을 열 수 없다", () => {
   assert.equal(isBingoManagementView("MEMBER", "?communityId=1&view=manage"), false);
@@ -42,4 +42,13 @@ test("빙고 시간 미리보기는 자정과 정오를 구분한다", () => {
   assert.equal(formatBingoLocalDateTime("2026-09-24T00:01"), "2026. 09. 24. 00:01");
   assert.match(formatBingoKstDateTime("2026-09-23T15:00:00Z"), /00:00$/);
   assert.match(formatBingoKstDateTime("2026-09-24T03:00:00Z"), /12:00$/);
+});
+
+test("참가자 이름은 PUBG 닉네임을 우선하고 Discord 닉네임을 함께 표시한다", () => {
+  assert.deepEqual(bingoParticipantNames({ nickname: "애플", pubgNickname: "ApplePUBG" }), {
+    primary: "ApplePUBG", secondary: "애플",
+  });
+  assert.deepEqual(bingoParticipantNames({ nickname: "애플", pubgNickname: null }), {
+    primary: "애플", secondary: null,
+  });
 });

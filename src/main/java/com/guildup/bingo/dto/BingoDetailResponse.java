@@ -21,6 +21,6 @@ public record BingoDetailResponse(
     public record Progress(Long cellId, BigDecimal currentValue, int occurrenceCount,
                            boolean completed, Instant completedAt, String evidenceMatchId,
                            Instant evidenceEventAt) {}
-    public record Participant(Long participantId, String nickname, int completedCells,
+    public record Participant(Long participantId, String nickname, String pubgNickname, int completedCells,
                               int lineCount, Instant targetLinesCompletedAt, Instant blackoutCompletedAt) {}
 }

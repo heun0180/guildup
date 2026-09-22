@@ -199,6 +199,8 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .bingo-participants > button { display:flex; width:100%; min-height:auto; justify-content:space-between; gap:18px; border:0; border-top:1px solid var(--color-border); border-radius:0; padding:11px 2px; background:transparent; color:var(--color-text); font-size:.78rem; }
 .bingo-participants > button:hover { background:var(--color-surface-soft); }
 .bingo-participants span { color:var(--color-text-secondary); }
+.bingo-participants .bingo-participant-name { display:grid; gap:2px; text-align:left; color:var(--color-text); }
+.bingo-participants .bingo-participant-name small { color:var(--color-text-secondary); font-size:.68rem; font-weight:500; }
 .bingo-viewing { margin:0 0 10px; color:var(--color-text-secondary); font-size:.8rem; }
 .bingo-cell-facts { display:grid; gap:10px; }
 .bingo-cell-facts div { border-bottom:1px solid var(--color-border); padding-bottom:9px; }
