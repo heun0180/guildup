@@ -1,5 +1,7 @@
 -- Hibernate가 기존 CHECK 제약조건에 새 enum 값을 자동으로 추가하지 못하므로,
 -- BingoMissionType을 확장한 운영 DB에서 한 번 실행한다.
+BEGIN;
+
 ALTER TABLE bingo_cells
     DROP CONSTRAINT IF EXISTS bingo_cells_mission_type_check;
 
@@ -18,3 +20,5 @@ ALTER TABLE bingo_cells
         'EMERGENCY_PICKUP_RIDE', 'BREACHABLE_WALL_DESTROY_COUNT',
         'RIDE_WITH_CLAN_MEMBERS', 'KILL_BET_WIN'
     ));
+
+COMMIT;
