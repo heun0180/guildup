@@ -143,7 +143,10 @@ class CommunityMemberActivitySyncFlowTests {
         assertThat(members.count()).isEqualTo(2);
         assertThat(snapshots.count()).isEqualTo(2);
         verify(playerService).findByNamesFresh(eq("kakao"), eq(List.of("sa-gwa", "jul-mi")));
-        verify(matchService).findUniqueMatchesFresh(eq("kakao"), eq(List.of("match-1")));
+        verify(matchService).findUniqueMatchesFresh(
+                eq("kakao"), eq(List.of("match-1")),
+                eq(fixture.community().getId()), eq(fixture.game().getId())
+        );
     }
 
     @Test
@@ -155,14 +158,18 @@ class CommunityMemberActivitySyncFlowTests {
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isTooManyRequests());
-        verify(matchService, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(matchService, times(1)).findUniqueMatchesFresh(
+                eq("kakao"), anyList(), anyLong(), anyLong()
+        );
 
         now.set(FIRST_SYNC.plusSeconds(10800));
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 applePlayer(), julmiPlayer()
         ));
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isOk());
-        verify(matchService, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(matchService, times(2)).findUniqueMatchesFresh(
+                eq("kakao"), anyList(), anyLong(), anyLong()
+        );
     }
 
     @Test
@@ -190,6 +197,24 @@ class CommunityMemberActivitySyncFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sync.status").value("FAILED"))
                 .andExpect(jsonPath("$.sync.syncAvailable").value(true));
+    }
+
+    @Test
+    void exhaustedMatchFailureMarksSyncAsFailed() throws Exception {
+        Fixture fixture = createFixture();
+        when(playerService.findByNamesFresh(eq("kakao"), anyList()))
+                .thenReturn(List.of(applePlayer(), julmiPlayer()));
+        when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
+        when(matchService.findUniqueMatchesFresh(
+                eq("kakao"), anyList(), eq(fixture.community().getId()), eq(fixture.game().getId())
+        )).thenThrow(new PubgApiException("PUBG match retries exhausted", null, 503, true));
+
+        mvc.perform(post(syncPath(fixture)).session(ownerSession))
+                .andExpect(status().isServiceUnavailable());
+
+        var sync = syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow();
+        assertThat(sync.getSyncStatus()).isEqualTo(CommunityGameActivitySyncStatus.FAILED);
+        assertThat(snapshots.count()).isZero();
     }
 
     @Test
@@ -240,7 +265,9 @@ class CommunityMemberActivitySyncFlowTests {
             return List.of(applePlayer(), julmiPlayer());
         });
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
-        when(matchService.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(matchMap());
+        when(matchService.findUniqueMatchesFresh(
+                eq("kakao"), anyList(), anyLong(), anyLong()
+        )).thenReturn(matchMap());
 
         try (var executor = Executors.newSingleThreadExecutor()) {
             var first = executor.submit(() -> mvc.perform(post(syncPath(fixture)).session(ownerSession))
@@ -254,7 +281,9 @@ class CommunityMemberActivitySyncFlowTests {
             releasePubg.countDown();
         }
         verify(playerService, times(1)).findByNamesFresh(eq("kakao"), anyList());
-        verify(matchService, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(matchService, times(1)).findUniqueMatchesFresh(
+                eq("kakao"), anyList(), anyLong(), anyLong()
+        );
     }
 
     private Fixture createFixture() {
@@ -275,7 +304,9 @@ class CommunityMemberActivitySyncFlowTests {
         when(playerService.findByNamesFresh(eq("kakao"), anyList()))
                 .thenReturn(List.of(applePlayer(), julmiPlayer()));
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
-        when(matchService.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(matchMap());
+        when(matchService.findUniqueMatchesFresh(
+                eq("kakao"), anyList(), anyLong(), anyLong()
+        )).thenReturn(matchMap());
     }
 
     private PubgPlayer applePlayer() {

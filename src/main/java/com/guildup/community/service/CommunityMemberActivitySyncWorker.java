@@ -25,9 +25,12 @@ import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
 import com.guildup.community.service.nickname.NicknameRuleCandidate;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
+import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.service.PubgMatchService;
 import com.guildup.pubg.service.PubgPlayerService;
 import com.guildup.pubg.support.PubgGameSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +52,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class CommunityMemberActivitySyncWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(CommunityMemberActivitySyncWorker.class);
 
     private final CommunityGameRepository gameRepository;
     private final CommunityGameActivityRuleRepository activityRuleRepository;
@@ -93,79 +98,134 @@ public class CommunityMemberActivitySyncWorker {
 
     @Transactional
     public void synchronize(Long communityGameId) {
-        CommunityGame game = gameRepository.findById(communityGameId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
-                ));
-        CommunityGameActivityRule rule = activityRuleRepository.findByCommunityGameId(game.getId())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "클랜 활동 규칙을 먼저 설정해 주세요."
-                ));
-        CommunityGameNicknameRule nicknameRule = nicknameRuleRepository
-                .findByCommunityIdAndGameType(game.getCommunity().getId(), game.getGameType())
-                .orElse(null);
-        NicknameRuleCandidate nicknameCandidate = nicknameRule == null ? null : toCandidate(nicknameRule);
-        List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
-                game.getCommunity().getId(), CommunityMemberStatus.ACTIVE
-        );
-        Map<Long, CommunityMember> membersById = members.stream()
-                .collect(Collectors.toMap(CommunityMember::getId, Function.identity()));
-        Map<Long, CommunityMemberAccount> accountsByMemberId = accountRepository
-                .findByCommunityIdAndProvider(
-                        game.getCommunity().getId(), ExternalAccountProvider.PUBG
-                ).stream()
-                .collect(Collectors.toMap(
-                        account -> account.getCommunityMember().getId(), Function.identity()
-                ));
-        Map<Long, String> gameNicknames = extractGameNicknames(
-                members, accountsByMemberId, nicknameCandidate
-        );
+        long startedAtNanos = System.nanoTime();
+        Long communityId = null;
+        SyncStage stage = SyncStage.PREPARATION;
+        try {
+            CommunityGame game = gameRepository.findById(communityGameId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
+                    ));
+            communityId = game.getCommunity().getId();
+            CommunityGameActivityRule rule = activityRuleRepository.findByCommunityGameId(game.getId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST, "클랜 활동 규칙을 먼저 설정해 주세요."
+                    ));
+            CommunityGameNicknameRule nicknameRule = nicknameRuleRepository
+                    .findByCommunityIdAndGameType(communityId, game.getGameType())
+                    .orElse(null);
+            NicknameRuleCandidate nicknameCandidate = nicknameRule == null ? null : toCandidate(nicknameRule);
+            List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
+                    communityId, CommunityMemberStatus.ACTIVE
+            );
+            Map<Long, CommunityMember> membersById = members.stream()
+                    .collect(Collectors.toMap(CommunityMember::getId, Function.identity()));
+            Map<Long, CommunityMemberAccount> accountsByMemberId = accountRepository
+                    .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+                    .collect(Collectors.toMap(
+                            account -> account.getCommunityMember().getId(), Function.identity()
+                    ));
+            Map<Long, String> gameNicknames = extractGameNicknames(
+                    members, accountsByMemberId, nicknameCandidate
+            );
+            String shard = PubgGameSupport.requireShard(game.getGameType());
 
-        Map<String, PubgPlayer> playersByAccountId = new LinkedHashMap<>();
-        List<CommunityMemberAccount> newAccounts = resolveMissingAccounts(
-                PubgGameSupport.requireShard(game.getGameType()), members, gameNicknames,
-                accountsByMemberId, playersByAccountId
-        );
-        loadStoredPlayers(
-                PubgGameSupport.requireShard(game.getGameType()), accountsByMemberId, playersByAccountId
-        );
+            Map<String, PubgPlayer> playersByAccountId = new LinkedHashMap<>();
+            stage = SyncStage.PLAYER_BY_NAME;
+            List<CommunityMemberAccount> newAccounts = resolveMissingAccounts(
+                    shard, members, gameNicknames, accountsByMemberId, playersByAccountId
+            );
+            stage = SyncStage.PLAYER_BY_ACCOUNT_ID;
+            loadStoredPlayers(shard, accountsByMemberId, playersByAccountId);
 
-        Map<String, ClanMemberIdentity> clanMembersByAccountId = accountsByMemberId.values().stream()
-                .collect(Collectors.toMap(
-                        CommunityMemberAccount::getExternalUserId,
-                        account -> new ClanMemberIdentity(
-                                account.getCommunityMember().getId(),
-                                account.getCommunityMember().getNickname()
-                        ),
-                        (first, ignored) -> first,
-                        LinkedHashMap::new
-                ));
-        List<String> matchIds = playersByAccountId.values().stream()
-                .flatMap(player -> player.matchIds().stream())
-                .distinct()
-                .toList();
-        Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatchesFresh(
-                PubgGameSupport.requireShard(game.getGameType()), matchIds
-        );
-        Instant synchronizedAt = clock.instant();
-        Instant periodStart = synchronizedAt.minus(Duration.ofDays(rule.getActivityPeriodDays()));
+            Map<String, ClanMemberIdentity> clanMembersByAccountId = accountsByMemberId.values().stream()
+                    .collect(Collectors.toMap(
+                            CommunityMemberAccount::getExternalUserId,
+                            account -> new ClanMemberIdentity(
+                                    account.getCommunityMember().getId(),
+                                    account.getCommunityMember().getNickname()
+                            ),
+                            (first, ignored) -> first,
+                            LinkedHashMap::new
+                    ));
+            List<String> matchIds = playersByAccountId.values().stream()
+                    .flatMap(player -> player.matchIds().stream())
+                    .distinct()
+                    .toList();
+            stage = SyncStage.MATCH;
+            Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatchesFresh(
+                    shard, matchIds, communityId, communityGameId
+            );
+            Instant synchronizedAt = clock.instant();
+            Instant periodStart = synchronizedAt.minus(Duration.ofDays(rule.getActivityPeriodDays()));
 
-        List<CommunityMemberActivitySnapshot> snapshots = members.stream()
-                .map(member -> createSnapshot(
-                        game, member, gameNicknames, accountsByMemberId, playersByAccountId,
-                        rule, periodStart, synchronizedAt, clanMembersByAccountId,
-                        membersById, matches
-                ))
-                .toList();
+            stage = SyncStage.ACTIVITY_CALCULATION;
+            List<CommunityMemberActivitySnapshot> activitySnapshots = members.stream()
+                    .map(member -> createSnapshot(
+                            game, member, gameNicknames, accountsByMemberId, playersByAccountId,
+                            rule, periodStart, synchronizedAt, clanMembersByAccountId,
+                            membersById, matches
+                    ))
+                    .toList();
 
-        if (!newAccounts.isEmpty()) accountRepository.saveAll(newAccounts);
-        snapshotRepository.deleteByCommunityGameId(game.getId());
-        // 같은 (게임, 멤버) 키로 새 스냅샷을 넣기 전에 기존 DELETE를 먼저 실행한다.
-        snapshotRepository.flush();
-        snapshotRepository.saveAll(snapshots);
-        syncRepository.findByCommunityGameId(game.getId())
-                .orElseThrow()
-                .succeed(synchronizedAt);
+            stage = SyncStage.DB_SAVE;
+            if (!newAccounts.isEmpty()) accountRepository.saveAll(newAccounts);
+            snapshotRepository.deleteByCommunityGameId(game.getId());
+            // 같은 (게임, 멤버) 키로 새 스냅샷을 넣기 전에 기존 DELETE를 먼저 실행한다.
+            snapshotRepository.flush();
+            snapshotRepository.saveAll(activitySnapshots);
+            syncRepository.findByCommunityGameId(game.getId())
+                    .orElseThrow()
+                    .succeed(synchronizedAt);
+            snapshotRepository.flush();
+
+            log.info(
+                    "PUBG activity sync completed - communityId={}, communityGameId={}, players={}, "
+                            + "uniqueMatches={}, durationMs={}",
+                    communityId, communityGameId, playersByAccountId.size(), matchIds.size(),
+                    elapsedMillis(startedAtNanos)
+            );
+        } catch (RuntimeException exception) {
+            log.error(
+                    "PUBG activity sync failed - communityId={}, communityGameId={}, stage={}, status={}, "
+                            + "exception={}, message={}, durationMs={}",
+                    communityId, communityGameId, stage, status(exception),
+                    exception.getClass().getSimpleName(), safeMessage(exception),
+                    elapsedMillis(startedAtNanos)
+            );
+            throw exception;
+        }
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
+    }
+
+    private Object status(RuntimeException exception) {
+        if (exception instanceof PubgApiException pubg && pubg.getUpstreamStatus() != null) {
+            return pubg.getUpstreamStatus();
+        }
+        if (exception instanceof ResponseStatusException response) {
+            return response.getStatusCode().value();
+        }
+        return "N/A";
+    }
+
+    private String safeMessage(RuntimeException exception) {
+        String message = exception instanceof ResponseStatusException response
+                ? response.getReason() : exception.getMessage();
+        if (message == null) return null;
+        String singleLine = message.replaceAll("[\\r\\n\\t]", " ");
+        return singleLine.length() <= 500 ? singleLine : singleLine.substring(0, 500);
+    }
+
+    private enum SyncStage {
+        PREPARATION,
+        PLAYER_BY_NAME,
+        PLAYER_BY_ACCOUNT_ID,
+        MATCH,
+        ACTIVITY_CALCULATION,
+        DB_SAVE
     }
 
     private CommunityMemberActivitySnapshot createSnapshot(

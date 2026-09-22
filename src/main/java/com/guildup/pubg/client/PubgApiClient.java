@@ -13,14 +13,24 @@ import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.model.PubgTeam;
 import com.guildup.pubg.model.PubgSeason;
 import com.guildup.pubg.model.PubgSeasonStats;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,19 +40,34 @@ import java.util.function.Supplier;
 @Component
 public class PubgApiClient {
 
+    private static final Logger log = LoggerFactory.getLogger(PubgApiClient.class);
     public static final int MAX_PLAYERS_PER_REQUEST = 10;
     public static final String TEAM_MAKER_GAME_MODE = "squad";
     private static final String ACCEPT = "application/vnd.api+json";
 
     private final RestClient restClient;
     private final PubgApiProperties properties;
+    private final Clock clock;
+    private final RetrySleeper retrySleeper;
 
+    @Autowired
     public PubgApiClient(
             @Qualifier("pubgRestClient") RestClient restClient,
             PubgApiProperties properties
     ) {
+        this(restClient, properties, Clock.systemUTC(), Thread::sleep);
+    }
+
+    PubgApiClient(
+            RestClient restClient,
+            PubgApiProperties properties,
+            Clock clock,
+            RetrySleeper retrySleeper
+    ) {
         this.restClient = restClient;
         this.properties = properties;
+        this.clock = clock;
+        this.retrySleeper = retrySleeper;
     }
 
     public List<PubgPlayer> getPlayersByNames(String shard, List<String> playerNames) {
@@ -68,14 +93,28 @@ public class PubgApiClient {
             return null;
         } catch (PubgApiException exception) {
             throw exception;
+        } catch (RestClientResponseException exception) {
+            int status = exception.getStatusCode().value();
+            throw new PubgApiException(
+                    "배틀그라운드 경기 정보를 불러오지 못했습니다.",
+                    exception,
+                    status,
+                    isTransientMatchStatus(exception.getStatusCode())
+            );
+        } catch (ResourceAccessException exception) {
+            throw new PubgApiException(
+                    "배틀그라운드 경기 정보를 불러오지 못했습니다.", exception, null, true
+            );
         } catch (RestClientException exception) {
-            throw new PubgApiException("배틀그라운드 경기 정보를 불러오지 못했습니다.", exception);
+            throw new PubgApiException(
+                    "배틀그라운드 경기 정보를 불러오지 못했습니다.", exception, null, false
+            );
         }
     }
 
     public List<PubgSeason> getSeasons(String shard) {
         try {
-            PubgSeasonsApiResponse response = withRateLimitRetry(() -> restClient.get()
+            PubgSeasonsApiResponse response = withRateLimitRetry("SEASON", () -> restClient.get()
                     .uri("/shards/{shard}/seasons", shard)
                     .headers(this::setHeaders)
                     .retrieve()
@@ -96,7 +135,7 @@ public class PubgApiClient {
     /** 한 번의 호출로 플레이어의 해당 시즌 전체 게임 모드를 합산한다. */
     public PubgSeasonStats getPlayerSeasonStats(String shard, String accountId, String seasonId) {
         try {
-            PubgPlayerSeasonApiResponse response = withRateLimitRetry(() -> restClient.get()
+            PubgPlayerSeasonApiResponse response = withRateLimitRetry("PLAYER_SEASON", () -> restClient.get()
                     .uri("/shards/{shard}/players/{accountId}/seasons/{seasonId}",
                             shard, accountId, seasonId)
                     .headers(this::setHeaders)
@@ -134,7 +173,7 @@ public class PubgApiClient {
         Map<String, PubgSeasonStats> result = new LinkedHashMap<>();
         accountIds.forEach(accountId -> result.put(accountId, PubgSeasonStats.empty(accountId)));
         try {
-            PubgPlayersSeasonApiResponse response = withRateLimitRetry(() -> restClient.get()
+            PubgPlayersSeasonApiResponse response = withRateLimitRetry("PLAYER_SEASON_BATCH", () -> restClient.get()
                     .uri(builder -> builder
                             .path("/shards/{shard}/seasons/{seasonId}/gameMode/{gameMode}/players")
                             .queryParam("filter[playerIds]", String.join(",", accountIds))
@@ -166,7 +205,9 @@ public class PubgApiClient {
             throw new IllegalArgumentException("PUBG Players API는 요청당 최대 10명을 지원합니다.");
         }
         try {
-            PubgPlayersApiResponse response = withRateLimitRetry(() -> restClient.get()
+            String endpoint = "filter[playerNames]".equals(filter)
+                    ? "PLAYER_BY_NAME" : "PLAYER_BY_ACCOUNT_ID";
+            PubgPlayersApiResponse response = withRateLimitRetry(endpoint, () -> restClient.get()
                     .uri(builder -> builder.path("/shards/{shard}/players")
                             .queryParam(filter, String.join(",", values))
                             .build(shard))
@@ -177,8 +218,17 @@ public class PubgApiClient {
             return response.data().stream().map(this::toPlayer).toList();
         } catch (HttpClientErrorException.NotFound exception) {
             return List.of();
+        } catch (RestClientResponseException exception) {
+            throw new PubgApiException(
+                    "배틀그라운드 계정 정보를 불러오지 못했습니다.",
+                    exception,
+                    exception.getStatusCode().value(),
+                    false
+            );
         } catch (RestClientException exception) {
-            throw new PubgApiException("배틀그라운드 계정 정보를 불러오지 못했습니다.", exception);
+            throw new PubgApiException(
+                    "배틀그라운드 계정 정보를 불러오지 못했습니다.", exception, null, false
+            );
         }
     }
 
@@ -189,16 +239,31 @@ public class PubgApiClient {
     }
 
     /** 429의 reset 헤더가 있으면 해당 시각까지 한 번 기다린 뒤 동일 요청을 재시도한다. */
-    private <T> T withRateLimitRetry(Supplier<T> request) {
+    private <T> T withRateLimitRetry(String endpoint, Supplier<T> request) {
         try {
             return request.get();
         } catch (HttpClientErrorException.TooManyRequests exception) {
-            long waitMillis = rateLimitWaitMillis(exception.getResponseHeaders());
+            HttpHeaders headers = exception.getResponseHeaders();
+            long waitMillis = rateLimitWaitMillis(headers);
             if (waitMillis <= 0 || waitMillis > 61_000) {
+                log.error(
+                        "PUBG API rate limit retry exhausted - endpoint={}, status=429, attempts=1, "
+                                + "reason=no-usable-reset-header, limit={}, remaining={}, reset={}, retryAfter={}",
+                        endpoint, header(headers, "X-RateLimit-Limit"),
+                        header(headers, "X-RateLimit-Remaining"),
+                        header(headers, "X-RateLimit-Reset"), header(headers, HttpHeaders.RETRY_AFTER)
+                );
                 throw rateLimitException(exception);
             }
+            log.warn(
+                    "PUBG API rate limit retry - endpoint={}, status=429, attempt=2/2, waitMs={}, "
+                            + "limit={}, remaining={}, reset={}, retryAfter={}",
+                    endpoint, waitMillis, header(headers, "X-RateLimit-Limit"),
+                    header(headers, "X-RateLimit-Remaining"),
+                    header(headers, "X-RateLimit-Reset"), header(headers, HttpHeaders.RETRY_AFTER)
+            );
             try {
-                Thread.sleep(waitMillis);
+                retrySleeper.sleep(waitMillis);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new PubgApiException("PUBG API 요청 대기가 중단되었습니다.", interrupted);
@@ -206,6 +271,14 @@ public class PubgApiClient {
             try {
                 return request.get();
             } catch (HttpClientErrorException.TooManyRequests retryFailure) {
+                log.error(
+                        "PUBG API rate limit retry exhausted - endpoint={}, status=429, attempts=2, "
+                                + "limit={}, remaining={}, reset={}, retryAfter={}",
+                        endpoint, header(retryFailure.getResponseHeaders(), "X-RateLimit-Limit"),
+                        header(retryFailure.getResponseHeaders(), "X-RateLimit-Remaining"),
+                        header(retryFailure.getResponseHeaders(), "X-RateLimit-Reset"),
+                        header(retryFailure.getResponseHeaders(), HttpHeaders.RETRY_AFTER)
+                );
                 throw rateLimitException(retryFailure);
             }
         }
@@ -217,7 +290,7 @@ public class PubgApiClient {
         if (reset != null) {
             try {
                 return Math.max(1_000, Instant.ofEpochSecond(Long.parseLong(reset)).toEpochMilli()
-                        - Instant.now().toEpochMilli() + 1_000);
+                        - clock.instant().toEpochMilli() + 1_000);
             } catch (NumberFormatException ignored) {
                 // Retry-After를 이어서 확인한다.
             }
@@ -227,14 +300,38 @@ public class PubgApiClient {
         try {
             return Math.max(1_000, Long.parseLong(retryAfter) * 1_000 + 1_000);
         } catch (NumberFormatException ignored) {
-            return 0;
+            try {
+                Instant retryAt = ZonedDateTime.parse(
+                        retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME
+                ).toInstant();
+                return Math.max(1_000, retryAt.toEpochMilli() - clock.instant().toEpochMilli() + 1_000);
+            } catch (DateTimeParseException invalidDate) {
+                return 0;
+            }
         }
     }
 
     private PubgApiException rateLimitException(HttpClientErrorException.TooManyRequests cause) {
         return new PubgApiException(
-                "PUBG API 요청 한도에 도달했습니다. 최대 1분 후 팀 생성을 다시 시도해 주세요.", cause
+                "PUBG API 요청 한도에 도달했습니다. 최대 1분 후 팀 생성을 다시 시도해 주세요.",
+                cause,
+                429,
+                false
         );
+    }
+
+    private boolean isTransientMatchStatus(HttpStatusCode status) {
+        int value = status.value();
+        return value == 500 || value == 502 || value == 503 || value == 504;
+    }
+
+    private String header(HttpHeaders headers, String name) {
+        return headers == null ? null : headers.getFirst(name);
+    }
+
+    @FunctionalInterface
+    interface RetrySleeper {
+        void sleep(long millis) throws InterruptedException;
     }
 
     private void setHeaders(HttpHeaders headers) {

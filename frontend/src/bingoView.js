@@ -20,6 +20,30 @@ export function currentBingoScreen(type) {
   return "EMPTY";
 }
 
+export function formatBingoLocalDateTime(value) {
+  if (!value) return "";
+  const [date, time = ""] = value.split("T");
+  const [year, month, day] = date.split("-");
+  const [hour = "", minute = ""] = time.split(":");
+  if (!year || !month || !day || !hour || !minute) return value;
+  const meaning = hour === "00" && minute === "00"
+    ? " (자정, 하루 시작)"
+    : hour === "12" && minute === "00" ? " (정오)" : "";
+  return `${year}. ${month}. ${day}. ${hour}:${minute}${meaning}`;
+}
+
+export function formatBingoKstDateTime(value) {
+  return value ? new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value)) : "-";
+}
+
 export function bingoAggregationCooldown(lastAggregatedAt, now = Date.now()) {
   if (!lastAggregatedAt) return { disabled: false, remainingMs: 0, label: "빙고 집계" };
   const remainingMs = Math.max(0, new Date(lastAggregatedAt).getTime() + 30 * 60 * 1000 - now);
