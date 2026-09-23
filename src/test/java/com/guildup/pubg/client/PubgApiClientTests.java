@@ -74,7 +74,7 @@ class PubgApiClientTests {
         server.expect(requestTo("https://api.pubg.test/shards/steam/matches/match-1"))
                 .andRespond(withSuccess("""
                         {
-                          "data":{"type":"match","id":"match-1","attributes":{"createdAt":"2026-09-06T14:14:00Z","gameMode":"squad"}},
+                          "data":{"type":"match","id":"match-1","attributes":{"createdAt":"2026-09-06T14:14:00Z","gameMode":"squad","matchType":"competitive","isCustomMatch":false}},
                           "included":[
                             {"type":"participant","id":"p1","attributes":{"stats":{"playerId":"account.A","name":"sa-gwa","kills":4}}},
                             {"type":"participant","id":"p2","attributes":{"stats":{"playerId":"account.B","name":"jul-mi","kills":2}}},
@@ -87,6 +87,8 @@ class PubgApiClientTests {
 
         assertThat(match.playedAt()).isEqualTo(Instant.parse("2026-09-06T14:14:00Z"));
         assertThat(match.gameMode()).isEqualTo("squad");
+        assertThat(match.matchType()).isEqualTo("competitive");
+        assertThat(match.customMatch()).isFalse();
         assertThat(match.teams()).hasSize(1);
         assertThat(match.teams().getFirst().participants())
                 .extracting(participant -> participant.accountId())

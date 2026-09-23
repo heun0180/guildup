@@ -15,6 +15,8 @@ import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.*;
 import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class BingoAggregationService {
+    private static final Logger log = LoggerFactory.getLogger(BingoAggregationService.class);
     private final BingoEventRepository events; private final BingoParticipantRepository participants;
     private final BingoProgressRepository progress; private final BingoProcessedMatchRepository processed;
     private final CommunityGameRepository games;
@@ -33,7 +36,8 @@ public class BingoAggregationService {
     private final CommunityMemberAccountRepository memberAccounts;
     private final CommunityAccessService access; private final BingoParticipantEnrollmentService enrollment;
     private final PubgPlayerService players; private final PubgMatchService matches; private final PubgBingoFactService facts;
-    private final BingoMissionEngine missions; private final BingoProgressCompletionService completions; private final Clock clock;
+    private final BingoMissionEngine missions; private final BingoMatchPolicy matchPolicy;
+    private final BingoProgressCompletionService completions; private final Clock clock;
 
     public BingoAggregationService(BingoEventRepository events, BingoParticipantRepository participants,
             BingoProgressRepository progress, BingoProcessedMatchRepository processed,
@@ -41,11 +45,12 @@ public class BingoAggregationService {
             CommunityMemberAccountRepository memberAccounts,
             CommunityAccessService access, BingoParticipantEnrollmentService enrollment,
             PubgPlayerService players, PubgMatchService matches, PubgBingoFactService facts,
-            BingoMissionEngine missions, BingoProgressCompletionService completions, Clock clock) {
+            BingoMissionEngine missions, BingoMatchPolicy matchPolicy,
+            BingoProgressCompletionService completions, Clock clock) {
         this.events=events; this.participants=participants; this.progress=progress; this.processed=processed;
         this.games=games; this.communities=communities; this.memberAccounts=memberAccounts;
         this.access=access; this.enrollment=enrollment;
-        this.players=players; this.matches=matches; this.facts=facts; this.missions=missions;
+        this.players=players; this.matches=matches; this.facts=facts; this.missions=missions; this.matchPolicy=matchPolicy;
         this.completions=completions; this.clock=clock;
     }
 
@@ -103,6 +108,11 @@ public class BingoAggregationService {
         communityAccounts.addAll(byAccount.keySet());
         for (PubgMatch match : ordered) {
             if (match.playedAt().isBefore(event.getStartsAt()) || match.playedAt().isAfter(event.getEndsAt())) continue;
+            if (!matchPolicy.isEligible(match)) {
+                log.debug("Bingo match skipped: category={}, matchId={}, bingoId={}",
+                        matchPolicy.category(match), match.matchId(), event.getId());
+                continue;
+            }
             boolean needed = byAccount.values().stream().anyMatch(participant ->
                     !match.playedAt().isBefore(participant.getEligibleFrom())
                     && !processed.existsByEventIdAndParticipantIdAndMatchId(event.getId(), participant.getId(), match.matchId()));

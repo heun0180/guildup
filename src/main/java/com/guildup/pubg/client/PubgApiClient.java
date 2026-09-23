@@ -397,7 +397,8 @@ public class PubgApiClient {
                 .filter(java.util.Objects::nonNull)
                 .findFirst().orElse(null);
         return new PubgMatch(response.data().id(), attributes.createdAt(), attributes.gameMode(),
-                attributes.mapName(), telemetryUrl, teams);
+                attributes.mapName(), attributes.matchType(), attributes.isCustomMatch(),
+                telemetryUrl, teams);
     }
 
     private int integer(Integer value) { return value == null ? 0 : value; }

@@ -43,7 +43,8 @@ class PubgBingoFactServiceTests {
         PubgBingoFactService service = new PubgBingoFactService(telemetry, Clock.fixed(Instant.parse("2026-09-22T13:00:00Z"), ZoneOffset.UTC));
         PubgParticipant player = new PubgParticipant("a","Apple",2,1000,3,4,1,5,6,2,1,1,1200,5000,10000,500,310);
         PubgMatch match = new PubgMatch("m",Instant.parse("2026-09-22T12:00:00Z"),"squad","Erangel_Main",
-                "https://telemetry-cdn.pubg.com/test.json",List.of(new PubgTeam(List.of(player,new PubgParticipant("b","Fox")))));
+                "competitive",false,"https://telemetry-cdn.pubg.com/test.json",
+                List.of(new PubgTeam(List.of(player,new PubgParticipant("b","Fox")))));
 
         PlayerMatchFacts facts = service.facts(match,Set.of("a","b")).get("a");
         service.facts(match,Set.of("a","b"));

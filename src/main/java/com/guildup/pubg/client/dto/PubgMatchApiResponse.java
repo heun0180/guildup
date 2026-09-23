@@ -6,7 +6,8 @@ import java.util.List;
 
 public record PubgMatchApiResponse(MatchResource data, List<IncludedResource> included) {
     public record MatchResource(String id, MatchAttributes attributes, MatchRelationships relationships) {}
-    public record MatchAttributes(Instant createdAt, String gameMode, String mapName) {}
+    public record MatchAttributes(Instant createdAt, String gameMode, String mapName,
+                                  String matchType, Boolean isCustomMatch) {}
     public record MatchRelationships(AssetRelationship assets) {}
     public record AssetRelationship(List<ResourceReference> data) {}
     public record IncludedResource(
