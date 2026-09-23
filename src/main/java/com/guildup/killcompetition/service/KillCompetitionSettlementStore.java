@@ -33,6 +33,7 @@ public class KillCompetitionSettlementStore {
     private final CommunityAccessService access;
     private final CommunityScoreService scores;
     private final BingoGuildUpContentService bingoContent;
+    private final KillCompetitionWinnerResolver winnerResolver;
     private final Clock clock;
 
     public KillCompetitionSettlementStore(KillCompetitionRepository competitions,
@@ -41,10 +42,11 @@ public class KillCompetitionSettlementStore {
                                           CurrentCommunityMemberService currentMembers,
                                           CommunityAccessService access,
                                           CommunityScoreService scores,
-                                          BingoGuildUpContentService bingoContent, Clock clock) {
+                                          BingoGuildUpContentService bingoContent,
+                                          KillCompetitionWinnerResolver winnerResolver, Clock clock) {
         this.competitions = competitions; this.matchResults = matchResults; this.communityGames = communityGames;
         this.currentMembers = currentMembers; this.access = access; this.scores = scores;
-        this.bingoContent = bingoContent; this.clock = clock;
+        this.bingoContent = bingoContent; this.winnerResolver = winnerResolver; this.clock = clock;
     }
 
     @Transactional
@@ -128,7 +130,7 @@ public class KillCompetitionSettlementStore {
                 competition, byId.get(row.participantId()), row.matchId(), row.startedAt(), row.kills())).toList());
 
         Instant completedAt = clock.instant();
-        List<CommunityMember> winners = winnerMembers(competition);
+        List<CommunityMember> winners = winnerResolver.winnerMembers(competition);
         if (competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).count() >= 4) {
             winners.stream().sorted(Comparator.comparing(CommunityMember::getId))
                     .forEach(member -> scores.addKillCompetitionWinIfEligible(member, competition.getId(), completedAt));
@@ -171,28 +173,6 @@ public class KillCompetitionSettlementStore {
             if (finalResult) participant.recordFinal(total.kills(), total.matchCount());
             else participant.recordInterim(total.kills(), total.matchCount());
         }
-    }
-
-    private List<CommunityMember> winnerMembers(KillCompetition competition) {
-        if (competition.getGameMode() == KillCompetitionGameMode.SOLO) {
-            int max = competition.getParticipants().stream().map(KillCompetitionParticipant::getFinalKills)
-                    .filter(Objects::nonNull).mapToInt(Integer::intValue).max().orElse(0);
-            return competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                    .filter(p -> Objects.equals(p.getFinalKills(), max))
-                    .filter(p -> Optional.ofNullable(p.getFinalMatchCount()).orElse(0) > 0)
-                    .map(KillCompetitionParticipant::getCommunityMember).toList();
-        }
-        Map<Long, Integer> totals = new HashMap<>();
-        competition.getTeams().forEach(team -> totals.put(team.getId(), 0));
-        competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                .filter(p -> p.getTeam() != null).forEach(p -> totals.merge(p.getTeam().getId(), p.getFinalKills(), Integer::sum));
-        int max = totals.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-        Set<Long> winningTeams = new HashSet<>();
-        totals.forEach((teamId, kills) -> { if (kills == max) winningTeams.add(teamId); });
-        return competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                .filter(p -> p.getTeam() != null && winningTeams.contains(p.getTeam().getId()))
-                .filter(p -> Optional.ofNullable(p.getFinalMatchCount()).orElse(0) > 0)
-                .map(KillCompetitionParticipant::getCommunityMember).toList();
     }
 
     private boolean activeClaim(Instant claim, Instant now) {

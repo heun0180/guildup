@@ -31,6 +31,15 @@ public class BingoProgress {
             evidenceMatchId = matchId; evidenceEventAt = evidenceAt;
         }
     }
+    /** TEMPORARY rebuild hook: 계산이 모두 끝난 snapshot으로 누적 상태를 원자적으로 교체한다. */
+    public void replaceSnapshot(BigDecimal value, int occurrences, boolean complete,
+                                Instant completedAt, String matchId, Instant evidenceAt, Instant now) {
+        currentValue = value; occurrenceCount = occurrences; completed = complete;
+        this.completedAt = complete ? completedAt : null;
+        evidenceMatchId = complete ? matchId : null;
+        evidenceEventAt = complete ? evidenceAt : null;
+        updatedAt = now;
+    }
     public Long getId() { return id; }
     public BingoParticipant getParticipant() { return participant; }
     public BingoCell getCell() { return cell; }

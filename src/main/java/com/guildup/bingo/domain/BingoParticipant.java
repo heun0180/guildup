@@ -42,6 +42,12 @@ public class BingoParticipant {
         pubgNickname = nickname;
         return true;
     }
+    /** TEMPORARY rebuild hook: 재계산된 셀에서 파생된 줄/블랙빙고 상태로 교체한다. */
+    public void replaceDerivedProgress(int count, Instant targetCompletedAt, Instant blackoutCompletedAt) {
+        lineCount = count;
+        targetLinesCompletedAt = targetCompletedAt;
+        this.blackoutCompletedAt = blackoutCompletedAt;
+    }
     public Long getId() { return id; }
     public BingoEvent getEvent() { return event; }
     public CommunityUser getCommunityUser() { return communityUser; }

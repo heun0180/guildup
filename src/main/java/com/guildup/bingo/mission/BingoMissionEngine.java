@@ -10,23 +10,30 @@ import java.util.*;
 @Component
 public class BingoMissionEngine {
     public Outcome apply(BingoCell cell, BingoProgress progress, PlayerMatchFacts facts) {
+        Outcome current = progress == null ? Outcome.zero()
+                : new Outcome(progress.getCurrentValue(), progress.getOccurrenceCount(), progress.isCompleted());
+        return apply(cell, current, facts);
+    }
+
+    /** 저장 엔티티 없이도 동일한 미션 계산식을 순차 재생할 수 있다. */
+    public Outcome apply(BingoCell cell, Outcome current, PlayerMatchFacts facts) {
         Map<String, Object> options = cell.getOptions();
-        if (!matchesFilter(options, facts)) return Outcome.unchanged(progress);
+        if (!matchesFilter(options, facts)) return current;
         BigDecimal matchValue = value(cell.getMissionType(), facts, options);
-        BigDecimal current = progress == null ? BigDecimal.ZERO : progress.getCurrentValue();
-        int occurrences = progress == null ? 0 : progress.getOccurrenceCount();
+        BigDecimal currentValue = current.value();
+        int occurrences = current.occurrences();
         return switch (cell.getAggregationType()) {
             case EVENT_TOTAL -> {
-                BigDecimal next = current.add(matchValue);
+                BigDecimal next = currentValue.add(matchValue);
                 yield new Outcome(next, occurrences, compare(next, cell.getOperator(), cell.getTargetValue()));
             }
             case SINGLE_MATCH -> {
-                BigDecimal best = current.max(matchValue);
+                BigDecimal best = currentValue.max(matchValue);
                 yield new Outcome(best, occurrences, compare(matchValue, cell.getOperator(), cell.getTargetValue()));
             }
             case MATCH_OCCURRENCES -> {
                 int next = occurrences + (compare(matchValue, cell.getOperator(), cell.getTargetValue()) ? 1 : 0);
-                yield new Outcome(current.max(matchValue), next, next >= requiredOccurrences(cell));
+                yield new Outcome(currentValue.max(matchValue), next, next >= requiredOccurrences(cell));
             }
         };
     }
@@ -95,8 +102,9 @@ public class BingoMissionEngine {
         Object value = options.get(key); return value instanceof Number n ? n.doubleValue() : fallback;
     }
     public record Outcome(BigDecimal value, int occurrences, boolean completed) {
+        public static Outcome zero() { return new Outcome(BigDecimal.ZERO, 0, false); }
         static Outcome unchanged(BingoProgress progress) {
-            return progress == null ? new Outcome(BigDecimal.ZERO, 0, false)
+            return progress == null ? zero()
                     : new Outcome(progress.getCurrentValue(), progress.getOccurrenceCount(), progress.isCompleted());
         }
     }

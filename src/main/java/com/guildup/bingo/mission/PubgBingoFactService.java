@@ -22,10 +22,25 @@ public class PubgBingoFactService {
     }
 
     public synchronized Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts) {
+        return facts(match, communityAccounts, false);
+    }
+
+    /** 원본 복구처럼 Telemetry 누락을 0으로 대체할 수 없는 작업에서 사용한다. */
+    public synchronized Map<String, PlayerMatchFacts> factsRequired(PubgMatch match, Set<String> communityAccounts) {
+        return facts(match, communityAccounts, true);
+    }
+
+    private Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts,
+                                                 boolean telemetryRequired) {
         Instant now = clock.instant();
+        if (telemetryRequired && (match.telemetryUrl() == null
+                || !match.telemetryUrl().startsWith("https://telemetry-cdn.pubg.com/"))) {
+            throw new IllegalStateException("Telemetry URL이 없습니다: " + match.matchId());
+        }
         FactCacheKey cacheKey = new FactCacheKey(match.matchId(), communityAccounts.stream().sorted().toList());
         CachedFacts cached = cache.get(cacheKey);
-        if (cached != null && cached.expiresAt.isAfter(now)) return cached.byAccount;
+        if (cached != null && cached.expiresAt.isAfter(now)
+                && (!telemetryRequired || cached.telemetryLoaded)) return cached.byAccount;
         Map<String, MutableFacts> mutable = new LinkedHashMap<>();
         for (PubgTeam team : match.teams()) {
             Set<String> teamAccounts = team.participants().stream().map(PubgParticipant::accountId)
@@ -38,11 +53,14 @@ public class PubgBingoFactService {
             }
         }
         JsonNode events = telemetry.get(match.telemetryUrl());
+        boolean telemetryLoaded = events != null && events.isArray();
+        if (telemetryRequired && !telemetryLoaded)
+            throw new IllegalStateException("Telemetry 원본이 없습니다: " + match.matchId());
         if (events != null && events.isArray()) events.forEach(event -> accept(event, mutable));
         Map<String, PlayerMatchFacts> result = new LinkedHashMap<>();
         mutable.forEach((account, facts) -> result.put(account, facts.freeze()));
         Map<String, PlayerMatchFacts> immutable = Map.copyOf(result);
-        cache.put(cacheKey, new CachedFacts(immutable, now.plus(CACHE_TTL)));
+        cache.put(cacheKey, new CachedFacts(immutable, telemetryLoaded, now.plus(CACHE_TTL)));
         return immutable;
     }
 
@@ -244,6 +262,6 @@ public class PubgBingoFactService {
         PlayerMatchFacts freeze() { return new PlayerMatchFacts(match.matchId(), match.playedAt(), match.mapName(), match.gameMode(),
                 metrics, kills, throwableUses, pickedItems, usedItems, carePackageItems, destroyedArmor, clanMembersInTeam, latestEvidence); }
     }
-    private record CachedFacts(Map<String, PlayerMatchFacts> byAccount, Instant expiresAt) {}
+    private record CachedFacts(Map<String, PlayerMatchFacts> byAccount, boolean telemetryLoaded, Instant expiresAt) {}
     private record FactCacheKey(String matchId, List<String> communityAccounts) {}
 }
