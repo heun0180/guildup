@@ -1,10 +1,7 @@
 package com.guildup.pubg.service;
 
 import com.guildup.pubg.client.PubgApiClient;
-import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.model.PubgMatch;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,193 +11,146 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
-/** 한 요청에서 같은 Match ID를 한 번만 조회해 모든 클랜원 판정에 재사용한다. */
+/** 활동, 빙고, 킬내기가 함께 쓰는 종료 Match 조회 저장소다. */
 @Service
 public class PubgMatchService {
 
-    private static final Logger log = LoggerFactory.getLogger(PubgMatchService.class);
-    private static final Duration CACHE_TTL = Duration.ofMinutes(10);
-    private static final int MAX_ATTEMPTS = 3;
-    private static final long INITIAL_BACKOFF_MILLIS = 500;
+    static final Duration SUCCESS_CACHE_TTL = Duration.ofHours(24);
+    static final Duration MISSING_CACHE_TTL = Duration.ofMinutes(1);
+    static final int MAX_CACHE_SIZE = 10_000;
 
     private final PubgApiClient apiClient;
     private final Clock clock;
-    private final Duration cacheTtl;
-    private final RetrySleeper retrySleeper;
-    private final Map<MatchCacheKey, CachedMatch> cache = new LinkedHashMap<>();
+    private final Duration successCacheTtl;
+    private final Duration missingCacheTtl;
+    private final int maximumSize;
+    private final Object cacheLock = new Object();
+    private final LinkedHashMap<MatchCacheKey, CachedMatch> cache = new LinkedHashMap<>(16, 0.75f, true);
+    private final ConcurrentMap<MatchCacheKey, CompletableFuture<Optional<PubgMatch>>> inFlight =
+            new ConcurrentHashMap<>();
 
     @Autowired
     public PubgMatchService(PubgApiClient apiClient) {
-        this(apiClient, Clock.systemUTC(), CACHE_TTL, Thread::sleep);
+        this(apiClient, Clock.systemUTC(), SUCCESS_CACHE_TTL, MISSING_CACHE_TTL, MAX_CACHE_SIZE);
     }
 
     PubgMatchService(PubgApiClient apiClient, Clock clock, Duration cacheTtl) {
-        this(apiClient, clock, cacheTtl, Thread::sleep);
+        this(apiClient, clock, cacheTtl, MISSING_CACHE_TTL, MAX_CACHE_SIZE);
     }
 
     PubgMatchService(
             PubgApiClient apiClient,
             Clock clock,
-            Duration cacheTtl,
-            RetrySleeper retrySleeper
+            Duration successCacheTtl,
+            Duration missingCacheTtl,
+            int maximumSize
     ) {
         this.apiClient = apiClient;
         this.clock = clock;
-        this.cacheTtl = cacheTtl;
-        this.retrySleeper = retrySleeper;
+        this.successCacheTtl = successCacheTtl;
+        this.missingCacheTtl = missingCacheTtl;
+        this.maximumSize = maximumSize;
     }
 
-    public synchronized Map<String, PubgMatch> findUniqueMatches(
-            String shard,
-            Collection<String> matchIds
-    ) {
+    public Map<String, PubgMatch> findUniqueMatches(String shard, Collection<String> matchIds) {
         return findUniqueMatches(shard, matchIds, false);
     }
 
-    /** 정산 시 이전의 일시적 미반영/404 캐시를 사용하지 않고 Match를 다시 확인한다. */
-    public synchronized Map<String, PubgMatch> findUniqueMatchesFresh(
-            String shard,
-            Collection<String> matchIds
-    ) {
-        return findUniqueMatches(shard, matchIds, true, null, null);
+    /** Player 목록은 fresh로 갱신하되, 이미 받은 종료 Match는 재사용한다. 직전 404만 다시 확인한다. */
+    public Map<String, PubgMatch> findUniqueMatchesFresh(String shard, Collection<String> matchIds) {
+        return findUniqueMatches(shard, matchIds, true);
     }
 
-    public synchronized Map<String, PubgMatch> findUniqueMatchesFresh(
+    public Map<String, PubgMatch> findUniqueMatchesFresh(
             String shard,
             Collection<String> matchIds,
             Long communityId,
             Long communityGameId
     ) {
-        return findUniqueMatches(shard, matchIds, true, communityId, communityGameId);
-    }
-
-    private Map<String, PubgMatch> findUniqueMatches(String shard, Collection<String> matchIds, boolean refresh) {
-        return findUniqueMatches(shard, matchIds, refresh, null, null);
+        return findUniqueMatches(shard, matchIds, true);
     }
 
     private Map<String, PubgMatch> findUniqueMatches(
             String shard,
             Collection<String> matchIds,
-            boolean refresh,
-            Long communityId,
-            Long communityGameId
+            boolean refreshMissing
     ) {
-        Map<String, PubgMatch> matches = new LinkedHashMap<>();
-        Instant now = clock.instant();
-        cache.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
-        List<String> uniqueMatchIds = List.copyOf(new LinkedHashSet<>(matchIds));
-        for (int index = 0; index < uniqueMatchIds.size(); index++) {
-            String matchId = uniqueMatchIds.get(index);
-            MatchCacheKey key = new MatchCacheKey(shard, matchId);
-            CachedMatch cached = refresh ? null : cache.get(key);
-            PubgMatch match;
-            if (cached != null && cached.expiresAt().isAfter(now)) {
-                match = cached.match().orElse(null);
-            } else {
-                match = getMatchWithRetry(
-                        shard, matchId, communityId, communityGameId,
-                        index + 1, uniqueMatchIds.size()
-                );
-                cache.put(key, new CachedMatch(Optional.ofNullable(match), now.plus(cacheTtl)));
-            }
-            if (match != null) matches.put(matchId, match);
+        Map<String, PubgMatch> result = new LinkedHashMap<>();
+        List<String> uniqueIds = List.copyOf(new LinkedHashSet<>(matchIds));
+        for (String matchId : uniqueIds) {
+            Optional<PubgMatch> match = findOne(new MatchCacheKey(shard, matchId), refreshMissing);
+            match.ifPresent(value -> result.put(matchId, value));
         }
-        return Map.copyOf(matches);
+        return Map.copyOf(result);
     }
 
-    private PubgMatch getMatchWithRetry(
-            String shard,
-            String matchId,
-            Long communityId,
-            Long communityGameId,
-            int progress,
-            int total
-    ) {
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            try {
-                return apiClient.getMatch(shard, matchId);
-            } catch (PubgApiException exception) {
-                if (!exception.isRetryable() || attempt == MAX_ATTEMPTS) {
-                    log.error(
-                            "PUBG match request failed - communityId={}, communityGameId={}, stage=MATCH, "
-                                    + "matchId={}, progress={}/{}, attempts={}, status={}, exception={}, message={}",
-                            communityId, communityGameId, matchId, progress, total, attempt,
-                            status(exception), exceptionType(exception), exceptionMessage(exception)
-                    );
-                    throw exception;
-                }
-                long backoffMillis = INITIAL_BACKOFF_MILLIS << (attempt - 1);
-                log.warn(
-                        "PUBG match request retry - communityId={}, communityGameId={}, stage=MATCH, "
-                                + "matchId={}, progress={}/{}, attempt={}/{}, status={}, exception={}, "
-                                + "message={}, backoffMs={}",
-                        communityId, communityGameId, matchId, progress, total, attempt + 1,
-                        MAX_ATTEMPTS, status(exception), exceptionType(exception),
-                        exceptionMessage(exception), backoffMillis
-                );
-                waitBeforeRetry(backoffMillis, exception, communityId, communityGameId, matchId, progress, total);
-            }
-        }
-        throw new IllegalStateException("unreachable");
-    }
+    private Optional<PubgMatch> findOne(MatchCacheKey key, boolean refreshMissing) {
+        Optional<PubgMatch> cached = cached(key, refreshMissing);
+        if (cached != null) return cached;
 
-    private void waitBeforeRetry(
-            long backoffMillis,
-            PubgApiException cause,
-            Long communityId,
-            Long communityGameId,
-            String matchId,
-            int progress,
-            int total
-    ) {
+        CompletableFuture<Optional<PubgMatch>> created = new CompletableFuture<>();
+        CompletableFuture<Optional<PubgMatch>> existing = inFlight.putIfAbsent(key, created);
+        if (existing != null) return await(existing);
+
         try {
-            retrySleeper.sleep(backoffMillis);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            PubgApiException failure = new PubgApiException(
-                    "PUBG 경기 재시도 대기가 중단되었습니다.", interrupted,
-                    cause.getUpstreamStatus(), false
-            );
-            log.error(
-                    "PUBG match request failed - communityId={}, communityGameId={}, stage=MATCH, "
-                            + "matchId={}, progress={}/{}, attempts=1, status={}, exception={}, message={}",
-                    communityId, communityGameId, matchId, progress, total, status(failure),
-                    failure.getClass().getSimpleName(), failure.getReason()
-            );
-            throw failure;
+            Optional<PubgMatch> loaded = Optional.ofNullable(apiClient.getMatch(key.shard(), key.matchId()));
+            putCache(key, loaded);
+            created.complete(loaded);
+            return loaded;
+        } catch (RuntimeException exception) {
+            created.completeExceptionally(exception);
+            throw exception;
+        } finally {
+            inFlight.remove(key, created);
         }
     }
 
-    private Object status(PubgApiException exception) {
-        return exception.getUpstreamStatus() == null ? "N/A" : exception.getUpstreamStatus();
+    private Optional<PubgMatch> cached(MatchCacheKey key, boolean refreshMissing) {
+        synchronized (cacheLock) {
+            Instant now = clock.instant();
+            removeExpired(now);
+            CachedMatch value = cache.get(key);
+            if (value == null || refreshMissing && value.match().isEmpty()) return null;
+            return value.match();
+        }
     }
 
-    private String exceptionType(PubgApiException exception) {
-        return diagnosticCause(exception).getClass().getSimpleName();
+    private void putCache(MatchCacheKey key, Optional<PubgMatch> match) {
+        synchronized (cacheLock) {
+            Instant now = clock.instant();
+            removeExpired(now);
+            Duration ttl = match.isPresent() ? successCacheTtl : missingCacheTtl;
+            cache.put(key, new CachedMatch(match, now.plus(ttl)));
+            while (cache.size() > maximumSize) cache.remove(cache.keySet().iterator().next());
+        }
     }
 
-    private String exceptionMessage(PubgApiException exception) {
-        Throwable diagnostic = diagnosticCause(exception);
-        String message = diagnostic == exception ? exception.getReason() : diagnostic.getMessage();
-        if (message == null) return null;
-        String singleLine = message.replaceAll("[\\r\\n\\t]", " ");
-        return singleLine.length() <= 500 ? singleLine : singleLine.substring(0, 500);
+    private void removeExpired(Instant now) {
+        cache.entrySet().removeIf(entry -> !entry.getValue().expiresAt().isAfter(now));
     }
 
-    private Throwable diagnosticCause(PubgApiException exception) {
-        if (!exception.isRetryable() || exception.getUpstreamStatus() != null) return exception;
-        Throwable cause = exception;
-        while (cause.getCause() != null) cause = cause.getCause();
-        return cause;
+    private Optional<PubgMatch> await(CompletableFuture<Optional<PubgMatch>> future) {
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            if (exception.getCause() instanceof RuntimeException runtime) throw runtime;
+            throw exception;
+        }
     }
 
-    @FunctionalInterface
-    interface RetrySleeper {
-        void sleep(long millis) throws InterruptedException;
+    int cacheSize() {
+        synchronized (cacheLock) {
+            removeExpired(clock.instant());
+            return cache.size();
+        }
     }
 
     private record MatchCacheKey(String shard, String matchId) {}

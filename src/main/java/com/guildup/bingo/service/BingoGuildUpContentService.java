@@ -43,15 +43,18 @@ public class BingoGuildUpContentService {
         Long communityId = competition.getCommunity().getId();
         Long gameId = competition.getCommunityGame().getId();
         String sourceId = competition.getId().toString();
+        Instant occurredAt = competition.getEndsAt();
+        if (occurredAt == null) return;
         Set<Long> winnerMemberIds = new HashSet<>();
         winners.stream().filter(member -> member.getCommunity().getId().equals(communityId))
                 .forEach(member -> winnerMemberIds.add(member.getId()));
         if (winnerMemberIds.isEmpty()) return;
 
         for (BingoEvent candidate : events.findByCommunityGameIdOrderByStartsAtDesc(gameId)) {
-            if (candidate.getStatus() != BingoStatus.ACTIVE
+            if (!Set.of(BingoStatus.ACTIVE, BingoStatus.SETTLING, BingoStatus.COMPLETED).contains(candidate.getStatus())
                     || !candidate.getCommunity().getId().equals(communityId)
-                    || completedAt.isBefore(candidate.getStartsAt()) || completedAt.isAfter(candidate.getEndsAt())
+                    || occurredAt.isBefore(candidate.getStartsAt())
+                    || !occurredAt.isBefore(candidate.getMatchStartUpperBoundExclusive())
                     || candidate.getCells().stream().noneMatch(cell -> cell.getMissionType() == BingoMissionType.KILL_BET_WIN)) {
                 continue;
             }
@@ -59,7 +62,7 @@ public class BingoGuildUpContentService {
             for (BingoParticipant participant : participants.findByEventIdOrderByIdAsc(event.getId())) {
                 CommunityMember member = participant.getCommunityMember();
                 if (member == null || !winnerMemberIds.contains(member.getId())
-                        || completedAt.isBefore(participant.getEligibleFrom())
+                        || occurredAt.isBefore(participant.getEligibleFrom())
                         || processedSources.existsByEventIdAndParticipantIdAndSourceTypeAndSourceId(
                         event.getId(), participant.getId(), BingoProgressSourceType.KILL_COMPETITION, sourceId)) {
                     continue;
@@ -71,13 +74,13 @@ public class BingoGuildUpContentService {
                     if (row.getCell().getMissionType() != BingoMissionType.KILL_BET_WIN) continue;
                     BigDecimal next = row.getCurrentValue().add(BigDecimal.ONE);
                     row.apply(next, row.getOccurrenceCount(), next.compareTo(row.getCell().getTargetValue()) >= 0,
-                            null, completedAt, completedAt);
+                            null, occurredAt, completedAt);
                     applied = true;
                 }
                 if (!applied) continue;
                 processedSources.save(new BingoProcessedSource(event, locked,
-                        BingoProgressSourceType.KILL_COMPETITION, sourceId, completedAt, completedAt));
-                completions.updateLines(event, locked, rows, completedAt);
+                        BingoProgressSourceType.KILL_COMPETITION, sourceId, occurredAt, completedAt));
+                completions.updateLines(event, locked, rows, occurredAt);
             }
         }
     }

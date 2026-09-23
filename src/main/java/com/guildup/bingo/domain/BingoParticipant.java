@@ -5,6 +5,7 @@ import com.guildup.community.domain.CommunityUser;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Entity
 @Table(name = "bingo_participants", uniqueConstraints = @UniqueConstraint(
@@ -34,6 +35,12 @@ public class BingoParticipant {
         lineCount = count;
         if (targetReached && targetLinesCompletedAt == null) targetLinesCompletedAt = at;
         if (blackout && blackoutCompletedAt == null) blackoutCompletedAt = at;
+    }
+    public boolean synchronizePubgAccount(String accountId, String nickname) {
+        if (Objects.equals(pubgAccountId, accountId) && Objects.equals(pubgNickname, nickname)) return false;
+        pubgAccountId = accountId;
+        pubgNickname = nickname;
+        return true;
     }
     public Long getId() { return id; }
     public BingoEvent getEvent() { return event; }

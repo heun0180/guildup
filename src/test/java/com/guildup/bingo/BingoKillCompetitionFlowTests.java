@@ -163,7 +163,7 @@ class BingoKillCompetitionFlowTests {
     }
 
     @Test
-    void ignoresOtherCommunitiesAndResultsCompletedOutsideTheBingoPeriod() {
+    void usesCompetitionEndTimeEvenWhenResultIsPublishedAfterBingoEndAndIgnoresOtherCommunities() {
         Long expiredBingoId = createActiveBingo(owner, BigDecimal.ONE, clock.instant().plus(Duration.ofMinutes(45)));
 
         Community other = communities.save(new Community("다른 클랜"));
@@ -174,8 +174,22 @@ class BingoKillCompetitionFlowTests {
 
         var started = startSolo(List.of(owner));
         clock.set(started.endsAt().plusSeconds(1)); mockKills(Map.of(owner.accountId(), 5)); finalizeAndPublish(started.id());
-        assertProgress(expiredBingoId, owner, BigDecimal.ZERO, false);
+        assertProgress(expiredBingoId, owner, BigDecimal.ONE, true);
         assertProgress(otherBingoId, otherOwner, BigDecimal.ZERO, false);
+        assertThat(processedSources.count()).isEqualTo(1);
+    }
+
+    @Test
+    void competitionEndedBeforeBingoStartIsNotCountedWhenPublishedDuringBingo() {
+        var started = startSolo(List.of(owner));
+        clock.set(started.endsAt().plusSeconds(1));
+        Long bingoId = createBingo(owner, community, game, BigDecimal.ONE,
+                started.endsAt().plusMillis(500), started.endsAt().plus(Duration.ofHours(2))).id();
+        mockKills(Map.of(owner.accountId(), 5));
+
+        finalizeAndPublish(started.id());
+
+        assertProgress(bingoId, owner, BigDecimal.ZERO, false);
         assertThat(processedSources.count()).isZero();
     }
 

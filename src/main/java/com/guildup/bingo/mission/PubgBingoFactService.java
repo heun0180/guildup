@@ -49,8 +49,8 @@ public class PubgBingoFactService {
     private void accept(JsonNode event, Map<String, MutableFacts> facts) {
         String type = text(event, "_T"); Instant at = instant(text(event, "_D"));
         switch (type) {
-            case "LogPlayerKill" -> acceptKill(event, facts, at);
-            case "LogPlayerKillV2" -> { acceptKill(event, facts, at); acceptGameResult(event.path("victimGameResult"), facts); }
+            case "LogPlayerKill" -> acceptKill(event, facts, at, false);
+            case "LogPlayerKillV2" -> { acceptKill(event, facts, at, true); acceptGameResult(event.path("victimGameResult"), facts); }
             case "LogPlayerRevive" -> increment(facts, account(event, "reviver"), "REVIVES", 1, at);
             case "LogCharacterCarry" -> {
                 String state = text(event, "carryState");
@@ -83,13 +83,59 @@ public class PubgBingoFactService {
         }
     }
 
-    private void acceptKill(JsonNode event, Map<String, MutableFacts> facts, Instant at) {
-        String account = account(event, "killer"); JsonNode info = event.path("killerDamageInfo");
-        String weapon = text(event, "damageCauserName"); if (weapon == null) weapon = text(info, "damageCauserName");
-        double distance = event.has("distance") ? event.path("distance").asDouble() : info.path("distance").asDouble();
-        boolean wall = event.path("isThroughPenetrableWall").asBoolean(info.path("isThroughPenetrableWall").asBoolean(false));
-        String throwable = isThrowable(weapon) ? weapon : null; MutableFacts f = facts.get(account);
-        if (f != null) { f.kills.add(new PlayerMatchFacts.KillFact(weapon, BingoWeaponCatalog.category(weapon), throwable, distance, wall, at)); f.evidence(at); }
+    private void acceptKill(JsonNode event, Map<String, MutableFacts> facts, Instant at, boolean version2) {
+        JsonNode killer = event.path("killer"), victim = event.path("victim");
+        String killerAccount = account(killer), victimAccount = account(victim);
+        if (killerAccount == null || Objects.equals(killerAccount, victimAccount)
+                || event.path("isSuicide").asBoolean(false) || sameKnownTeam(killer, victim)
+                || (version2 && containsAccount(event.path("teamKillers_AccountId"), killerAccount))) return;
+
+        JsonNode info = version2 ? effectiveKillDamageInfo(event, killerAccount) : event;
+        String rawWeapon = text(info, "damageCauserName");
+        String weapon = Optional.ofNullable(BingoWeaponCatalog.canonicalName(rawWeapon)).orElse(rawWeapon);
+        double distanceMeters = Math.max(0, info.path("distance").asDouble()) / 100.0d;
+        boolean wall = info.path("isThroughPenetrableWall").asBoolean(false);
+        String throwable = isThrowable(rawWeapon) ? rawWeapon : null;
+        MutableFacts f = facts.get(killerAccount);
+        if (f == null) return;
+        String identity = killIdentity(event, killerAccount, victimAccount, at);
+        if (f.killKeys.add(identity)) {
+            f.kills.add(new PlayerMatchFacts.KillFact(
+                    weapon, BingoWeaponCatalog.category(rawWeapon), throwable, distanceMeters, wall, at));
+            f.evidence(at);
+        }
+    }
+
+    /** 같은 사용자가 직접 마무리했다면 최종 피해 무기를, 아니면 PUBG kill credit의 무기를 사용한다. */
+    private JsonNode effectiveKillDamageInfo(JsonNode event, String killerAccount) {
+        JsonNode finishInfo = event.path("finishDamageInfo");
+        if (Objects.equals(killerAccount, account(event, "finisher")) && hasDamageCauser(finishInfo)) return finishInfo;
+        return event.path("killerDamageInfo");
+    }
+
+    private boolean hasDamageCauser(JsonNode info) {
+        String value = text(info, "damageCauserName");
+        return value != null && !value.isBlank();
+    }
+
+    private String killIdentity(JsonNode event, String killer, String victim, Instant at) {
+        String attackId = scalar(event, "attackId"), dbnoId = scalar(event, "dBNOId");
+        if (attackId != null || dbnoId != null || victim != null)
+            return Objects.toString(attackId, "") + '|' + Objects.toString(dbnoId, "") + '|'
+                    + killer + '|' + Objects.toString(victim, "");
+        return Objects.toString(at, "") + '|' + killer + '|'
+                + Objects.toString(text(event.path("killerDamageInfo"), "damageCauserName"), "");
+    }
+
+    private String scalar(JsonNode node, String field) {
+        JsonNode value = node.path(field);
+        return value.isMissingNode() || value.isNull() ? null : value.asText();
+    }
+
+    private boolean containsAccount(JsonNode accountIds, String accountId) {
+        if (!accountIds.isArray()) return false;
+        for (JsonNode value : accountIds) if (Objects.equals(accountId, value.asText())) return true;
+        return false;
     }
 
     private void acceptItem(JsonNode event, Map<String, MutableFacts> facts, boolean used, Instant at) {
@@ -132,13 +178,28 @@ public class PubgBingoFactService {
 
     private void acceptGameResult(JsonNode result, Map<String, MutableFacts> facts) {
         MutableFacts f = facts.get(text(result, "accountId"));
-        if (f != null && result.path("stats").has("distanceOnFreefall")) f.put("FREEFALL_DISTANCE", result.path("stats").path("distanceOnFreefall").asDouble());
+        if (f == null) return;
+        JsonNode stats = result.path("stats");
+        overrideDistance(stats, "distanceOnFoot", "WALK_DISTANCE", f);
+        overrideDistance(stats, "distanceOnVehicle", "RIDE_DISTANCE", f);
+        overrideDistance(stats, "distanceOnSwim", "SWIM_DISTANCE", f);
+        overrideDistance(stats, "distanceOnFreefall", "FREEFALL_DISTANCE", f);
+    }
+
+    private void overrideDistance(JsonNode stats, String source, String target, MutableFacts facts) {
+        if (stats.has(source) && stats.path(source).isNumber() && stats.path(source).asDouble() >= 0)
+            facts.put(target, stats.path(source).asDouble());
     }
 
     private boolean differentKnownTeam(JsonNode first, JsonNode second) {
         int firstTeam = first.path("teamId").asInt(Integer.MIN_VALUE);
         int secondTeam = second.path("teamId").asInt(Integer.MIN_VALUE);
         return firstTeam != Integer.MIN_VALUE && secondTeam != Integer.MIN_VALUE && firstTeam != secondTeam;
+    }
+    private boolean sameKnownTeam(JsonNode first, JsonNode second) {
+        int firstTeam = first.path("teamId").asInt(Integer.MIN_VALUE);
+        int secondTeam = second.path("teamId").asInt(Integer.MIN_VALUE);
+        return firstTeam != Integer.MIN_VALUE && secondTeam != Integer.MIN_VALUE && firstTeam == secondTeam;
     }
     private boolean isThrowable(String weapon) {
         String n = BingoWeaponCatalog.normalize(weapon); return n.contains("grenade") || n.contains("molotov");
@@ -165,7 +226,7 @@ public class PubgBingoFactService {
         final List<PlayerMatchFacts.KillFact> kills = new ArrayList<>();
         final Map<String, Integer> throwableUses = new LinkedHashMap<>(), pickedItems = new LinkedHashMap<>();
         final Map<String, Integer> usedItems = new LinkedHashMap<>(), carePackageItems = new LinkedHashMap<>(), destroyedArmor = new LinkedHashMap<>();
-        final Set<String> telemetryOverrides = new HashSet<>(), communityAccounts;
+        final Set<String> telemetryOverrides = new HashSet<>(), killKeys = new HashSet<>(), communityAccounts;
         int clanMembersInTeam; Instant latestEvidence;
         MutableFacts(PubgMatch match, PubgParticipant p, Set<String> communityAccounts) {
             this.match = match; this.communityAccounts = Set.copyOf(communityAccounts);

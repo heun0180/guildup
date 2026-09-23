@@ -53,6 +53,7 @@ class BingoMissionEngineTests {
         assertValue(facts, BingoMissionType.WEAPON_CATEGORY_KILLS, Map.of("weaponCategory","AR"), 1);
         assertValue(facts, BingoMissionType.THROWABLE_KILLS, Map.of("throwable","Grenade"), 1);
         assertValue(facts, BingoMissionType.LONG_DISTANCE_KILL, Map.of("distance",300), 1);
+        assertValue(facts, BingoMissionType.LONG_DISTANCE_KILL, Map.of(), 0);
         assertValue(facts, BingoMissionType.WALL_PENETRATION_KILLS, Map.of(), 1);
         assertValue(facts, BingoMissionType.THROWABLE_USED, Map.of("throwable","SmokeBomb"), 3);
         assertValue(facts, BingoMissionType.PLAY_WITH_CLAN_MEMBERS, Map.of("clanMemberCount",3), 1);
@@ -118,6 +119,33 @@ class BingoMissionEngineTests {
         BingoProgress occurrences = progress(cell(BingoMissionType.VEHICLE_DESTROY_COUNT, BingoAggregationType.MATCH_OCCURRENCES, 2, 2, null));
         apply(occurrences, two); apply(occurrences, one); apply(occurrences, two);
         assertThat(occurrences.getOccurrenceCount()).isEqualTo(2); assertThat(occurrences.isCompleted()).isTrue();
+    }
+
+    @Test
+    void weaponCatalogNormalizesCanonicalDisplayAndTelemetryNames() {
+        assertThat(BingoWeaponCatalog.canonicalName("WeapVSS_C")).isEqualTo("VSS");
+        assertThat(BingoWeaponCatalog.canonicalName(" VSS")).isEqualTo("VSS");
+        assertThat(BingoWeaponCatalog.canonicalName("vss")).isEqualTo("VSS");
+        assertThat(BingoWeaponCatalog.canonicalName("WeapAK47_C")).isEqualTo("AKM");
+        assertThat(BingoWeaponCatalog.weapons()).anySatisfy(weapon -> {
+            assertThat(weapon.canonicalName()).isEqualTo("VSS");
+            assertThat(weapon.displayName()).isEqualTo("VSS");
+            assertThat(weapon.category()).isEqualTo("DMR");
+        });
+    }
+
+    @Test
+    void thirtyKilometersCompletesOnlyAtThirtyThousandMeters() {
+        BingoProgress progress = progress(cell(BingoMissionType.WALK_DISTANCE,
+                BingoAggregationType.EVENT_TOTAL, 30000, null, null));
+        apply(progress, facts(Map.of("WALK_DISTANCE", bd(29999))));
+        assertThat(progress.isCompleted()).isFalse();
+        assertThat(progress.getCurrentValue()).isEqualByComparingTo("29999");
+
+        BingoProgress exact = progress(cell(BingoMissionType.RIDE_DISTANCE,
+                BingoAggregationType.EVENT_TOTAL, 30000, null, null));
+        apply(exact, facts(Map.of("RIDE_DISTANCE", bd(30000))));
+        assertThat(exact.isCompleted()).isTrue();
     }
 
     @Test

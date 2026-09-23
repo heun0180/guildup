@@ -114,6 +114,35 @@ class BingoEventFlowTests {
         assertBadRequest(() -> service.create(owner.getId(), community.getId(), invalid));
     }
 
+    @Test void rejectsMissingOrNonPositiveLongDistanceAndUnknownWeaponsAndStoresCanonicalWeapon() {
+        BingoEventRequest base = request(3, 9);
+        for (Object distance : List.of(0, -1)) {
+            List<BingoEventRequest.Cell> cells = new ArrayList<>(base.cells());
+            cells.set(0, new BingoEventRequest.Cell(0, BingoMissionType.LONG_DISTANCE_KILL,
+                    BingoAggregationType.EVENT_TOTAL, BingoOperator.GREATER_THAN_OR_EQUAL,
+                    BigDecimal.ONE, null, Map.of("distance", distance), null));
+            assertBadRequest(() -> service.create(owner.getId(), community.getId(), new BingoEventRequest(
+                    base.title(), base.description(), base.startsAt(), base.endsAt(), 3, 1,
+                    false, false, BingoStatus.SCHEDULED, cells)));
+        }
+        List<BingoEventRequest.Cell> missing = new ArrayList<>(base.cells());
+        missing.set(0, new BingoEventRequest.Cell(0, BingoMissionType.LONG_DISTANCE_KILL,
+                BingoAggregationType.EVENT_TOTAL, BingoOperator.GREATER_THAN_OR_EQUAL,
+                BigDecimal.ONE, null, Map.of(), null));
+        assertBadRequest(() -> service.create(owner.getId(), community.getId(), new BingoEventRequest(
+                base.title(), base.description(), base.startsAt(), base.endsAt(), 3, 1,
+                false, false, BingoStatus.SCHEDULED, missing)));
+
+        List<BingoEventRequest.Cell> weaponCells = new ArrayList<>(base.cells());
+        weaponCells.set(0, new BingoEventRequest.Cell(0, BingoMissionType.WEAPON_KILLS,
+                BingoAggregationType.EVENT_TOTAL, BingoOperator.GREATER_THAN_OR_EQUAL,
+                BigDecimal.valueOf(5), null, Map.of("weapon", " WeapVSS_C "), null));
+        var created = service.create(owner.getId(), community.getId(), new BingoEventRequest(
+                "무기 빙고", base.description(), base.startsAt().plusSeconds(1), base.endsAt().plusSeconds(1),
+                3, 1, false, false, BingoStatus.DRAFT, weaponCells));
+        assertThat(created.cells().getFirst().options()).containsEntry("weapon", "VSS");
+    }
+
     @Test void memberCannotCreateAndOtherCommunityCannotReadById() {
         assertStatus(HttpStatus.FORBIDDEN, () -> service.create(member.getId(), community.getId(), request(3,9)));
         var created = service.create(owner.getId(), community.getId(), request(3,9));

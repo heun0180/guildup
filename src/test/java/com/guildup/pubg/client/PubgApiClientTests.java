@@ -100,19 +100,22 @@ class PubgApiClientTests {
     }
 
     @Test
-    void convertsRateLimitFailuresToServiceUnavailable() {
+    void convertsRepeatedRateLimitFailuresToServiceUnavailable() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         PubgApiClient client = new PubgApiClient(
                 builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test")
         );
-        server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
-                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        for (int attempt = 0; attempt < 4; attempt++) {
+            server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
+                    .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        }
 
         assertThatThrownBy(() -> client.getPlayersByNames("kakao", List.of("sa-gwa")))
                 .isInstanceOf(PubgApiException.class)
                 .extracting(error -> ((PubgApiException) error).getStatusCode())
                 .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        server.verify();
     }
 
     @Test
@@ -183,7 +186,7 @@ class PubgApiClientTests {
     }
 
     @Test
-    void failsAfterSecondPlayerRateLimitResponse() {
+    void failsAfterMaximumPlayerRateLimitRetries() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         List<Long> waits = new ArrayList<>();
@@ -196,13 +199,18 @@ class PubgApiClientTests {
                         .header(HttpHeaders.RETRY_AFTER, "1"));
         server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
                 .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
 
         assertThatThrownBy(() -> client.getPlayersByNames("kakao", List.of("sa-gwa")))
                 .isInstanceOfSatisfying(PubgApiException.class, error -> {
                     assertThat(error.getUpstreamStatus()).isEqualTo(429);
                     assertThat(error.isRetryable()).isFalse();
+                    assertThat(error.getErrorCode().name()).isEqualTo("PUBG_RATE_LIMITED");
                 });
-        assertThat(waits).containsExactly(2_000L);
+        assertThat(waits).containsExactly(2_000L, 1_000L, 2_000L);
         server.verify();
     }
 
@@ -220,14 +228,17 @@ class PubgApiClientTests {
             PubgApiClient client = new PubgApiClient(
                     builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test")
             );
-            server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
-                    .andRespond(withStatus(status));
+            int requests = status == HttpStatus.FORBIDDEN ? 1 : 4;
+            for (int attempt = 0; attempt < requests; attempt++) {
+                server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
+                        .andRespond(withStatus(status));
+            }
 
             assertThatThrownBy(() -> client.getMatch("kakao", "match-1"))
                     .isInstanceOfSatisfying(PubgApiException.class, error -> {
                         assertThat(error.getUpstreamStatus()).isEqualTo(status.value());
                         assertThat(error.isRetryable())
-                                .isEqualTo(status != HttpStatus.FORBIDDEN);
+                                .isFalse();
                     });
             server.verify();
         }
@@ -254,16 +265,45 @@ class PubgApiClientTests {
         PubgApiClient client = new PubgApiClient(
                 builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test")
         );
-        server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
-                .andRespond(request -> {
-                    throw new SocketTimeoutException("read timed out");
-                });
+        for (int attempt = 0; attempt < 4; attempt++) {
+            server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
+                    .andRespond(request -> {
+                        throw new SocketTimeoutException("read timed out");
+                    });
+        }
 
         assertThatThrownBy(() -> client.getMatch("kakao", "match-1"))
                 .isInstanceOfSatisfying(PubgApiException.class, error -> {
                     assertThat(error.getUpstreamStatus()).isNull();
-                    assertThat(error.isRetryable()).isTrue();
+                    assertThat(error.isRetryable()).isFalse();
+                    assertThat(error.getErrorCode().name()).isEqualTo("PUBG_TIMEOUT");
                 });
+        server.verify();
+    }
+
+    @Test
+    void retriesMatchAfterRateLimitAndReturnsSuccessfulResult() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        List<Long> waits = new ArrayList<>();
+        PubgApiClient client = new PubgApiClient(
+                builder.build(), new PubgApiProperties("secret-key", "https://api.pubg.test"),
+                Clock.fixed(Instant.parse("2026-09-08T00:00:00Z"), ZoneOffset.UTC), waits::add
+        );
+        server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS)
+                        .header(HttpHeaders.RETRY_AFTER, "1")
+                        .header("X-RateLimit-Limit", "10")
+                        .header("X-RateLimit-Remaining", "0"));
+        server.expect(requestTo("https://api.pubg.test/shards/kakao/matches/match-1"))
+                .andRespond(withSuccess("""
+                        {"data":{"type":"match","id":"match-1","attributes":{
+                          "createdAt":"2026-09-06T14:14:00Z","gameMode":"squad"
+                        }},"included":[]}
+                        """, PUBG_JSON));
+
+        assertThat(client.getMatch("kakao", "match-1").matchId()).isEqualTo("match-1");
+        assertThat(waits).containsExactly(2_000L);
         server.verify();
     }
 

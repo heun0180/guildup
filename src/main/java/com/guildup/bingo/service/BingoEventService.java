@@ -4,6 +4,7 @@ import com.guildup.bingo.domain.*;
 import com.guildup.bingo.dto.*;
 import com.guildup.bingo.mission.BingoItemCatalog;
 import com.guildup.bingo.mission.BingoMapCatalog;
+import com.guildup.bingo.mission.BingoWeaponCatalog;
 import com.guildup.bingo.repository.*;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.CommunityRepository;
@@ -287,13 +288,31 @@ public class BingoEventService {
         if (cell.missionType() == BingoMissionType.ITEM_USE && !BingoItemCatalog.usable(itemId)) bad("사용 이벤트를 확인할 수 없는 아이템입니다.");
         String map = Objects.toString(options.get("map"), null);
         if (map != null && !map.isBlank() && !BingoMapCatalog.supported(map)) bad("지원하지 않는 PUBG 맵입니다.");
+        if (cell.missionType() == BingoMissionType.LONG_DISTANCE_KILL) {
+            Object distance = options.get("distance");
+            if (!(distance instanceof Number number) || !Double.isFinite(number.doubleValue()) || number.doubleValue() <= 0)
+                bad("장거리 킬 거리는 0보다 큰 미터 단위 숫자여야 합니다.");
+        }
+        String weapon = Objects.toString(options.get("weapon"), null);
+        if (cell.missionType() == BingoMissionType.WEAPON_KILLS && (weapon == null || weapon.isBlank()))
+            bad("무기를 선택해 주세요.");
+        if (weapon != null && !weapon.isBlank() && !BingoWeaponCatalog.supported(weapon))
+            bad("지원하지 않는 PUBG 무기입니다.");
         if ((cell.missionType() == BingoMissionType.PLAY_WITH_CLAN_MEMBERS || cell.missionType() == BingoMissionType.RIDE_WITH_CLAN_MEMBERS)
                 && optionNumber(options, "clanMemberCount", 0) < 1) bad("필요한 클랜원 수를 입력해 주세요.");
     }
     private void addCells(BingoEvent event, List<BingoEventRequest.Cell> cells) {
         cells.stream().sorted(Comparator.comparingInt(BingoEventRequest.Cell::position)).forEach(cell -> event.addCell(new BingoCell(
                 event, cell.position(), cell.missionType(), cell.aggregationType(), cell.operator() == null ? BingoOperator.GREATER_THAN_OR_EQUAL : cell.operator(),
-                cell.targetValue(), cell.occurrenceTarget(), cell.options(), clean(cell.customTitle()))));
+                cell.targetValue(), cell.occurrenceTarget(), normalizedOptions(cell), clean(cell.customTitle()))));
+    }
+    private Map<String,Object> normalizedOptions(BingoEventRequest.Cell cell) {
+        if (cell.options() == null || cell.options().isEmpty()) return Map.of();
+        Map<String,Object> options = new LinkedHashMap<>(cell.options());
+        Object weapon = options.get("weapon");
+        if (weapon != null && !weapon.toString().isBlank())
+            options.put("weapon", BingoWeaponCatalog.canonicalName(weapon.toString()));
+        return Map.copyOf(options);
     }
     private String title(BingoCell cell) {
         if (cell.getCustomTitle() != null && !cell.getCustomTitle().isBlank()) return cell.getCustomTitle();

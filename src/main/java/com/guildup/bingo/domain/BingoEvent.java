@@ -9,6 +9,7 @@ import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -62,7 +63,7 @@ public class BingoEvent {
     public void replaceCells(List<BingoCell> replacements) { cells.clear(); cells.addAll(replacements); }
     public void refreshStatus(Instant now) {
         if (status == BingoStatus.SCHEDULED && !now.isBefore(startsAt)) status = BingoStatus.ACTIVE;
-        if (status == BingoStatus.ACTIVE && !now.isBefore(endsAt)) status = BingoStatus.SETTLING;
+        if (status == BingoStatus.ACTIVE && !now.isBefore(getMatchStartUpperBoundExclusive())) status = BingoStatus.SETTLING;
     }
     public void updateDraft(String title, String description, int boardSize, int targetLines,
                             boolean blackoutEnabled, boolean allowLateJoin, Instant startsAt,
@@ -91,6 +92,10 @@ public class BingoEvent {
     public boolean isAllowLateJoin() { return allowLateJoin; }
     public Instant getStartsAt() { return startsAt; }
     public Instant getEndsAt() { return endsAt; }
+    /** UI 종료 입력은 분 단위이므로 해당 분 전체를 포함하는 exclusive upper bound다. */
+    public Instant getMatchStartUpperBoundExclusive() {
+        return endsAt.truncatedTo(ChronoUnit.MINUTES).plus(1, ChronoUnit.MINUTES);
+    }
     public BingoStatus getStatus() { return status; }
     public Instant getLastAggregatedAt() { return lastAggregatedAt; }
     public Instant getCompletedAt() { return completedAt; }

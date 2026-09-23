@@ -91,4 +91,59 @@ class PubgBingoFactServiceTests {
         assertThat(facts.get("b").clanMembersInTeam()).isEqualTo(1);
         assertThat(facts.get("c").clanMembersInTeam()).isZero();
     }
+
+    @Test
+    void convertsKillCentimetersToMetersAtTheBoundaryAndDeduplicatesKills() throws Exception {
+        PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
+        String json = """
+                [
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:01:00Z","attackId":1,"dBNOId":11,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v1","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":19999}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:02:00Z","attackId":2,"dBNOId":12,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v2","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":20000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:02:00Z","attackId":2,"dBNOId":12,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v2","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":20000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:03:00Z","attackId":3,"dBNOId":13,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v3","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":20001}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:04:00Z","attackId":4,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"ally","teamId":1},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":30000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:05:00Z","attackId":5,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"a","teamId":1},"isSuicide":true,"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":30000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:06:00Z","attackId":6,"killer":{"accountId":"a"},"victim":{"accountId":"ally-unknown-team"},"teamKillers_AccountId":["a"],"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":30000}}
+                ]""";
+        when(telemetry.get(anyString())).thenReturn(JsonMapper.builder().build().readTree(json));
+        PubgBingoFactService service = new PubgBingoFactService(telemetry, Clock.systemUTC());
+        PubgMatch match = new PubgMatch("m", Instant.parse("2026-09-22T12:00:00Z"), "squad", "Erangel_Main",
+                "official", false, "https://telemetry-cdn.pubg.com/test.json",
+                List.of(new PubgTeam(List.of(new PubgParticipant("a", "Apple")))));
+
+        PlayerMatchFacts facts = service.facts(match, Set.of("a")).get("a");
+
+        assertThat(facts.kills()).extracting(PlayerMatchFacts.KillFact::distance)
+                .containsExactly(199.99, 200.0, 200.01);
+        BingoMissionEngine engine = new BingoMissionEngine();
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.LONG_DISTANCE_KILL,
+                facts, Map.of("distance", 200))).isEqualByComparingTo("2");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.WEAPON_KILLS,
+                facts, Map.of("weapon", " VSS"))).isEqualByComparingTo("3");
+    }
+
+    @Test
+    void usesFinishWeaponOnlyWhenTheCreditedKillerAlsoFinishedAndUsesGameResultDistances() throws Exception {
+        PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
+        String json = """
+                [
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:01:00Z","attackId":1,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v1","teamId":2},"finisher":{"accountId":"a"},"killerDamageInfo":{"damageCauserName":"WeapHK416_C","distance":30000},"finishDamageInfo":{"damageCauserName":"WeapVSS_C","distance":25000},"victimGameResult":{"accountId":"v1","stats":{"distanceOnFoot":10}}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:02:00Z","attackId":2,"killer":{"accountId":"a","teamId":1},"victim":{"accountId":"v2","teamId":2},"finisher":{"accountId":"b"},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","distance":21000},"finishDamageInfo":{"damageCauserName":"WeapHK416_C","distance":100}},
+                 {"_T":"LogMatchEnd","_D":"2026-09-22T12:30:00Z","gameResultOnFinished":{"results":[{"accountId":"a","stats":{"distanceOnFoot":29999,"distanceOnVehicle":30000,"distanceOnSwim":12}}]}}
+                ]""";
+        when(telemetry.get(anyString())).thenReturn(JsonMapper.builder().build().readTree(json));
+        PubgBingoFactService service = new PubgBingoFactService(telemetry, Clock.systemUTC());
+        PubgParticipant participant = new PubgParticipant("a", "Apple", 2, 0, 0, 0, 0,
+                0, 0, 0, 0, 1, 0, 1, 2, 3, 0);
+        PubgMatch match = new PubgMatch("m", Instant.parse("2026-09-22T12:00:00Z"), "squad", "Erangel_Main",
+                "official", false, "https://telemetry-cdn.pubg.com/test.json",
+                List.of(new PubgTeam(List.of(participant))));
+
+        PlayerMatchFacts facts = service.facts(match, Set.of("a")).get("a");
+
+        assertThat(facts.kills()).extracting(PlayerMatchFacts.KillFact::weapon).containsExactly("VSS", "VSS");
+        assertThat(facts.metric("WALK_DISTANCE")).isEqualByComparingTo("29999");
+        assertThat(facts.metric("RIDE_DISTANCE")).isEqualByComparingTo("30000");
+        assertThat(facts.metric("SWIM_DISTANCE")).isEqualByComparingTo("12");
+    }
 }

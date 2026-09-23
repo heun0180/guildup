@@ -67,7 +67,7 @@ class BingoAggregationFlowTests {
             assertThat(participant.nickname()).isEqualTo("애플");
             assertThat(participant.pubgNickname()).isEqualTo("ApplePUBG");
         });
-        Instant before=Instant.parse("2026-09-22T10:59:59Z"), inside=Instant.parse("2026-09-22T11:30:00Z"), after=Instant.parse("2026-09-22T14:00:01Z");
+        Instant before=Instant.parse("2026-09-22T10:59:59Z"), inside=Instant.parse("2026-09-22T11:30:00Z"), after=Instant.parse("2026-09-22T14:01:00Z");
         List<PubgPlayer> playerRows=List.of(new PubgPlayer("account-a","ApplePUBG",List.of("before","late-api","after")));
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(playerRows);
         Map<String,PubgMatch> matchRows=new LinkedHashMap<>();
@@ -141,6 +141,24 @@ class BingoAggregationFlowTests {
         assertThat(event.me()).isNotNull(); assertThat(event.me().pubgConnected()).isFalse();
         assertThat(aggregation.aggregate(owner.getId(),community.getId(),event.id()).processedMatches()).isZero();
         verifyNoInteractions(pubgPlayers,pubgMatches,factService);
+    }
+
+    @Test void aggregationRefreshesTheParticipantAccountSnapshotFromTheCurrentStableAccountId(){
+        var event=events.create(owner.getId(),community.getId(),request());
+        CommunityMember member=members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProvider(
+                member.getId(),ExternalAccountProvider.PUBG).orElseThrow());
+        memberAccounts.flush();
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(
+                member,ExternalAccountProvider.PUBG,"account-new","RenamedPUBG"));
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of());
+
+        aggregation.aggregate(owner.getId(),community.getId(),event.id());
+
+        verify(pubgPlayers).findByAccountIdsFresh("kakao",List.of("account-new"));
+        BingoParticipant participant=participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        assertThat(participant.getPubgAccountId()).isEqualTo("account-new");
+        assertThat(participant.getPubgNickname()).isEqualTo("RenamedPUBG");
     }
 
     @Test void cellClanPlayRequirementIgnoresPersonalStatsFromSoloMatches(){
@@ -223,6 +241,94 @@ class BingoAggregationFlowTests {
                 .allSatisfy(row -> assertThat(row.getCurrentValue()).isEqualByComparingTo("0"));
         verifyNoInteractions(factService);
     }
+
+    @Test void matchStartUsesInclusiveStartAndTheWholeInclusiveUiEndMinuteOnly(){
+        var event=events.create(owner.getId(),community.getId(),request());
+        Instant start=clock.instant().minus(Duration.ofHours(1));
+        Instant endMinute=clock.instant().plus(Duration.ofHours(2));
+        Map<String,PubgMatch> rows=new LinkedHashMap<>();
+        rows.put("before",match("before",start.minusSeconds(1)));
+        rows.put("start",match("start",start));
+        rows.put("end-minute",match("end-minute",endMinute.plusSeconds(59)));
+        rows.put("next-minute",match("next-minute",endMinute.plusSeconds(60)));
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a","ApplePUBG",new ArrayList<>(rows.keySet()))));
+        when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(rows);
+        when(factService.facts(argThat(m->m != null && m.matchId().equals("start")),anySet())).thenReturn(Map.of(
+                "account-a",facts("start",endMinute.plus(Duration.ofHours(1)),1)));
+        when(factService.facts(argThat(m->m != null && m.matchId().equals("end-minute")),anySet())).thenReturn(Map.of(
+                "account-a",facts("end-minute",endMinute.plus(Duration.ofHours(3)),1)));
+
+        var result=aggregation.aggregate(owner.getId(),community.getId(),event.id());
+
+        assertThat(result.processedMatches()).isEqualTo(2);
+        verify(factService,never()).facts(argThat(m->m != null && Set.of("before","next-minute").contains(m.matchId())),anySet());
+    }
+
+    @Test void eligibleNormalAndRankedMatchesDoNotRequirePerspectiveTeamSizeOrClanMate(){
+        var event=events.create(owner.getId(),community.getId(),request());
+        Instant at=clock.instant().minus(Duration.ofMinutes(10));
+        List<PubgMatch> rows=List.of(
+                new PubgMatch("solo",at,"solo","Erangel_Main","official",false,null,
+                        List.of(new PubgTeam(List.of(new PubgParticipant("account-a","ApplePUBG"))))),
+                new PubgMatch("duo-fpp",at.plusSeconds(1),"duo-fpp","Erangel_Main","official",false,null,
+                        List.of(new PubgTeam(List.of(new PubgParticipant("account-a","ApplePUBG"))))),
+                new PubgMatch("squad-fpp",at.plusSeconds(2),"squad-fpp","Erangel_Main","competitive",false,null,
+                        List.of(new PubgTeam(List.of(new PubgParticipant("account-a","ApplePUBG")))))
+        );
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a","ApplePUBG",rows.stream().map(PubgMatch::matchId).toList())));
+        when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(rows.stream().collect(
+                java.util.stream.Collectors.toMap(PubgMatch::matchId,java.util.function.Function.identity())));
+        when(factService.facts(any(),anySet())).thenAnswer(invocation -> {
+            PubgMatch match=invocation.getArgument(0);
+            return Map.of("account-a",facts(match.matchId(),match.playedAt(),1,0));
+        });
+
+        assertThat(aggregation.aggregate(owner.getId(),community.getId(),event.id()).processedMatches()).isEqualTo(3);
+    }
+
+    @Test void repeatedTenMatchWindowsAccumulateAllFortyMatches(){
+        assertThat(simulateRecentMatchWindows(10,10,10,10)).isEqualTo(40);
+    }
+
+    @Test void repeatedTwentyMatchWindowsAccumulateAllFortyMatches(){
+        assertThat(simulateRecentMatchWindows(20,20)).isEqualTo(40);
+    }
+
+    @Test void repeatedThirtyOneMatchWindowsAccumulateAllSixtyTwoMatches(){
+        assertThat(simulateRecentMatchWindows(31,31)).isEqualTo(62);
+    }
+
+    @Test void firstUnaggregatedGapOfThirtyThreeMatchesLosesTheOldestMatch(){
+        assertThat(simulateRecentMatchWindows(33)).isEqualTo(32);
+    }
+
+    private int simulateRecentMatchWindows(int... batches){
+        var event=events.create(owner.getId(),community.getId(),request());
+        List<String> visible=new ArrayList<>();
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenAnswer(ignored -> List.of(
+                new PubgPlayer("account-a","ApplePUBG",List.copyOf(visible))));
+        when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenAnswer(invocation -> {
+            Collection<String> ids=invocation.getArgument(1); Map<String,PubgMatch> result=new LinkedHashMap<>();
+            ids.forEach(id -> result.put(id,match(id,Instant.parse("2026-09-22T11:00:00Z").plusSeconds(index(id)))));
+            return result;
+        });
+        when(factService.facts(any(),anySet())).thenAnswer(invocation -> {
+            PubgMatch match=invocation.getArgument(0); return Map.of("account-a",facts(match.matchId(),match.playedAt(),1));
+        });
+        int total=0;
+        for(int batch:batches){
+            total+=batch; List<String> all=java.util.stream.IntStream.rangeClosed(1,total).mapToObj(i->"m"+i).toList();
+            visible.clear(); visible.addAll(all.subList(Math.max(0,all.size()-32),all.size()));
+            aggregation.aggregate(owner.getId(),community.getId(),event.id());
+            clock.set(clock.instant().plus(Duration.ofMinutes(30)));
+        }
+        BingoParticipant participant=participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        return progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst().getCurrentValue().intValue();
+    }
+
+    private long index(String id){return Long.parseLong(id.substring(1));}
 
     private BingoEventRequest request(){
         List<BingoEventRequest.Cell> cells=new ArrayList<>();

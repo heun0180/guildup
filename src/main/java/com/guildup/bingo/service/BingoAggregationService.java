@@ -6,6 +6,7 @@ import com.guildup.bingo.mission.*;
 import com.guildup.bingo.repository.*;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityGame;
+import com.guildup.community.domain.CommunityMemberAccount;
 import com.guildup.community.domain.CommunityMemberStatus;
 import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.repository.CommunityGameRepository;
@@ -76,11 +77,20 @@ public class BingoAggregationService {
                     "빙고 집계는 30분에 한 번만 실행할 수 있습니다.");
         enrollment.enrollEligible(event, now);
         List<BingoParticipant> participantRows = participants.findByEventIdOrderByIdAsc(event.getId());
+        List<CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProvider(
+                communityId, ExternalAccountProvider.PUBG);
+        Map<Long, CommunityMemberAccount> accountsByMember = currentAccounts.stream().collect(Collectors.toMap(
+                account -> account.getCommunityMember().getId(), Function.identity(), (a, b) -> a));
+        participantRows.stream().filter(participant -> participant.getCommunityMember() != null).forEach(participant -> {
+            CommunityMemberAccount account = accountsByMember.get(participant.getCommunityMember().getId());
+            participant.synchronizePubgAccount(account == null ? null : account.getExternalUserId(),
+                    account == null ? null : account.getExternalUsername());
+        });
         List<BingoParticipant> connected = participantRows.stream().filter(p -> p.getPubgAccountId() != null).toList();
         if (connected.isEmpty()) {
             event.aggregated(now);
             if (event.getStatus() == BingoStatus.SETTLING
-                    && !now.isBefore(event.getEndsAt().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
+                    && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
             return new BingoAggregationResponse(event.getId(), 0, 0, event.getStatus().name(), now);
         }
         String shard = PubgGameSupport.requireShard(event.getCommunityGame().getGameType());
@@ -101,13 +111,14 @@ public class BingoAggregationService {
         List<PubgMatch> ordered = loadedMatches.values().stream().filter(match -> match.playedAt() != null)
                 .sorted(Comparator.comparing(PubgMatch::playedAt).thenComparing(PubgMatch::matchId)).toList();
         int processedCount = 0; Set<Long> updated = new LinkedHashSet<>();
-        Set<String> communityAccounts = memberAccounts.findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG)
-                .stream().filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
+        Set<String> communityAccounts = currentAccounts.stream()
+                .filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
                 .map(account -> account.getExternalUserId()).filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         communityAccounts.addAll(byAccount.keySet());
         for (PubgMatch match : ordered) {
-            if (match.playedAt().isBefore(event.getStartsAt()) || match.playedAt().isAfter(event.getEndsAt())) continue;
+            if (match.playedAt().isBefore(event.getStartsAt())
+                    || !match.playedAt().isBefore(event.getMatchStartUpperBoundExclusive())) continue;
             if (!matchPolicy.isEligible(match)) {
                 log.debug("Bingo match skipped: category={}, matchId={}, bingoId={}",
                         matchPolicy.category(match), match.matchId(), event.getId());
@@ -137,7 +148,8 @@ public class BingoAggregationService {
             }
         }
         event.aggregated(now);
-        if (event.getStatus() == BingoStatus.SETTLING && !now.isBefore(event.getEndsAt().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
+        if (event.getStatus() == BingoStatus.SETTLING
+                && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
         return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), now);
     }
 

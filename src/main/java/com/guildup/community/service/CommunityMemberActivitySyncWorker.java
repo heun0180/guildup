@@ -33,7 +33,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -67,6 +68,7 @@ public class CommunityMemberActivitySyncWorker {
     private final PubgMatchService pubgMatchService;
     private final CommunityActivityEvaluator evaluator;
     private final Clock clock;
+    private final TransactionTemplate transactions;
 
     public CommunityMemberActivitySyncWorker(
             CommunityGameRepository gameRepository,
@@ -80,7 +82,8 @@ public class CommunityMemberActivitySyncWorker {
             PubgPlayerService pubgPlayerService,
             PubgMatchService pubgMatchService,
             CommunityActivityEvaluator evaluator,
-            Clock clock
+            Clock clock,
+            PlatformTransactionManager transactionManager
     ) {
         this.gameRepository = gameRepository;
         this.activityRuleRepository = activityRuleRepository;
@@ -94,45 +97,28 @@ public class CommunityMemberActivitySyncWorker {
         this.pubgMatchService = pubgMatchService;
         this.evaluator = evaluator;
         this.clock = clock;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    @Transactional
     public void synchronize(Long communityGameId) {
         long startedAtNanos = System.nanoTime();
         Long communityId = null;
         SyncStage stage = SyncStage.PREPARATION;
         try {
-            CommunityGame game = gameRepository.findById(communityGameId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
-                    ));
-            communityId = game.getCommunity().getId();
-            CommunityGameActivityRule rule = activityRuleRepository.findByCommunityGameId(game.getId())
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.BAD_REQUEST, "클랜 활동 규칙을 먼저 설정해 주세요."
-                    ));
-            CommunityGameNicknameRule nicknameRule = nicknameRuleRepository
-                    .findByCommunityIdAndGameType(communityId, game.getGameType())
-                    .orElse(null);
-            NicknameRuleCandidate nicknameCandidate = nicknameRule == null ? null : toCandidate(nicknameRule);
-            List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
-                    communityId, CommunityMemberStatus.ACTIVE
-            );
-            Map<Long, CommunityMember> membersById = members.stream()
-                    .collect(Collectors.toMap(CommunityMember::getId, Function.identity()));
-            Map<Long, CommunityMemberAccount> accountsByMemberId = accountRepository
-                    .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
-                    .collect(Collectors.toMap(
-                            account -> account.getCommunityMember().getId(), Function.identity()
-                    ));
-            Map<Long, String> gameNicknames = extractGameNicknames(
-                    members, accountsByMemberId, nicknameCandidate
-            );
-            String shard = PubgGameSupport.requireShard(game.getGameType());
+            Preparation preparation = transactions.execute(status -> prepare(communityGameId));
+            if (preparation == null) throw new IllegalStateException("활동 조회 준비 결과가 없습니다.");
+            CommunityGame game = preparation.game();
+            CommunityGameActivityRule rule = preparation.rule();
+            List<CommunityMember> members = preparation.members();
+            Map<Long, CommunityMember> membersById = preparation.membersById();
+            Map<Long, CommunityMemberAccount> accountsByMemberId = preparation.accountsByMemberId();
+            Map<Long, String> gameNicknames = preparation.gameNicknames();
+            String shard = preparation.shard();
+            communityId = preparation.communityId();
 
             Map<String, PubgPlayer> playersByAccountId = new LinkedHashMap<>();
             stage = SyncStage.PLAYER_BY_NAME;
-            List<CommunityMemberAccount> newAccounts = resolveMissingAccounts(
+            resolveMissingAccounts(
                     shard, members, gameNicknames, accountsByMemberId, playersByAccountId
             );
             stage = SyncStage.PLAYER_BY_ACCOUNT_ID;
@@ -169,15 +155,17 @@ public class CommunityMemberActivitySyncWorker {
                     .toList();
 
             stage = SyncStage.DB_SAVE;
-            if (!newAccounts.isEmpty()) accountRepository.saveAll(newAccounts);
-            snapshotRepository.deleteByCommunityGameId(game.getId());
-            // 같은 (게임, 멤버) 키로 새 스냅샷을 넣기 전에 기존 DELETE를 먼저 실행한다.
-            snapshotRepository.flush();
-            snapshotRepository.saveAll(activitySnapshots);
-            syncRepository.findByCommunityGameId(game.getId())
-                    .orElseThrow()
-                    .succeed(synchronizedAt);
-            snapshotRepository.flush();
+            transactions.executeWithoutResult(status -> {
+                accountRepository.saveAll(accountsByMemberId.values());
+                snapshotRepository.deleteByCommunityGameId(game.getId());
+                // 같은 (게임, 멤버) 키로 새 스냅샷을 넣기 전에 기존 DELETE를 먼저 실행한다.
+                snapshotRepository.flush();
+                snapshotRepository.saveAll(activitySnapshots);
+                syncRepository.findByCommunityGameId(game.getId())
+                        .orElseThrow()
+                        .succeed(synchronizedAt);
+                snapshotRepository.flush();
+            });
 
             log.info(
                     "PUBG activity sync completed - communityId={}, communityGameId={}, players={}, "
@@ -195,6 +183,37 @@ public class CommunityMemberActivitySyncWorker {
             );
             throw exception;
         }
+    }
+
+    private Preparation prepare(Long communityGameId) {
+        CommunityGame game = gameRepository.findById(communityGameId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
+                ));
+        Long communityId = game.getCommunity().getId();
+        CommunityGameActivityRule rule = activityRuleRepository.findByCommunityGameId(game.getId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "클랜 활동 규칙을 먼저 설정해 주세요."
+                ));
+        CommunityGameNicknameRule nicknameRule = nicknameRuleRepository
+                .findByCommunityIdAndGameType(communityId, game.getGameType())
+                .orElse(null);
+        NicknameRuleCandidate nicknameCandidate = nicknameRule == null ? null : toCandidate(nicknameRule);
+        List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
+                communityId, CommunityMemberStatus.ACTIVE
+        );
+        Map<Long, CommunityMember> membersById = members.stream()
+                .collect(Collectors.toMap(CommunityMember::getId, Function.identity()));
+        Map<Long, CommunityMemberAccount> accountsByMemberId = accountRepository
+                .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+                .collect(Collectors.toMap(
+                        account -> account.getCommunityMember().getId(), Function.identity()
+                ));
+        Map<Long, String> gameNicknames = extractGameNicknames(members, accountsByMemberId, nicknameCandidate);
+        String shard = PubgGameSupport.requireShard(game.getGameType());
+        return new Preparation(
+                communityId, game, rule, members, membersById, accountsByMemberId, gameNicknames, shard
+        );
     }
 
     private long elapsedMillis(long startedAtNanos) {
@@ -373,4 +392,15 @@ public class CommunityMemberActivitySyncWorker {
     private String normalize(String value) {
         return value.toLowerCase(Locale.ROOT);
     }
+
+    private record Preparation(
+            Long communityId,
+            CommunityGame game,
+            CommunityGameActivityRule rule,
+            List<CommunityMember> members,
+            Map<Long, CommunityMember> membersById,
+            Map<Long, CommunityMemberAccount> accountsByMemberId,
+            Map<Long, String> gameNicknames,
+            String shard
+    ) {}
 }

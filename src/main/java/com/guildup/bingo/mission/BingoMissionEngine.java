@@ -39,7 +39,11 @@ public class BingoMissionEngine {
                 if (category != null && !category.isBlank()) yield countKills(facts, kill -> Objects.equals(category, kill.weaponCategory()));
                 yield facts.metric(type.name());
             }
-            case LONG_DISTANCE_KILL -> countKills(facts, kill -> kill.distance() >= number(options, "distance", 0));
+            case LONG_DISTANCE_KILL -> {
+                double minimumMeters = number(options, "distance", Double.NaN);
+                if (!Double.isFinite(minimumMeters) || minimumMeters <= 0) yield BigDecimal.ZERO;
+                yield countKills(facts, kill -> kill.distance() >= minimumMeters);
+            }
             case WEAPON_KILLS -> countKills(facts, kill -> BingoWeaponCatalog.same(string(options, "weapon"), kill.weapon()));
             case WEAPON_CATEGORY_KILLS -> countKills(facts, kill -> Objects.equals(string(options, "weaponCategory"), kill.weaponCategory()));
             case THROWABLE_KILLS -> countKills(facts, kill -> BingoWeaponCatalog.same(string(options, "throwable"), kill.throwable()));

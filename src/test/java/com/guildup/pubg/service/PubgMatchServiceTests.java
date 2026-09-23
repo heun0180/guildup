@@ -1,7 +1,6 @@
 package com.guildup.pubg.service;
 
 import com.guildup.pubg.client.PubgApiClient;
-import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.model.PubgMatch;
 import org.junit.jupiter.api.Test;
 
@@ -10,10 +9,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.ArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -28,137 +28,93 @@ class PubgMatchServiceTests {
     @Test
     void requestsTheSameMatchOnlyOnce() {
         PubgApiClient client = mock(PubgApiClient.class);
-        List<Long> waits = new ArrayList<>();
-        PubgMatchService service = new PubgMatchService(
-                client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-        );
-        PubgMatch match = new PubgMatch("match-1", Instant.now(), "squad", List.of());
+        PubgMatch match = match("match-1");
         when(client.getMatch("kakao", "match-1")).thenReturn(match);
+        PubgMatchService service = service(client, 100);
 
-        var result = service.findUniqueMatches("kakao", List.of("match-1", "match-1"));
+        assertThat(service.findUniqueMatches("kakao", List.of("match-1", "match-1")))
+                .containsEntry("match-1", match);
+        assertThat(service.findUniqueMatches("kakao", List.of("match-1")))
+                .containsEntry("match-1", match);
 
-        assertThat(result).containsEntry("match-1", match);
-        assertThat(waits).isEmpty();
         verify(client, times(1)).getMatch("kakao", "match-1");
     }
 
     @Test
-    void reusesMatchesWithinTheCacheTtl() {
+    void freshLookupReusesSuccessfulMatchAcrossFeatures() {
         PubgApiClient client = mock(PubgApiClient.class);
-        PubgMatch match = new PubgMatch("match-1", Instant.now(), "squad", List.of());
-        when(client.getMatch("steam", "match-1")).thenReturn(match);
-        PubgMatchService service = new PubgMatchService(
-                client,
-                Clock.fixed(Instant.parse("2026-09-08T00:00:00Z"), ZoneOffset.UTC),
-                Duration.ofMinutes(10)
-        );
+        PubgMatch match = match("shared-match");
+        when(client.getMatch("kakao", "shared-match")).thenReturn(match);
+        PubgMatchService service = service(client, 100);
 
-        assertThat(service.findUniqueMatches("steam", List.of("match-1")))
-                .containsEntry("match-1", match);
-        assertThat(service.findUniqueMatches("steam", List.of("match-1")))
-                .containsEntry("match-1", match);
+        assertThat(service.findUniqueMatches("kakao", List.of("shared-match"))).hasSize(1);
+        assertThat(service.findUniqueMatchesFresh("kakao", List.of("shared-match"))).hasSize(1);
+        assertThat(service.findUniqueMatchesFresh("kakao", List.of("shared-match"), 1L, 2L)).hasSize(1);
 
-        verify(client, times(1)).getMatch("steam", "match-1");
+        verify(client, times(1)).getMatch("kakao", "shared-match");
     }
 
     @Test
-    void freshLookupRetriesPreviouslyMissingMatch() {
+    void freshLookupRetriesOnlyPreviouslyMissingMatch() {
         PubgApiClient client = mock(PubgApiClient.class);
-        PubgMatch match = new PubgMatch("match-1", Instant.now(), "squad", List.of());
+        PubgMatch match = match("match-1");
         when(client.getMatch("steam", "match-1")).thenReturn(null).thenReturn(match);
-        PubgMatchService service = new PubgMatchService(client);
+        PubgMatchService service = service(client, 100);
 
         assertThat(service.findUniqueMatches("steam", List.of("match-1"))).isEmpty();
-        assertThat(service.findUniqueMatchesFresh("steam", List.of("match-1"))).containsEntry("match-1", match);
-        verify(client, times(2)).getMatch("steam", "match-1");
-    }
-
-    @Test
-    void retriesTransient503AndContinuesAfterSuccess() {
-        PubgApiClient client = mock(PubgApiClient.class);
-        PubgMatch match = new PubgMatch("match-38", Instant.now(), "squad", List.of());
-        when(client.getMatch("kakao", "match-38"))
-                .thenThrow(new PubgApiException("temporary", null, 503, true))
-                .thenReturn(match);
-        List<Long> waits = new ArrayList<>();
-        PubgMatchService service = new PubgMatchService(
-                client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-        );
-
-        assertThat(service.findUniqueMatchesFresh(
-                "kakao", List.of("match-38"), 1L, 3L
-        )).containsEntry("match-38", match);
-
-        assertThat(waits).containsExactly(500L);
-        verify(client, times(2)).getMatch("kakao", "match-38");
-    }
-
-    @Test
-    void retriesTransientNetworkFailureAndSucceeds() {
-        PubgApiClient client = mock(PubgApiClient.class);
-        PubgMatch match = new PubgMatch("match-1", Instant.now(), "squad", List.of());
-        when(client.getMatch("steam", "match-1"))
-                .thenThrow(new PubgApiException("read timeout", null, null, true))
-                .thenReturn(match);
-        List<Long> waits = new ArrayList<>();
-        PubgMatchService service = new PubgMatchService(
-                client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-        );
-
         assertThat(service.findUniqueMatchesFresh("steam", List.of("match-1")))
                 .containsEntry("match-1", match);
-        assertThat(waits).containsExactly(500L);
+
         verify(client, times(2)).getMatch("steam", "match-1");
     }
 
     @Test
-    void failsAfterThreeTransientAttempts() {
+    void concurrentRequestsShareOneInFlightCall() throws Exception {
         PubgApiClient client = mock(PubgApiClient.class);
-        when(client.getMatch("kakao", "match-1"))
-                .thenThrow(new PubgApiException("temporary", null, 503, true));
-        List<Long> waits = new ArrayList<>();
-        PubgMatchService service = new PubgMatchService(
-                client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-        );
+        PubgMatch match = match("match-1");
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(client.getMatch("kakao", "match-1")).thenAnswer(ignored -> {
+            entered.countDown();
+            assertThat(release.await(2, TimeUnit.SECONDS)).isTrue();
+            return match;
+        });
+        PubgMatchService service = service(client, 100);
 
-        assertThatThrownBy(() -> service.findUniqueMatchesFresh(
-                "kakao", List.of("match-1"), 1L, 3L
-        )).isInstanceOf(PubgApiException.class);
-
-        assertThat(waits).containsExactly(500L, 1_000L);
-        verify(client, times(3)).getMatch("kakao", "match-1");
-    }
-
-    @Test
-    void missingMatchIsSkippedWithoutRetry() {
-        PubgApiClient client = mock(PubgApiClient.class);
-        when(client.getMatch("kakao", "missing")).thenReturn(null);
-        List<Long> waits = new ArrayList<>();
-        PubgMatchService service = new PubgMatchService(
-                client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-        );
-
-        assertThat(service.findUniqueMatchesFresh("kakao", List.of("missing"))).isEmpty();
-        assertThat(waits).isEmpty();
-        verify(client).getMatch("kakao", "missing");
-    }
-
-    @Test
-    void clientAuthorizationErrorsAreNotRetried() {
-        for (int status : List.of(401, 403)) {
-            PubgApiClient client = mock(PubgApiClient.class);
-            when(client.getMatch("kakao", "match-" + status))
-                    .thenThrow(new PubgApiException("authorization", null, status, false));
-            List<Long> waits = new ArrayList<>();
-            PubgMatchService service = new PubgMatchService(
-                    client, FIXED_CLOCK, Duration.ofMinutes(10), waits::add
-            );
-
-            assertThatThrownBy(() -> service.findUniqueMatchesFresh(
-                    "kakao", List.of("match-" + status)
-            )).isInstanceOf(PubgApiException.class);
-            assertThat(waits).isEmpty();
-            verify(client).getMatch("kakao", "match-" + status);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> service.findUniqueMatches("kakao", List.of("match-1")));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            var second = executor.submit(() -> service.findUniqueMatchesFresh("kakao", List.of("match-1")));
+            release.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).containsEntry("match-1", match);
+            assertThat(second.get(2, TimeUnit.SECONDS)).containsEntry("match-1", match);
         }
+
+        verify(client, times(1)).getMatch("kakao", "match-1");
+    }
+
+    @Test
+    void cacheNeverExceedsConfiguredMaximumSize() {
+        PubgApiClient client = mock(PubgApiClient.class);
+        for (int index = 0; index < 20; index++) {
+            when(client.getMatch("kakao", "match-" + index)).thenReturn(match("match-" + index));
+        }
+        PubgMatchService service = service(client, 5);
+
+        for (int index = 0; index < 20; index++) {
+            service.findUniqueMatches("kakao", List.of("match-" + index));
+        }
+
+        assertThat(service.cacheSize()).isEqualTo(5);
+    }
+
+    private PubgMatchService service(PubgApiClient client, int maximumSize) {
+        return new PubgMatchService(
+                client, FIXED_CLOCK, Duration.ofHours(24), Duration.ofMinutes(1), maximumSize
+        );
+    }
+
+    private PubgMatch match(String id) {
+        return new PubgMatch(id, Instant.parse("2026-09-07T00:00:00Z"), "squad", List.of());
     }
 }

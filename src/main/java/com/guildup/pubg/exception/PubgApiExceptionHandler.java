@@ -11,6 +11,6 @@ public class PubgApiExceptionHandler {
     public ResponseEntity<PubgApiErrorResponse> handle(PubgApiException exception) {
         int status = exception.getStatusCode().value();
         return ResponseEntity.status(exception.getStatusCode())
-                .body(new PubgApiErrorResponse(status, exception.getReason()));
+                .body(new PubgApiErrorResponse(status, exception.getErrorCode().name(), exception.getReason()));
     }
 }
