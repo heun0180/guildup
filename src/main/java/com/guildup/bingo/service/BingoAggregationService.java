@@ -1,157 +1,114 @@
 package com.guildup.bingo.service;
 
-import com.guildup.bingo.domain.*;
 import com.guildup.bingo.dto.BingoAggregationResponse;
-import com.guildup.bingo.mission.*;
-import com.guildup.bingo.repository.*;
-import com.guildup.account.domain.ExternalAccountProvider;
-import com.guildup.community.domain.CommunityGame;
-import com.guildup.community.domain.CommunityMemberAccount;
-import com.guildup.community.domain.CommunityMemberStatus;
-import com.guildup.community.repository.CommunityMemberAccountRepository;
-import com.guildup.community.repository.CommunityGameRepository;
-import com.guildup.community.repository.CommunityRepository;
-import com.guildup.community.service.CommunityAccessService;
-import com.guildup.pubg.model.*;
-import com.guildup.pubg.service.*;
-import com.guildup.pubg.support.PubgGameSupport;
-import org.springframework.http.*;
+import com.guildup.bingo.repository.BingoProcessedMatchRepository;
+import com.guildup.pubg.model.PubgMatch;
+import com.guildup.pubg.service.PubgMatchFactQueryService;
+import com.guildup.pubg.service.PubgMatchSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
-import java.time.*;
-import java.util.*;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.List;
+import java.util.Set;
 
+/** 외부 API 수집과 DB 계산을 transaction 밖에서 조율한다. */
 @Service
 public class BingoAggregationService {
     private static final Logger log = LoggerFactory.getLogger(BingoAggregationService.class);
-    private final BingoEventRepository events; private final BingoParticipantRepository participants;
-    private final BingoProgressRepository progress; private final BingoProcessedMatchRepository processed;
-    private final CommunityGameRepository games;
-    private final CommunityRepository communities;
-    private final CommunityMemberAccountRepository memberAccounts;
-    private final CommunityAccessService access; private final BingoParticipantEnrollmentService enrollment;
-    private final PubgPlayerService players; private final PubgMatchService matches; private final PubgBingoFactService facts;
-    private final BingoMissionEngine missions; private final BingoMatchPolicy matchPolicy;
-    private final BingoProgressCompletionService completions; private final Clock clock;
+    private final BingoAggregationPreparationService preparation;
+    private final PubgMatchSyncService pubgSync;
+    private final PubgMatchFactQueryService pubgFacts;
+    private final BingoProcessedMatchRepository processed;
+    private final BingoAggregationCalculationService calculation;
+    private final BingoMatchPolicy matchPolicy;
 
-    public BingoAggregationService(BingoEventRepository events, BingoParticipantRepository participants,
-            BingoProgressRepository progress, BingoProcessedMatchRepository processed,
-            CommunityGameRepository games, CommunityRepository communities,
-            CommunityMemberAccountRepository memberAccounts,
-            CommunityAccessService access, BingoParticipantEnrollmentService enrollment,
-            PubgPlayerService players, PubgMatchService matches, PubgBingoFactService facts,
-            BingoMissionEngine missions, BingoMatchPolicy matchPolicy,
-            BingoProgressCompletionService completions, Clock clock) {
-        this.events=events; this.participants=participants; this.progress=progress; this.processed=processed;
-        this.games=games; this.communities=communities; this.memberAccounts=memberAccounts;
-        this.access=access; this.enrollment=enrollment;
-        this.players=players; this.matches=matches; this.facts=facts; this.missions=missions; this.matchPolicy=matchPolicy;
-        this.completions=completions; this.clock=clock;
+    public BingoAggregationService(BingoAggregationPreparationService preparation, PubgMatchSyncService pubgSync,
+            PubgMatchFactQueryService pubgFacts, BingoProcessedMatchRepository processed,
+            BingoAggregationCalculationService calculation, BingoMatchPolicy matchPolicy) {
+        this.preparation = preparation; this.pubgSync = pubgSync; this.pubgFacts = pubgFacts;
+        this.processed = processed; this.calculation = calculation; this.matchPolicy = matchPolicy;
     }
 
-    @Transactional
     public BingoAggregationResponse aggregate(Long userId, Long communityId, Long bingoId) {
-        access.requireCommunityAdmin(userId, communityId); Instant now = clock.instant();
-        communities.findForUpdate(communityId).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
-        BingoEvent event = events.findForUpdate(bingoId)
-                .filter(value -> value.getCommunity().getId().equals(communityId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
-        List<BingoEvent> communityEvents = events.findByCommunityGameIdForUpdate(event.getCommunityGame().getId());
-        communityEvents.stream().filter(value -> value.getStatus() == BingoStatus.ACTIVE)
-                .forEach(value -> value.refreshStatus(now));
-        boolean anotherActive = communityEvents.stream().anyMatch(value -> !value.getId().equals(event.getId())
-                && value.getStatus() == BingoStatus.ACTIVE);
-        if (!anotherActive) event.refreshStatus(now);
-        if (event.getStatus() != BingoStatus.ACTIVE && event.getStatus() != BingoStatus.SETTLING)
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "진행 중이거나 정산 중인 빙고만 집계할 수 있습니다.");
-        if (event.getLastAggregatedAt() != null
-                && now.isBefore(event.getLastAggregatedAt().plus(BingoEvent.AGGREGATION_COOLDOWN)))
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                    "빙고 집계는 30분에 한 번만 실행할 수 있습니다.");
-        enrollment.enrollEligible(event, now);
-        List<BingoParticipant> participantRows = participants.findByEventIdOrderByIdAsc(event.getId());
-        List<CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProvider(
-                communityId, ExternalAccountProvider.PUBG);
-        Map<Long, CommunityMemberAccount> accountsByMember = currentAccounts.stream().collect(Collectors.toMap(
-                account -> account.getCommunityMember().getId(), Function.identity(), (a, b) -> a));
-        participantRows.stream().filter(participant -> participant.getCommunityMember() != null).forEach(participant -> {
-            CommunityMemberAccount account = accountsByMember.get(participant.getCommunityMember().getId());
-            participant.synchronizePubgAccount(account == null ? null : account.getExternalUserId(),
-                    account == null ? null : account.getExternalUsername());
-        });
-        List<BingoParticipant> connected = participantRows.stream().filter(p -> p.getPubgAccountId() != null).toList();
-        if (connected.isEmpty()) {
-            event.aggregated(now);
-            if (event.getStatus() == BingoStatus.SETTLING
-                    && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
-            return new BingoAggregationResponse(event.getId(), 0, 0, event.getStatus().name(), now);
-        }
-        String shard = PubgGameSupport.requireShard(event.getCommunityGame().getGameType());
-        Map<String, BingoParticipant> byAccount = connected.stream().collect(Collectors.toMap(
-                BingoParticipant::getPubgAccountId, Function.identity(), (a,b)->a, LinkedHashMap::new));
-        List<PubgPlayer> loadedPlayers = players.findByAccountIdsFresh(shard, new ArrayList<>(byAccount.keySet()));
-        Map<String, Set<String>> accountsByMatch = new LinkedHashMap<>();
-        loadedPlayers.forEach(player -> player.matchIds().forEach(matchId ->
-                accountsByMatch.computeIfAbsent(matchId, ignored -> new LinkedHashSet<>()).add(player.accountId())));
-        Set<String> matchIds = accountsByMatch.entrySet().stream().filter(entry -> entry.getValue().stream().anyMatch(account -> {
-                    BingoParticipant participant = byAccount.get(account);
-                    return participant != null && !processed.existsByEventIdAndParticipantIdAndMatchId(
-                            event.getId(), participant.getId(), entry.getKey());
-                })).map(Map.Entry::getKey).collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, PubgMatch> loadedMatches = event.getStatus() == BingoStatus.SETTLING
-                ? matches.findUniqueMatchesFresh(shard, matchIds)
-                : matches.findUniqueMatches(shard, matchIds);
-        List<PubgMatch> ordered = loadedMatches.values().stream().filter(match -> match.playedAt() != null)
-                .sorted(Comparator.comparing(PubgMatch::playedAt).thenComparing(PubgMatch::matchId)).toList();
-        int processedCount = 0; Set<Long> updated = new LinkedHashSet<>();
-        Set<String> communityAccounts = currentAccounts.stream()
-                .filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
-                .map(account -> account.getExternalUserId()).filter(Objects::nonNull)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        communityAccounts.addAll(byAccount.keySet());
-        for (PubgMatch match : ordered) {
-            if (match.playedAt().isBefore(event.getStartsAt())
-                    || !match.playedAt().isBefore(event.getMatchStartUpperBoundExclusive())) continue;
-            if (!matchPolicy.isEligible(match)) {
-                log.debug("Bingo match skipped: category={}, matchId={}, bingoId={}",
-                        matchPolicy.category(match), match.matchId(), event.getId());
-                continue;
-            }
-            boolean needed = byAccount.values().stream().anyMatch(participant ->
-                    !match.playedAt().isBefore(participant.getEligibleFrom())
-                    && !processed.existsByEventIdAndParticipantIdAndMatchId(event.getId(), participant.getId(), match.matchId()));
-            if (!needed) continue;
-            Map<String, PlayerMatchFacts> matchFacts = facts.facts(match, communityAccounts);
-            for (Map.Entry<String, BingoParticipant> entry : byAccount.entrySet()) {
-                BingoParticipant participant = entry.getValue(); PlayerMatchFacts playerFacts = matchFacts.get(entry.getKey());
-                if (playerFacts == null || match.playedAt().isBefore(participant.getEligibleFrom())) continue;
-                if (processed.existsByEventIdAndParticipantIdAndMatchId(event.getId(), participant.getId(), match.matchId())) continue;
-                BingoParticipant locked = participants.findForUpdate(participant.getId()).orElseThrow();
-                List<BingoProgress> rows = progress.findByParticipantIdOrderByCellPositionAsc(locked.getId());
-                for (BingoProgress row : rows) {
-                    if (row.getCell().getMissionType().source() != BingoMissionSource.PUBG_MATCH) continue;
-                    BingoMissionEngine.Outcome outcome = missions.apply(row.getCell(), row, playerFacts);
-                    row.apply(outcome.value(), outcome.occurrences(), outcome.completed(), match.matchId(),
-                            playerFacts.latestEvidenceAt(), now);
-                }
-                processed.save(new BingoProcessedMatch(event, locked, match.matchId(), match.playedAt(), now));
-                completions.updateLines(event, locked, rows,
-                        playerFacts.latestEvidenceAt() == null ? match.playedAt() : playerFacts.latestEvidenceAt());
-                processedCount++; updated.add(locked.getId());
-            }
-        }
-        Instant completedAt = clock.instant();
-        event.aggregated(completedAt);
-        if (event.getStatus() == BingoStatus.SETTLING
-                && !completedAt.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(completedAt);
-        return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), completedAt);
+        return aggregate(userId, communityId, bingoId, PubgMatchSyncService.ProgressListener.noop());
     }
 
+    public BingoAggregationResponse aggregate(Long userId, Long communityId, Long bingoId,
+                                               PubgMatchSyncService.ProgressListener listener) {
+        return aggregatePrepared(communityId, bingoId, preparation.prepareAll(userId, communityId, bingoId),
+                null, listener);
+    }
+
+    public BingoAggregationResponse aggregatePersonal(Long userId, Long communityId, Long bingoId) {
+        return aggregatePersonal(userId, communityId, bingoId, PubgMatchSyncService.ProgressListener.noop());
+    }
+
+    public BingoAggregationResponse aggregatePersonal(Long userId, Long communityId, Long bingoId,
+                                                       PubgMatchSyncService.ProgressListener listener) {
+        BingoAggregationPreparationService.PreparedAggregation prepared =
+                preparation.preparePersonal(userId, communityId, bingoId);
+        Long participantId = prepared.participants().getFirst().participantId();
+        return aggregatePrepared(communityId, bingoId, prepared, participantId, listener);
+    }
+
+    public Long resolvePersonalParticipantId(Long userId, Long communityId, Long bingoId) {
+        return preparation.resolvePersonalParticipantId(userId, communityId, bingoId);
+    }
+
+    public Long validatePersonalRequest(Long userId, Long communityId, Long bingoId) {
+        return preparation.validatePersonalRequest(userId, communityId, bingoId);
+    }
+
+    private BingoAggregationResponse aggregatePrepared(Long communityId, Long bingoId,
+            BingoAggregationPreparationService.PreparedAggregation prepared, Long participantId,
+            PubgMatchSyncService.ProgressListener listener) {
+        long totalStarted = System.nanoTime();
+        Set<String> accountIds = prepared.participants().stream().map(
+                BingoAggregationPreparationService.PreparedParticipant::accountId)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        PubgMatchSyncService.SyncResult sync = pubgSync.sync(prepared.shard(), accountIds,
+                match -> telemetryRequired(prepared, match), listener);
+        listener.stage("SAVE_FACTS", sync.dbMatchesInserted(), sync.newMatchIds(), "PUBG 경기 데이터를 저장했습니다.");
+
+        List<PubgMatchFactQueryService.StoredMatchFacts> facts = pubgFacts.findBetween(
+                prepared.startsAt(), prepared.endsExclusive(), prepared.communityAccounts()).stream()
+                .filter(PubgMatchFactQueryService.StoredMatchFacts::telemetryLoaded).toList();
+        List<String> legacyProcessedIds = participantId == null
+                ? processed.findDistinctMatchIdsByEventId(bingoId)
+                : processed.findMatchIds(bingoId, participantId);
+        boolean completeRecalculation = pubgFacts.existingMatchIds(legacyProcessedIds).containsAll(legacyProcessedIds);
+        if (!completeRecalculation) {
+            log.warn("Bingo full recalculation deferred because legacy processed matches are not in PUBG DB - eventId={}, legacyMatches={}",
+                    bingoId, legacyProcessedIds.size());
+        }
+        listener.stage("CALCULATE_BINGO", 0, facts.size(), "저장된 경기 데이터로 빙고를 계산하고 있습니다.");
+        long calculationStarted = System.nanoTime();
+        BingoAggregationResponse response = participantId == null
+                ? calculation.calculate(communityId, bingoId, facts, completeRecalculation)
+                : calculation.calculateParticipant(communityId, bingoId, participantId, facts, completeRecalculation);
+        long calculationMs = elapsedMs(calculationStarted);
+        long totalMs = elapsedMs(totalStarted);
+        log.info("[BINGO_AGG_SUMMARY] eventId={} participants={} accounts={} playerCalls={} discoveredMatches={} " +
+                        "uniqueMatches={} existingMatches={} newMatches={} matchCalls={} matchFailures={} " +
+                        "telemetryCalls={} telemetryFailures={} dbMatchesInserted={} dbPlayerFactsInserted={} " +
+                        "dbKillFactsInserted={} bingoCalculationMs={} totalMs={}",
+                bingoId, prepared.participantCount(), sync.linkedAccounts(), sync.playerApiCalls(),
+                sync.discoveredMatchIds(), sync.discoveredMatchIds(), sync.existingDbMatches(), sync.newMatchIds(),
+                sync.matchApiCalls(), sync.matchFailures(), sync.telemetryApiCalls(), sync.telemetryFailures(),
+                sync.dbMatchesInserted(), sync.dbPlayerFactsInserted(), sync.dbKillFactsInserted(), calculationMs, totalMs);
+        listener.stage("COMPLETED", facts.size(), facts.size(), "빙고 집계가 완료되었습니다.");
+        return response;
+    }
+
+    private boolean telemetryRequired(BingoAggregationPreparationService.PreparedAggregation prepared, PubgMatch match) {
+        return match.playedAt() != null && !match.playedAt().isBefore(prepared.startsAt())
+                && match.playedAt().isBefore(prepared.endsExclusive()) && matchPolicy.isEligible(match)
+                && prepared.participants().stream().anyMatch(participant ->
+                    !match.playedAt().isBefore(participant.eligibleFrom())
+                            && match.teams().stream().flatMap(team -> team.participants().stream())
+                            .anyMatch(player -> participant.accountId().equals(player.accountId())));
+    }
+
+    private long elapsedMs(long started) { return (System.nanoTime() - started) / 1_000_000; }
 }

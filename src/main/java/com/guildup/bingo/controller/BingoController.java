@@ -52,7 +52,6 @@ public class BingoController {
     public BingoAggregationJobResponse aggregate(@PathVariable Long communityId, @PathVariable Long communityGameId,
                                                   @PathVariable Long bingoId, HttpSession session) {
         Long userId = CurrentUserSession.requireUserId(session);
-        bingos.get(userId, communityId, communityGameId, bingoId);
         return aggregationJobs.start(userId, communityId, communityGameId, bingoId);
     }
     @GetMapping("/{bingoId:\\d+}/aggregate/status")
@@ -61,6 +60,20 @@ public class BingoController {
                                                           @PathVariable Long bingoId, HttpSession session) {
         Long userId = CurrentUserSession.requireUserId(session);
         return aggregationJobs.status(userId, communityId, communityGameId, bingoId);
+    }
+    @PostMapping("/{bingoId:\\d+}/aggregate/me") @ResponseStatus(HttpStatus.ACCEPTED)
+    public BingoAggregationJobResponse aggregateMe(@PathVariable Long communityId,
+                                                     @PathVariable Long communityGameId,
+                                                     @PathVariable Long bingoId, HttpSession session) {
+        return aggregationJobs.startPersonal(CurrentUserSession.requireUserId(session),
+                communityId, communityGameId, bingoId);
+    }
+    @GetMapping("/{bingoId:\\d+}/aggregate/me/status")
+    public BingoAggregationJobResponse personalAggregationStatus(@PathVariable Long communityId,
+                                                                  @PathVariable Long communityGameId,
+                                                                  @PathVariable Long bingoId, HttpSession session) {
+        return aggregationJobs.statusPersonal(CurrentUserSession.requireUserId(session),
+                communityId, communityGameId, bingoId);
     }
     @GetMapping("/{bingoId:\\d+}/cells/{cellId:\\d+}/completions")
     public List<BingoCellCompletionResponse> completions(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long bingoId,

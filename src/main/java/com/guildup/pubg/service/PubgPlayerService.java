@@ -21,6 +21,7 @@ import java.util.Optional;
 public class PubgPlayerService {
 
     private static final Duration CACHE_TTL = Duration.ofMinutes(1);
+    private static final int MAX_CACHE_SIZE = 5_000;
 
     private final PubgApiClient apiClient;
     private final Clock clock;
@@ -93,6 +94,7 @@ public class PubgPlayerService {
                     loadedByLookupValue.put(normalize(lookupValue, byName), player);
                 }
             }
+            trimCache();
             for (String value : batch) {
                 String normalizedValue = normalize(value, byName);
                 PubgPlayer player = loadedByLookupValue.get(normalizedValue);
@@ -130,6 +132,10 @@ public class PubgPlayerService {
                     new CachedPlayer(Optional.of(player), expiresAt)
             );
         }
+    }
+
+    private void trimCache() {
+        while (cache.size() > MAX_CACHE_SIZE) cache.remove(cache.keySet().iterator().next());
     }
 
     private record PlayerCacheKey(String shard, boolean byName, String value) {}

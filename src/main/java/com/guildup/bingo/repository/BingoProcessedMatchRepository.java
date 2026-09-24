@@ -8,4 +8,7 @@ public interface BingoProcessedMatchRepository extends JpaRepository<BingoProces
     boolean existsByEventIdAndParticipantIdAndMatchId(Long eventId, Long participantId, String matchId);
     @Query("select processed.matchId from BingoProcessedMatch processed where processed.event.id = :eventId and processed.participant.id = :participantId")
     List<String> findMatchIds(@Param("eventId") Long eventId, @Param("participantId") Long participantId);
+    List<BingoProcessedMatch> findByEventId(Long eventId);
+    @Query("select distinct processed.matchId from BingoProcessedMatch processed where processed.event.id = :eventId")
+    List<String> findDistinctMatchIdsByEventId(@Param("eventId") Long eventId);
 }

@@ -108,7 +108,7 @@ public class PubgApiClient {
 
     public PubgMatch getMatch(String shard, String matchId) {
         try {
-            PubgMatchApiResponse response = requestBody("MATCH", () -> restClient.get()
+            PubgMatchApiResponse response = requestBody("MATCH", false, () -> restClient.get()
                     .uri("/shards/{shard}/matches/{matchId}", shard, matchId)
                     .headers(this::setHeaders)
                     .retrieve()
@@ -270,11 +270,15 @@ public class PubgApiClient {
     }
 
     private <T> T requestBody(String endpoint, Supplier<ResponseEntity<T>> request) {
+        return requestBody(endpoint, true, request);
+    }
+
+    private <T> T requestBody(String endpoint, boolean governed, Supplier<ResponseEntity<T>> request) {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            requestGovernor.acquire();
+            if (governed) requestGovernor.acquire();
             try {
                 ResponseEntity<T> response = request.get();
-                requestGovernor.observe(response.getHeaders());
+                if (governed) requestGovernor.observe(response.getHeaders());
                 return response.getBody();
             } catch (HttpClientErrorException.TooManyRequests exception) {
                 HttpHeaders headers = exception.getResponseHeaders();
@@ -289,7 +293,7 @@ public class PubgApiClient {
                     throw rateLimitException(exception);
                 }
                 long waitMillis = retryWaitMillis(headers, attempt);
-                requestGovernor.cooldownUntil(clock.instant().plusMillis(waitMillis));
+                if (governed) requestGovernor.cooldownUntil(clock.instant().plusMillis(waitMillis));
                 log.warn(
                         "PUBG API retry - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempt={}/{}, waitMs={}, "
                                 + "limit={}, remaining={}, reset={}, retryAfter={}",
@@ -476,7 +480,7 @@ public class PubgApiClient {
                 .findFirst().orElse(null);
         return new PubgMatch(response.data().id(), attributes.createdAt(), attributes.gameMode(),
                 attributes.mapName(), attributes.matchType(), attributes.isCustomMatch(),
-                telemetryUrl, teams);
+                telemetryUrl, attributes.duration(), teams);
     }
 
     private int integer(Integer value) { return value == null ? 0 : value; }

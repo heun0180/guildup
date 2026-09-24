@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS bingo_participants (
     line_count INTEGER NOT NULL DEFAULT 0,
     target_lines_completed_at TIMESTAMPTZ,
     blackout_completed_at TIMESTAMPTZ,
+    last_aggregated_at TIMESTAMPTZ,
     version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT uk_bingo_participant_user UNIQUE(bingo_event_id,community_user_id)
 );
@@ -84,3 +85,6 @@ CREATE TABLE IF NOT EXISTS bingo_line_completions (
     completed_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT uk_bingo_line_participant_key UNIQUE(participant_id,line_key)
 );
+
+-- 기존 운영 테이블에도 참가자별 마지막 계산 시각을 추가한다.
+ALTER TABLE bingo_participants ADD COLUMN IF NOT EXISTS last_aggregated_at TIMESTAMPTZ;

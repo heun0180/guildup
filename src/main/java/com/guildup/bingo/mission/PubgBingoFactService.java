@@ -3,6 +3,8 @@ package com.guildup.bingo.mission;
 import tools.jackson.databind.JsonNode;
 import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.PubgTelemetryClient;
+import com.guildup.pubg.service.PubgMatchFactProvider;
+import com.guildup.bingo.service.BingoAggregationMetrics;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -11,8 +13,9 @@ import java.util.*;
 
 /** 공식 Match 통계와 Telemetry event를 한 번 순회해 공통 PlayerMatchFacts로 변환한다. */
 @Service
-public class PubgBingoFactService {
+public class PubgBingoFactService implements PubgMatchFactProvider {
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
+    private static final int MAX_CACHE_SIZE = 2_000;
     private final PubgTelemetryClient telemetry;
     private final Clock clock;
     private final Map<FactCacheKey, CachedFacts> cache = new LinkedHashMap<>();
@@ -21,12 +24,12 @@ public class PubgBingoFactService {
         this.telemetry = telemetry; this.clock = clock;
     }
 
-    public synchronized Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts) {
+    public Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts) {
         return facts(match, communityAccounts, false);
     }
 
     /** 원본 복구처럼 Telemetry 누락을 0으로 대체할 수 없는 작업에서 사용한다. */
-    public synchronized Map<String, PlayerMatchFacts> factsRequired(PubgMatch match, Set<String> communityAccounts) {
+    public Map<String, PlayerMatchFacts> factsRequired(PubgMatch match, Set<String> communityAccounts) {
         return facts(match, communityAccounts, true);
     }
 
@@ -38,9 +41,16 @@ public class PubgBingoFactService {
             throw new IllegalStateException("Telemetry URL이 없습니다: " + match.matchId());
         }
         FactCacheKey cacheKey = new FactCacheKey(match.matchId(), communityAccounts.stream().sorted().toList());
-        CachedFacts cached = cache.get(cacheKey);
+        BingoAggregationMetrics.Context metric = BingoAggregationMetrics.current();
+        if (metric != null) metric.telemetryRequested++;
+        CachedFacts cached;
+        synchronized (cache) { cached = cache.get(cacheKey); }
         if (cached != null && cached.expiresAt.isAfter(now)
-                && (!telemetryRequired || cached.telemetryLoaded)) return cached.byAccount;
+                && (!telemetryRequired || cached.telemetryLoaded)) {
+            if (metric != null) metric.telemetryCacheHits++;
+            return cached.byAccount;
+        }
+        if (metric != null) metric.telemetryCacheMisses++;
         Map<String, MutableFacts> mutable = new LinkedHashMap<>();
         for (PubgTeam team : match.teams()) {
             Set<String> teamAccounts = team.participants().stream().map(PubgParticipant::accountId)
@@ -52,6 +62,7 @@ public class PubgBingoFactService {
                 mutable.put(player.accountId(), f);
             }
         }
+        if (metric != null) metric.telemetryActualCalls++;
         JsonNode events = telemetry.get(match.telemetryUrl());
         boolean telemetryLoaded = events != null && events.isArray();
         if (telemetryRequired && !telemetryLoaded)
@@ -60,7 +71,11 @@ public class PubgBingoFactService {
         Map<String, PlayerMatchFacts> result = new LinkedHashMap<>();
         mutable.forEach((account, facts) -> result.put(account, facts.freeze()));
         Map<String, PlayerMatchFacts> immutable = Map.copyOf(result);
-        cache.put(cacheKey, new CachedFacts(immutable, telemetryLoaded, now.plus(CACHE_TTL)));
+        synchronized (cache) {
+            cache.entrySet().removeIf(entry -> !entry.getValue().expiresAt.isAfter(now));
+            while (cache.size() >= MAX_CACHE_SIZE) cache.remove(cache.keySet().iterator().next());
+            cache.put(cacheKey, new CachedFacts(immutable, telemetryLoaded, now.plus(CACHE_TTL)));
+        }
         return immutable;
     }
 
@@ -119,7 +134,7 @@ public class PubgBingoFactService {
         String identity = killIdentity(event, killerAccount, victimAccount, at);
         if (f.killKeys.add(identity)) {
             f.kills.add(new PlayerMatchFacts.KillFact(
-                    weapon, BingoWeaponCatalog.category(rawWeapon), throwable, distanceMeters, wall, at));
+                    victimAccount, weapon, BingoWeaponCatalog.category(rawWeapon), throwable, distanceMeters, wall, at));
             f.evidence(at);
         }
     }
@@ -188,9 +203,12 @@ public class PubgBingoFactService {
 
     private void acceptVehicleRide(JsonNode event, Map<String, MutableFacts> facts, Instant at) {
         String riderAccount = account(event, "character"); MutableFacts rider = facts.get(riderAccount); if (rider == null) return;
-        long clanPassengers = java.util.stream.StreamSupport.stream(event.path("fellowPassengers").spliterator(), false)
-                .map(this::account).filter(Objects::nonNull).filter(rider.communityAccounts::contains)
-                .filter(id -> !Objects.equals(id, riderAccount)).count();
+        int rideSequence = ++rider.vehicleRideSequence;
+        List<String> passengers = java.util.stream.StreamSupport.stream(event.path("fellowPassengers").spliterator(), false)
+                .map(this::account).filter(Objects::nonNull).filter(id -> !Objects.equals(id, riderAccount)).toList();
+        passengers.forEach(id -> rider.metrics.put(
+                PubgCommunityMetricSupport.vehiclePassenger(rideSequence, id), BigDecimal.ONE));
+        long clanPassengers = passengers.stream().filter(rider.communityAccounts::contains).count();
         rider.max("MAX_CLAN_VEHICLE_PASSENGERS", clanPassengers); rider.evidence(at);
     }
 
@@ -245,7 +263,7 @@ public class PubgBingoFactService {
         final Map<String, Integer> throwableUses = new LinkedHashMap<>(), pickedItems = new LinkedHashMap<>();
         final Map<String, Integer> usedItems = new LinkedHashMap<>(), carePackageItems = new LinkedHashMap<>(), destroyedArmor = new LinkedHashMap<>();
         final Set<String> telemetryOverrides = new HashSet<>(), killKeys = new HashSet<>(), communityAccounts;
-        int clanMembersInTeam; Instant latestEvidence;
+        int clanMembersInTeam, vehicleRideSequence; Instant latestEvidence;
         MutableFacts(PubgMatch match, PubgParticipant p, Set<String> communityAccounts) {
             this.match = match; this.communityAccounts = Set.copyOf(communityAccounts);
             put("KILLS", p.kills()); put("DAMAGE_DEALT", p.damageDealt()); put("ASSISTS", p.assists());

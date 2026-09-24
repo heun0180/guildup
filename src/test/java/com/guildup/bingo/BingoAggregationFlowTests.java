@@ -85,6 +85,7 @@ class BingoAggregationFlowTests {
         assertThat(participant.getLineCount()).isEqualTo(8);
         assertThat(participant.getTargetLinesCompletedAt()).isNotNull(); assertThat(participant.getBlackoutCompletedAt()).isNotNull();
         verify(factService,times(1)).facts(any(),anySet());
+        verify(pubgMatches,times(1)).findUniqueMatches(eq("kakao"), anyCollection());
     }
 
     @Test void aggregationUsesTheGameStoredOnTheEvent(){
@@ -159,6 +160,89 @@ class BingoAggregationFlowTests {
         BingoParticipant participant=participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
         assertThat(participant.getPubgAccountId()).isEqualTo("account-new");
         assertThat(participant.getPubgNickname()).isEqualTo("RenamedPUBG");
+    }
+
+    @Test void personalAggregationLoadsOnlyTheAuthenticatedParticipantAndMatchesFullCalculation() {
+        User bravo = addMember("여우", "b", "account-b", "FoxPUBG", CommunityUserRole.MEMBER);
+        User charlie = addMember("치즈", "c", "account-c", "CheesePUBG", CommunityUserRole.MEMBER);
+        var event = events.create(owner.getId(), community.getId(), request());
+        Instant at = clock.instant().minus(Duration.ofMinutes(10));
+        PubgMatch shared = new PubgMatch("shared", at, "squad", "Erangel_Main", "official", false,
+                "https://telemetry-cdn.pubg.com/shared",
+                List.of(new PubgTeam(List.of(new PubgParticipant("account-b", "FoxPUBG", 5)))));
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenAnswer(invocation -> {
+            Collection<String> requested = invocation.getArgument(1);
+            if (requested.equals(List.of("account-b")))
+                return List.of(new PubgPlayer("account-b", "FoxPUBG", List.of("shared")));
+            return requested.stream().map(account -> new PubgPlayer(account, account,
+                    account.equals("account-b") ? List.of("shared") : List.of())).toList();
+        });
+        when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of("shared", shared));
+        when(factService.facts(argThat(value -> value.matchId().equals("shared")), anySet()))
+                .thenReturn(Map.of("account-b", facts("shared", at, 5)));
+
+        aggregation.aggregatePersonal(bravo.getId(), community.getId(), event.id());
+
+        verify(pubgPlayers).findByAccountIdsFresh("kakao", List.of("account-b"));
+        BingoParticipant a = participants.findByEventIdAndCommunityUserUserId(event.id(), owner.getId()).orElseThrow();
+        BingoParticipant b = participants.findByEventIdAndCommunityUserUserId(event.id(), bravo.getId()).orElseThrow();
+        BingoParticipant c = participants.findByEventIdAndCommunityUserUserId(event.id(), charlie.getId()).orElseThrow();
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(a.getId()))
+                .allSatisfy(row -> assertThat(row.getCurrentValue()).isEqualByComparingTo("0"));
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(c.getId()))
+                .allSatisfy(row -> assertThat(row.getCurrentValue()).isEqualByComparingTo("0"));
+        List<BigDecimal> personalValues = progress.findByParticipantIdOrderByCellPositionAsc(b.getId()).stream()
+                .map(BingoProgress::getCurrentValue).toList();
+        assertThat(personalValues).allMatch(value -> value.compareTo(BigDecimal.valueOf(5)) == 0);
+        assertThat(participants.findById(a.getId()).orElseThrow().getLastAggregatedAt()).isNull();
+        assertThat(participants.findById(c.getId()).orElseThrow().getLastAggregatedAt()).isNull();
+        assertThat(participants.findById(b.getId()).orElseThrow().getLastAggregatedAt()).isEqualTo(clock.instant());
+
+        aggregation.aggregate(owner.getId(), community.getId(), event.id());
+
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(b.getId()).stream()
+                .map(BingoProgress::getCurrentValue).toList()).isEqualTo(personalValues);
+        verify(pubgMatches, times(1)).findUniqueMatches(eq("kakao"), anyCollection());
+        verify(factService, times(1)).facts(any(), anySet());
+    }
+
+    @Test void ordinaryMemberCanAggregateSelfButCannotAggregateEveryone() {
+        User member = addMember("여우", "member", "account-member", "MemberPUBG", CommunityUserRole.MEMBER);
+        var event = events.create(owner.getId(), community.getId(), request());
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
+
+        assertThat(aggregation.aggregatePersonal(member.getId(), community.getId(), event.id()).updatedParticipants())
+                .isZero();
+        assertThatThrownBy(() -> aggregation.aggregate(member.getId(), community.getId(), event.id()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test void personalAggregationRejectsACommunityMemberWhoDidNotJoinTheBingo() {
+        var event = events.create(owner.getId(), community.getId(), request());
+        User late = addMember("늦은 참가자", "late", "account-late", "LatePUBG", CommunityUserRole.MEMBER);
+
+        assertThatThrownBy(() -> aggregation.aggregatePersonal(late.getId(), community.getId(), event.id()))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(exception.getReason()).isEqualTo("현재 빙고 참가자가 아닙니다.");
+                });
+        verifyNoInteractions(pubgPlayers, pubgMatches, factService);
+    }
+
+    @Test void personalAggregationRejectsDisconnectedPubgAccountBeforeCallingPubg() {
+        var event = events.create(owner.getId(), community.getId(), request());
+        CommunityMember member = members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProvider(
+                member.getId(), ExternalAccountProvider.PUBG).orElseThrow());
+        memberAccounts.flush();
+
+        assertThatThrownBy(() -> aggregation.aggregatePersonal(owner.getId(), community.getId(), event.id()))
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> {
+                    assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(exception.getReason()).isEqualTo("PUBG 계정을 연결한 뒤 다시 시도해 주세요.");
+                });
+        verifyNoInteractions(pubgPlayers, pubgMatches, factService);
     }
 
     @Test void cellClanPlayRequirementIgnoresPersonalStatsFromSoloMatches(){
@@ -329,6 +413,21 @@ class BingoAggregationFlowTests {
     }
 
     private long index(String id){return Long.parseLong(id.substring(1));}
+
+    private User addMember(String nickname, String suffix, String accountId, String pubgName,
+                           CommunityUserRole role) {
+        User user = users.save(new User(nickname));
+        CommunityUser membership = new CommunityUser(community, user, role);
+        ReflectionTestUtils.setField(membership, "joinedAt", clock.instant().minus(Duration.ofHours(2)));
+        memberships.save(membership);
+        userAccounts.save(new UserExternalAccount(user, ExternalAccountProvider.DISCORD, "discord-" + suffix, nickname));
+        CommunityMember member = members.save(new CommunityMember(community, nickname));
+        memberAccounts.save(new CommunityMemberAccount(
+                member, ExternalAccountProvider.DISCORD, "discord-" + suffix, nickname));
+        memberAccounts.save(new CommunityMemberAccount(
+                member, ExternalAccountProvider.PUBG, accountId, pubgName));
+        return user;
+    }
 
     private BingoEventRequest request(){
         List<BingoEventRequest.Cell> cells=new ArrayList<>();

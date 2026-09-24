@@ -12,8 +12,10 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -106,6 +108,36 @@ class PubgMatchServiceTests {
         }
 
         assertThat(service.cacheSize()).isEqualTo(5);
+    }
+
+    @Test
+    void concurrentJobsShareTheApplicationWideMatchLimit() throws Exception {
+        PubgApiClient client = mock(PubgApiClient.class);
+        CountDownLatch entered = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maximum = new AtomicInteger();
+        when(client.getMatch(anyString(), anyString())).thenAnswer(invocation -> {
+            int current = active.incrementAndGet();
+            maximum.accumulateAndGet(current, Math::max);
+            entered.countDown();
+            assertThat(release.await(2, TimeUnit.SECONDS)).isTrue();
+            active.decrementAndGet();
+            return match(invocation.getArgument(1));
+        });
+        PubgMatchService service = new PubgMatchService(
+                client, FIXED_CLOCK, Duration.ofHours(24), Duration.ofMinutes(1), 100, 2);
+
+        try (var callers = Executors.newFixedThreadPool(8)) {
+            var futures = java.util.stream.IntStream.range(0, 8)
+                    .mapToObj(index -> callers.submit(() -> service.findUniqueMatches(
+                            "kakao", List.of("global-" + index)))).toList();
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(maximum.get()).isEqualTo(2);
+            release.countDown();
+            for (var future : futures) assertThat(future.get(3, TimeUnit.SECONDS)).hasSize(1);
+        }
+        assertThat(maximum.get()).isEqualTo(2);
     }
 
     private PubgMatchService service(PubgApiClient client, int maximumSize) {

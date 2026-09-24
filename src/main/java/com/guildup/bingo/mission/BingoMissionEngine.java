@@ -1,6 +1,7 @@
 package com.guildup.bingo.mission;
 
 import com.guildup.bingo.domain.*;
+import com.guildup.pubg.model.PlayerMatchFacts;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;

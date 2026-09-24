@@ -2,6 +2,7 @@ package com.guildup.bingo;
 
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.mission.*;
+import com.guildup.pubg.model.PlayerMatchFacts;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;

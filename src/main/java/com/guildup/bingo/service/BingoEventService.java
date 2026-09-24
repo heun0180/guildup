@@ -237,7 +237,8 @@ public class BingoEventService {
             int completed = (int) byParticipant.get(p.getId()).stream().filter(BingoProgress::isCompleted).count();
             return new BingoDetailResponse.Participant(p.getId(), p.getCommunityUser().getUser().getNickname(),
                     p.getPubgNickname(), completed,
-                    p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt());
+                    p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt(),
+                    p.getLastAggregatedAt());
         }).toList() : List.of();
         return new BingoDetailResponse(event.getId(), event.getTitle(), event.getDescription(), event.getBoardSize(),
                 event.getTargetLines(), event.isBlackoutEnabled(), event.isAllowLateJoin(), event.getStartsAt(), event.getEndsAt(),
@@ -250,7 +251,8 @@ public class BingoEventService {
                 row.getCompletedAt(), row.getEvidenceMatchId(), row.getEvidenceEventAt())).toList();
         return new BingoDetailResponse.PlayerBoard(p.getId(), p.getCommunityUser().getUser().getNickname(),
                 p.getPubgAccountId() != null, p.getPubgNickname(), (int) rows.stream().filter(BingoProgress::isCompleted).count(),
-                p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt(), values);
+                p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt(),
+                p.getLastAggregatedAt(), values);
     }
     private void validate(BingoEventRequest request) {
         if (request == null || request.title() == null || request.title().isBlank()) bad("빙고 이름을 입력해 주세요.");

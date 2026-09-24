@@ -22,6 +22,7 @@ public class BingoParticipant {
     @Column(name = "line_count", nullable = false) private int lineCount;
     @Column(name = "target_lines_completed_at") private Instant targetLinesCompletedAt;
     @Column(name = "blackout_completed_at") private Instant blackoutCompletedAt;
+    @Column(name = "last_aggregated_at") private Instant lastAggregatedAt;
     @Version private long version;
 
     protected BingoParticipant() {}
@@ -51,6 +52,8 @@ public class BingoParticipant {
         this.blackoutCompletedAt = blackoutCompletedAt;
         return true;
     }
+    /** 이 참가자의 저장된 Fact 기반 진행도를 마지막으로 계산한 시각이다. */
+    public void aggregated(Instant at) { lastAggregatedAt = at; }
     public Long getId() { return id; }
     public BingoEvent getEvent() { return event; }
     public CommunityUser getCommunityUser() { return communityUser; }
@@ -62,4 +65,5 @@ public class BingoParticipant {
     public int getLineCount() { return lineCount; }
     public Instant getTargetLinesCompletedAt() { return targetLinesCompletedAt; }
     public Instant getBlackoutCompletedAt() { return blackoutCompletedAt; }
+    public Instant getLastAggregatedAt() { return lastAggregatedAt; }
 }

@@ -186,6 +186,35 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .bingo-form-actions .secondary-button, .bingo-modal-actions .secondary-button, .bingo-detail-actions .secondary-button, .bingo-modal > .secondary-button { margin-top:0; }
 .bingo-aggregation-status { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px 16px; margin-top:8px; color:var(--color-text-secondary); font-size:.75rem; }
 .bingo-aggregation-status strong { color:var(--color-text); }
+.bingo-personal-aggregation { position:relative; display:grid; grid-template-columns:minmax(0,1fr) minmax(350px,.95fr); gap:28px; overflow:hidden; margin:14px 0 18px; border-color:#dfe1ff; padding:24px; background:linear-gradient(135deg,#fff 0%,#fafaff 58%,#f0f2ff 100%); box-shadow:0 10px 28px rgba(88,101,242,.08); }
+.bingo-personal-aggregation::after { position:absolute; top:-72px; right:-62px; width:180px; height:180px; border:32px solid rgba(88,101,242,.045); border-radius:50%; content:""; pointer-events:none; }
+.bingo-personal-aggregation.is-running { border-color:#c8cdfd; box-shadow:0 12px 32px rgba(88,101,242,.12); }
+.bingo-personal-summary { position:relative; z-index:1; display:flex; align-items:flex-start; gap:15px; min-width:0; }
+.bingo-personal-icon { display:grid; width:48px; height:48px; flex:0 0 48px; place-items:center; border-radius:14px; background:var(--color-primary); color:#fff; box-shadow:0 7px 16px rgba(88,101,242,.22); }
+.bingo-personal-copy { min-width:0; }
+.bingo-personal-copy .eyebrow { margin:0 0 3px; }
+.bingo-personal-title { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.bingo-personal-title h2 { margin:0; font-size:1.18rem; }
+.bingo-account-badge { border-radius:999px; padding:3px 8px; background:var(--color-success-soft); color:var(--color-success); font-size:.64rem; font-weight:800; }
+.bingo-account-badge.is-disconnected { background:var(--color-warning-soft); color:var(--color-warning); }
+.bingo-personal-copy > p:last-child { max-width:440px; margin-top:7px; color:var(--color-text-secondary); font-size:.78rem; }
+.bingo-personal-dashboard { position:relative; z-index:1; display:grid; gap:12px; }
+.bingo-personal-metrics { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(110px,.65fr); gap:9px; }
+.bingo-personal-metrics > div { display:grid; align-content:center; min-height:68px; gap:3px; border:1px solid rgba(88,101,242,.12); border-radius:11px; padding:11px 13px; background:rgba(255,255,255,.82); }
+.bingo-personal-metrics span { color:var(--color-text-secondary); font-size:.66rem; font-weight:700; }
+.bingo-personal-metrics strong { color:var(--color-text); font-size:.84rem; line-height:1.35; }
+.bingo-personal-metrics strong small { color:var(--color-text-secondary); font-size:.7rem; }
+.bingo-personal-action { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.bingo-personal-status { display:flex; min-width:0; align-items:center; gap:7px; color:var(--color-text-secondary); font-size:.7rem; }
+.bingo-personal-status > span { width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:#a9aebb; }
+.bingo-personal-status.is-active { color:var(--color-primary-dark); font-weight:700; }
+.bingo-personal-status.is-active > span { background:var(--color-primary); box-shadow:0 0 0 4px rgba(88,101,242,.12); animation:bingo-status-pulse 1.4s ease-in-out infinite; }
+.bingo-personal-status strong { color:var(--color-text); }
+.bingo-update-button { flex:0 0 auto; white-space:nowrap; box-shadow:0 6px 14px rgba(88,101,242,.18); }
+.bingo-update-button:disabled { box-shadow:none; }
+.bingo-update-button .is-spinning { animation:bingo-refresh-spin 1s linear infinite; }
+@keyframes bingo-refresh-spin { to { transform:rotate(360deg); } }
+@keyframes bingo-status-pulse { 50% { opacity:.45; transform:scale(.82); } }
 .bingo-modal { display:grid; width:min(100%,520px); max-height:calc(100vh - 40px); gap:15px; overflow-y:auto; padding:26px; }
 .bingo-modal h2 { margin-bottom:4px; }
 .bingo-modal h3 { margin-top:8px; font-size:.9rem; }
@@ -211,7 +240,7 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .bingo-completions { margin:0; padding:0; list-style:none; }
 .bingo-completions li { display:flex; justify-content:space-between; border-top:1px solid var(--color-border); padding:9px 0; font-size:.76rem; }
 .bingo-completions span { color:var(--color-text-secondary); }
-@media(max-width:720px){.bingo-heading,.bingo-overview{display:flex;align-items:stretch;flex-direction:column}.bingo-heading button{width:100%}.bingo-heading-actions{display:grid;grid-template-columns:1fr}.bingo-form{grid-template-columns:1fr;padding:19px}.bingo-form .wide{grid-column:auto}.bingo-overview dl,.bingo-scheduled dl{grid-template-columns:1fr 1fr}.bingo-cell{min-height:100px}.bingo-detail-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}.bingo-detail-actions button{width:100%}}
+@media(max-width:720px){.bingo-heading,.bingo-overview{display:flex;align-items:stretch;flex-direction:column}.bingo-heading button{width:100%}.bingo-heading-actions{display:grid;grid-template-columns:1fr}.bingo-form{grid-template-columns:1fr;padding:19px}.bingo-form .wide{grid-column:auto}.bingo-overview dl,.bingo-scheduled dl{grid-template-columns:1fr 1fr}.bingo-personal-aggregation{grid-template-columns:1fr;gap:20px;padding:19px}.bingo-personal-metrics{grid-template-columns:1fr 1fr}.bingo-personal-action{align-items:stretch;flex-direction:column}.bingo-personal-aggregation button{width:100%}.bingo-cell{min-height:100px}.bingo-detail-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr))}.bingo-detail-actions button{width:100%}}
 .confirm-modal { width: min(100%, 440px); border-radius: 16px; padding: 30px; background: var(--color-surface); box-shadow: var(--shadow-elevated); text-align: center; }
 .confirm-modal-icon { display: grid; width: 50px; height: 50px; place-items: center; margin: 0 auto 16px; border-radius: 14px; background: var(--color-primary-soft); color: var(--color-primary); }
 .confirm-modal h2 { font-size: 1.08rem; }

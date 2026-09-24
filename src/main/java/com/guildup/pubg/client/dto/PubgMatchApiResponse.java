@@ -6,8 +6,13 @@ import java.util.List;
 
 public record PubgMatchApiResponse(MatchResource data, List<IncludedResource> included) {
     public record MatchResource(String id, MatchAttributes attributes, MatchRelationships relationships) {}
-    public record MatchAttributes(Instant createdAt, String gameMode, String mapName,
-                                  String matchType, Boolean isCustomMatch) {}
+    public record MatchAttributes(Instant createdAt, Integer duration, String gameMode, String mapName,
+                                  String matchType, Boolean isCustomMatch) {
+        public MatchAttributes(Instant createdAt, String gameMode, String mapName,
+                               String matchType, Boolean isCustomMatch) {
+            this(createdAt, null, gameMode, mapName, matchType, isCustomMatch);
+        }
+    }
     public record MatchRelationships(AssetRelationship assets) {}
     public record AssetRelationship(List<ResourceReference> data) {}
     public record IncludedResource(

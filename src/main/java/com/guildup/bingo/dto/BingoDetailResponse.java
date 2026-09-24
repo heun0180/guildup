@@ -17,10 +17,12 @@ public record BingoDetailResponse(
     public record PlayerBoard(Long participantId, String nickname, boolean pubgConnected,
                               String pubgNickname, int completedCells, int lineCount,
                               Instant targetLinesCompletedAt, Instant blackoutCompletedAt,
+                              Instant lastAggregatedAt,
                               List<Progress> progress) {}
     public record Progress(Long cellId, BigDecimal currentValue, int occurrenceCount,
                            boolean completed, Instant completedAt, String evidenceMatchId,
                            Instant evidenceEventAt) {}
     public record Participant(Long participantId, String nickname, String pubgNickname, int completedCells,
-                              int lineCount, Instant targetLinesCompletedAt, Instant blackoutCompletedAt) {}
+                              int lineCount, Instant targetLinesCompletedAt, Instant blackoutCompletedAt,
+                              Instant lastAggregatedAt) {}
 }

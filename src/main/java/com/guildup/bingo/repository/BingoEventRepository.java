@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.*;
 
 public interface BingoEventRepository extends JpaRepository<BingoEvent, Long> {
+    boolean existsByIdAndCommunityIdAndCommunityGameId(Long id, Long communityId, Long communityGameId);
     @EntityGraph(attributePaths = "cells")
     List<BingoEvent> findByCommunityGameIdOrderByStartsAtDesc(Long communityGameId);
     List<BingoEvent> findByCommunityIdOrderByStartsAtDesc(Long communityId);

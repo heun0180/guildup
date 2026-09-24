@@ -18,12 +18,14 @@ import java.util.ArrayDeque;
 import java.util.Queue;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class BingoAggregationJobServiceTests {
     @Mock BingoAggregationService aggregation;
     @Mock CommunityAccessService access;
+    @Mock BingoAggregationRuntimeProbe runtimeProbe;
     Queue<Runnable> tasks;
     BingoAggregationJobService jobs;
 
@@ -32,12 +34,12 @@ class BingoAggregationJobServiceTests {
         tasks = new ArrayDeque<>();
         TaskExecutor executor = tasks::add;
         jobs = new BingoAggregationJobService(aggregation, access, executor,
-                Clock.fixed(Instant.parse("2026-09-24T05:00:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-09-24T05:00:00Z"), ZoneOffset.UTC), runtimeProbe);
     }
 
     @Test
     void requestReturnsImmediatelyAndTheWorkerPublishesTheSuccessfulResult() {
-        when(aggregation.aggregate(1L, 10L, 100L)).thenReturn(new BingoAggregationResponse(
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenReturn(new BingoAggregationResponse(
                 100L, 12, 3, "ACTIVE", Instant.parse("2026-09-24T05:00:00Z")));
 
         var started = jobs.start(1L, 10L, 20L, 100L);
@@ -75,7 +77,7 @@ class BingoAggregationJobServiceTests {
 
     @Test
     void aFailedWorkerKeepsAVisibleFailureInsteadOfLeavingTheButtonRunningForever() {
-        when(aggregation.aggregate(1L, 10L, 100L)).thenThrow(
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenThrow(
                 new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "30분 후 다시 실행해 주세요."));
 
         jobs.start(1L, 10L, 20L, 100L);
@@ -85,5 +87,43 @@ class BingoAggregationJobServiceTests {
         assertThat(failed.state()).isEqualTo("FAILED");
         assertThat(failed.message()).isEqualTo("30분 후 다시 실행해 주세요.");
         assertThat(failed.aggregatedAt()).isNull();
+    }
+
+    @Test
+    void duplicatePersonalClicksShareOneWorkerButDifferentParticipantsRunIndependently() {
+        when(aggregation.validatePersonalRequest(1L, 10L, 100L)).thenReturn(101L);
+        when(aggregation.validatePersonalRequest(2L, 10L, 100L)).thenReturn(102L);
+        when(aggregation.resolvePersonalParticipantId(1L, 10L, 100L)).thenReturn(101L);
+        when(aggregation.resolvePersonalParticipantId(2L, 10L, 100L)).thenReturn(102L);
+
+        var first = jobs.startPersonal(1L, 10L, 20L, 100L);
+        var duplicate = jobs.startPersonal(1L, 10L, 20L, 100L);
+        var other = jobs.startPersonal(2L, 10L, 20L, 100L);
+
+        assertThat(duplicate).isEqualTo(first);
+        assertThat(other.state()).isEqualTo("RUNNING");
+        assertThat(tasks).hasSize(2);
+    }
+
+    @Test
+    void personalAndFullJobsForTheSameEventHaveDifferentKeys() {
+        when(aggregation.validatePersonalRequest(1L, 10L, 100L)).thenReturn(101L);
+        when(aggregation.resolvePersonalParticipantId(1L, 10L, 100L)).thenReturn(101L);
+
+        jobs.startPersonal(1L, 10L, 20L, 100L);
+        jobs.start(1L, 10L, 20L, 100L);
+
+        assertThat(tasks).hasSize(2);
+    }
+
+    @Test
+    void ordinaryMemberCannotStartFullAggregation() {
+        doThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "Community management access denied"))
+                .when(access).requireCommunityAdmin(1L, 10L);
+
+        assertThatThrownBy(() -> jobs.start(1L, 10L, 20L, 100L))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
+        assertThat(tasks).isEmpty();
     }
 }

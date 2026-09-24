@@ -3,7 +3,9 @@ package com.guildup.pubg.service;
 import com.guildup.pubg.client.PubgApiClient;
 import com.guildup.pubg.model.PubgMatch;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PreDestroy;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -18,6 +20,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 
 /** 활동, 빙고, 킬내기가 함께 쓰는 종료 Match 조회 저장소다. */
 @Service
@@ -36,14 +42,18 @@ public class PubgMatchService {
     private final LinkedHashMap<MatchCacheKey, CachedMatch> cache = new LinkedHashMap<>(16, 0.75f, true);
     private final ConcurrentMap<MatchCacheKey, CompletableFuture<Optional<PubgMatch>>> inFlight =
             new ConcurrentHashMap<>();
+    private final int fetchConcurrency;
+    private final Semaphore fetchPermits;
+    private final ExecutorService fetchExecutor;
 
     @Autowired
-    public PubgMatchService(PubgApiClient apiClient) {
-        this(apiClient, Clock.systemUTC(), SUCCESS_CACHE_TTL, MISSING_CACHE_TTL, MAX_CACHE_SIZE);
+    public PubgMatchService(PubgApiClient apiClient,
+                            @Value("${pubg.match.fetch-concurrency:3}") int fetchConcurrency) {
+        this(apiClient, Clock.systemUTC(), SUCCESS_CACHE_TTL, MISSING_CACHE_TTL, MAX_CACHE_SIZE, fetchConcurrency);
     }
 
     PubgMatchService(PubgApiClient apiClient, Clock clock, Duration cacheTtl) {
-        this(apiClient, clock, cacheTtl, MISSING_CACHE_TTL, MAX_CACHE_SIZE);
+        this(apiClient, clock, cacheTtl, MISSING_CACHE_TTL, MAX_CACHE_SIZE, 3);
     }
 
     PubgMatchService(
@@ -53,11 +63,26 @@ public class PubgMatchService {
             Duration missingCacheTtl,
             int maximumSize
     ) {
+        this(apiClient, clock, successCacheTtl, missingCacheTtl, maximumSize, 3);
+    }
+
+    PubgMatchService(
+            PubgApiClient apiClient,
+            Clock clock,
+            Duration successCacheTtl,
+            Duration missingCacheTtl,
+            int maximumSize,
+            int fetchConcurrency
+    ) {
         this.apiClient = apiClient;
         this.clock = clock;
         this.successCacheTtl = successCacheTtl;
         this.missingCacheTtl = missingCacheTtl;
         this.maximumSize = maximumSize;
+        this.fetchConcurrency = Math.max(1, fetchConcurrency);
+        this.fetchPermits = new Semaphore(this.fetchConcurrency, true);
+        this.fetchExecutor = Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("pubg-match-", 0).factory());
     }
 
     public Map<String, PubgMatch> findUniqueMatches(String shard, Collection<String> matchIds) {
@@ -85,23 +110,43 @@ public class PubgMatchService {
     ) {
         Map<String, PubgMatch> result = new LinkedHashMap<>();
         List<String> uniqueIds = List.copyOf(new LinkedHashSet<>(matchIds));
-        for (String matchId : uniqueIds) {
-            Optional<PubgMatch> match = findOne(new MatchCacheKey(shard, matchId), refreshMissing);
-            match.ifPresent(value -> result.put(matchId, value));
+        if (uniqueIds.isEmpty()) return Map.of();
+        List<Future<Optional<PubgMatch>>> futures = uniqueIds.stream()
+                .map(matchId -> fetchExecutor.submit(() -> findOne(
+                        new MatchCacheKey(shard, matchId), refreshMissing))).toList();
+        for (int index = 0; index < uniqueIds.size(); index++) {
+            try {
+                Optional<PubgMatch> match = futures.get(index).get();
+                if (match.isPresent()) result.put(uniqueIds.get(index), match.get());
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("PUBG Match 조회가 중단되었습니다.", exception);
+            } catch (java.util.concurrent.ExecutionException exception) {
+                if (exception.getCause() instanceof RuntimeException runtime) throw runtime;
+                throw new IllegalStateException(exception.getCause());
+            }
         }
         return Map.copyOf(result);
     }
 
     private Optional<PubgMatch> findOne(MatchCacheKey key, boolean refreshMissing) {
         Optional<PubgMatch> cached = cached(key, refreshMissing);
-        if (cached != null) return cached;
+        if (cached != null) {
+            return cached;
+        }
 
         CompletableFuture<Optional<PubgMatch>> created = new CompletableFuture<>();
         CompletableFuture<Optional<PubgMatch>> existing = inFlight.putIfAbsent(key, created);
         if (existing != null) return await(existing);
 
         try {
-            Optional<PubgMatch> loaded = Optional.ofNullable(apiClient.getMatch(key.shard(), key.matchId()));
+            acquire(fetchPermits, "PUBG Match 조회가 중단되었습니다.");
+            Optional<PubgMatch> loaded;
+            try {
+                loaded = Optional.ofNullable(apiClient.getMatch(key.shard(), key.matchId()));
+            } finally {
+                fetchPermits.release();
+            }
             putCache(key, loaded);
             created.complete(loaded);
             return loaded;
@@ -146,12 +191,24 @@ public class PubgMatchService {
         }
     }
 
+    private void acquire(Semaphore permits, String message) {
+        try {
+            permits.acquire();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(message, exception);
+        }
+    }
+
     int cacheSize() {
         synchronized (cacheLock) {
             removeExpired(clock.instant());
             return cache.size();
         }
     }
+
+    @PreDestroy
+    void shutdownExecutor() { fetchExecutor.shutdown(); }
 
     private record MatchCacheKey(String shard, String matchId) {}
 

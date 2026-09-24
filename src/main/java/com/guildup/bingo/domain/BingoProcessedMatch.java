@@ -18,4 +18,6 @@ public class BingoProcessedMatch {
         this.event = event; this.participant = participant; this.matchId = matchId;
         this.matchStartedAt = matchStartedAt; this.processedAt = processedAt;
     }
+    public BingoParticipant getParticipant() { return participant; }
+    public String getMatchId() { return matchId; }
 }
