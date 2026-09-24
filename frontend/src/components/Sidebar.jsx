@@ -1,7 +1,7 @@
 import Icon from "./Icon.jsx";
 import { canAccessCommunityMenu, canManageCommunity } from "../communityAccess.js";
 import AppLink from "./AppLink.jsx";
-import { gameMenuItems } from "../gameMenu.js";
+import { gameManagementMenuItems, gameMenuItems } from "../gameMenu.js";
 
 export default function Sidebar({ community, communityId, active, loading = false }) {
   const canManage = canManageCommunity(community?.role);
@@ -41,6 +41,7 @@ export default function Sidebar({ community, communityId, active, loading = fals
     { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
   ];
   const managementItems = [
+    ...gameManagementMenuItems(community, communityId),
     { id: "integrations", label: "연동 기능", icon: "link", href: integrationsUrl },
   ].filter((item) => canAccessCommunityMenu(community?.role, item.id));
   const gameGroups = gameMenuItems(community, communityId);

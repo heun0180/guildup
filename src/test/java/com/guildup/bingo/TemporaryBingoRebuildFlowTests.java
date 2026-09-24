@@ -87,7 +87,7 @@ class TemporaryBingoRebuildFlowTests {
     }
 
     @Test
-    void previewAndApplySetsAllSixteenMissionsAndUsesProcessedUnionWithoutDeletingLedger() {
+    void previewAndApplyUpdatesOnlyDifferentMissionsAndKeepsProcessedLedger() {
         BingoEvent event = createEvent();
         BingoParticipant participant = participant(event);
         setOldProgress(participant, BingoMissionType.LONG_DISTANCE_KILL, 5, true);
@@ -95,6 +95,7 @@ class TemporaryBingoRebuildFlowTests {
         setOldProgress(participant, BingoMissionType.KILLS, 50, true);
         saveProcessed(event, participant, "M1", 1);
         saveProcessed(event, participant, "M2", 2);
+        saveProcessed(event, participant, "M3", 3);
         completeWinningKillCompetition();
 
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
@@ -116,12 +117,14 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(preview.participants()).singleElement().satisfies(result -> {
             assertChange(result, BingoMissionType.LONG_DISTANCE_KILL, "5", "1", false);
             assertChange(result, BingoMissionType.WEAPON_KILLS, "0", "2", false);
-            assertChange(result, BingoMissionType.KILLS, "50", "50", true);
             assertChange(result, BingoMissionType.KILL_BET_WIN, "0", "1", true);
-            assertThat(result.changes()).hasSize(16);
+            assertThat(result.changes()).noneMatch(change -> change.missionType().equals(BingoMissionType.KILLS.name()));
+            assertThat(result.changes()).hasSize(15);
         });
         assertThat(value(participant, BingoMissionType.LONG_DISTANCE_KILL)).isEqualByComparingTo("5");
-        assertThat(processed.findMatchIds(event.getId(), participant.getId())).containsExactlyInAnyOrder("M1", "M2");
+        assertThat(processed.findMatchIds(event.getId(), participant.getId()))
+                .containsExactlyInAnyOrder("M1", "M2", "M3");
+        Instant unchangedKillsUpdatedAt = row(participant, BingoMissionType.KILLS).getUpdatedAt();
 
         TemporaryBingoRebuildResponse applied = rebuild.apply(owner.getId(), community.getId(), game.getId(), preview.previewToken());
 
@@ -131,6 +134,7 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(value(participant, BingoMissionType.KILLS)).isEqualByComparingTo("50");
         assertThat(row(participant, BingoMissionType.LONG_DISTANCE_KILL).isCompleted()).isFalse();
         assertThat(row(participant, BingoMissionType.LONG_DISTANCE_KILL).getCompletedAt()).isNull();
+        assertThat(row(participant, BingoMissionType.KILLS).getUpdatedAt()).isEqualTo(unchangedKillsUpdatedAt);
         assertThat(processed.findMatchIds(event.getId(), participant.getId()))
                 .containsExactlyInAnyOrder("M1", "M2", "M3");
 
@@ -170,6 +174,7 @@ class TemporaryBingoRebuildFlowTests {
     void telemetryFailureFailsWithoutWritingZero() {
         BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
         setOldProgress(participant, BingoMissionType.WEAPON_KILLS, 2, false);
+        saveProcessed(event, participant, "M1", 1);
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 new PubgPlayer("account-a", "Apple", List.of("M1"))));
         when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(Map.of("M1", match("M1", 1)));
@@ -188,6 +193,9 @@ class TemporaryBingoRebuildFlowTests {
     @Test
     void rebuildUsesMatchStartInclusiveEndMinuteAndNextMinuteExclusive() {
         BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        saveProcessed(event, participant, "start", 0);
+        processed.save(new BingoProcessedMatch(event, participant, "end-minute",
+                event.getEndsAt().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).plusSeconds(59), clock.instant()));
         Map<String, PubgMatch> rows = Map.of(
                 "before", matchAt("before", event.getStartsAt().minusSeconds(1)),
                 "start", matchAt("start", event.getStartsAt()),
@@ -208,6 +216,90 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(result.matchCount()).isEqualTo(2);
         assertChange(result.participants().getFirst(), BingoMissionType.MATCHES_PLAYED, "0", "2", true);
         assertThat(value(participant, BingoMissionType.MATCHES_PLAYED)).isZero();
+    }
+
+    @Test
+    void exactlyTwoDifferentMissionsUpdateAndAllOtherRowsStayUntouched() {
+        BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        setOldProgress(participant, BingoMissionType.LONG_DISTANCE_KILL, 5, true);
+        saveProcessed(event, participant, "M1", 1);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "Apple", List.of("M1"))));
+        when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList()))
+                .thenReturn(Map.of("M1", match("M1", 1)));
+        when(factService.factsRequired(any(), anySet())).thenReturn(Map.of(
+                "account-a", repairOnlyFacts("M1", match("M1", 1).playedAt())));
+        Map<Long, Instant> updatedBefore = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())
+                .stream().collect(Collectors.toMap(BingoProgress::getId, BingoProgress::getUpdatedAt));
+
+        TemporaryBingoRebuildResponse preview = rebuild.preview(owner.getId(), community.getId(), game.getId());
+
+        assertThat(preview.status()).isEqualTo("REBUILD_PREVIEW_READY");
+        assertThat(preview.changedProgressCount()).isEqualTo(2);
+        assertThat(preview.participants()).singleElement().satisfies(result ->
+                assertThat(result.changes()).extracting(TemporaryBingoRebuildResponse.ProgressChange::missionType)
+                        .containsExactlyInAnyOrder(BingoMissionType.LONG_DISTANCE_KILL.name(),
+                                BingoMissionType.WEAPON_KILLS.name()));
+        clock.set(clock.instant().plusSeconds(1));
+        rebuild.apply(owner.getId(), community.getId(), game.getId(), preview.previewToken());
+
+        for (BingoProgress row : progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())) {
+            if (Set.of(BingoMissionType.LONG_DISTANCE_KILL, BingoMissionType.WEAPON_KILLS)
+                    .contains(row.getCell().getMissionType())) {
+                assertThat(row.getUpdatedAt()).isAfter(updatedBefore.get(row.getId()));
+            } else {
+                assertThat(row.getUpdatedAt()).isEqualTo(updatedBefore.get(row.getId()));
+            }
+        }
+        assertThat(processed.findMatchIds(event.getId(), participant.getId())).containsExactly("M1");
+    }
+
+    @Test
+    void unprocessedRecentMatchFailsInsteadOfChangingProcessedLedgerOrDoubleCountingLater() {
+        BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        saveProcessed(event, participant, "M1", 1);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "Apple", List.of("M1", "M2"))));
+        when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenAnswer(invocation -> {
+            String id = ((List<String>) invocation.getArgument(1)).getFirst();
+            return Map.of(id, match(id, id.equals("M1") ? 1 : 2));
+        });
+
+        TemporaryBingoRebuildResponse result = rebuild.preview(owner.getId(), community.getId(), game.getId());
+
+        assertThat(result.status()).isEqualTo("REBUILD_FAILED");
+        assertThat(result.failures()).anySatisfy(failure -> {
+            assertThat(failure.matchId()).isEqualTo("M2");
+            assertThat(failure.reason()).contains("일반 집계");
+        });
+        assertThat(processed.findMatchIds(event.getId(), participant.getId())).containsExactly("M1");
+    }
+
+    @Test
+    void applyRevalidatesPlayerMatchesAndKeepsProgressWhenANewMatchAppears() {
+        BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        setOldProgress(participant, BingoMissionType.LONG_DISTANCE_KILL, 5, true);
+        saveProcessed(event, participant, "M1", 1);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(
+                List.of(new PubgPlayer("account-a", "Apple", List.of("M1"))),
+                List.of(new PubgPlayer("account-a", "Apple", List.of("M1", "M2"))));
+        when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenAnswer(invocation -> {
+            String id = ((List<String>) invocation.getArgument(1)).getFirst();
+            return Map.of(id, match(id, id.equals("M1") ? 1 : 2));
+        });
+        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(0);
+            return Map.of("account-a", repairOnlyFacts(match.matchId(), match.playedAt()));
+        });
+        TemporaryBingoRebuildResponse preview = rebuild.preview(owner.getId(), community.getId(), game.getId());
+
+        TemporaryBingoRebuildResponse applied = rebuild.apply(
+                owner.getId(), community.getId(), game.getId(), preview.previewToken());
+
+        assertThat(applied.status()).isEqualTo("REBUILD_FAILED");
+        assertThat(applied.failures()).anyMatch(failure -> "M2".equals(failure.matchId()));
+        assertThat(value(participant, BingoMissionType.LONG_DISTANCE_KILL)).isEqualByComparingTo("5");
+        assertThat(processed.findMatchIds(event.getId(), participant.getId())).containsExactly("M1");
     }
 
     @Test
@@ -332,6 +424,11 @@ class TemporaryBingoRebuildFlowTests {
     private PlayerMatchFacts oneKillFact(String id, Instant at) {
         return new PlayerMatchFacts(id, at, "Erangel_Main", "squad-fpp",
                 Map.of("KILLS", BigDecimal.ONE, "MATCHES_PLAYED", BigDecimal.ONE), List.of(), Map.of(), 0, at);
+    }
+    private PlayerMatchFacts repairOnlyFacts(String id, Instant at) {
+        return new PlayerMatchFacts(id, at, "Erangel_Main", "squad-fpp", Map.of(), List.of(
+                new PlayerMatchFacts.KillFact("VSS", "DMR", null, 250, false, at),
+                new PlayerMatchFacts.KillFact("VSS", "DMR", null, 100, false, at)), Map.of(), 0, at);
     }
     private void assertChange(TemporaryBingoRebuildResponse.ParticipantResult result, BingoMissionType type,
                               String previous, String recomputed, boolean completed) {

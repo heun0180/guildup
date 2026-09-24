@@ -102,7 +102,8 @@ public class TemporaryBingoRebuildService {
 
     public TemporaryBingoRebuildResponse apply(Long userId, Long communityId, Long communityGameId,
                                                 String previewToken) {
-        gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
+        CommunityGame game = gameAccess.requireManageable(
+                userId, communityId, communityGameId, GameCapability.BINGO);
         PreviewSnapshot snapshot = previews.get(previewToken);
         if (snapshot == null || !snapshot.expiresAt().isAfter(clock.instant()))
             conflict("재집계 미리보기가 없거나 만료되었습니다. 다시 미리보기를 실행해 주세요.");
@@ -111,7 +112,14 @@ public class TemporaryBingoRebuildService {
         ReentrantLock lock = eventLocks.computeIfAbsent(snapshot.eventId(), ignored -> new ReentrantLock());
         if (!lock.tryLock()) conflict("REBUILD_IN_PROGRESS");
         try {
-            TemporaryBingoRebuildResponse applied = transactions.execute(status -> applySnapshot(snapshot));
+            BingoEvent active = requireOnlyActive(communityId, communityGameId);
+            BuildResult recalculated = calculate(active, communityId, communityGameId,
+                    PubgGameSupport.requireShard(game.getGameType()));
+            if (!recalculated.failures().isEmpty()) return failed(active, recalculated.failures());
+            PreviewSnapshot current = recalculated.snapshot(snapshot.token(), snapshot.expiresAt());
+            if (!sameRepairPlan(snapshot, current))
+                conflict("미리보기 이후 원본 경기 또는 계산 결과가 변경되었습니다. 다시 검증해 주세요.");
+            TemporaryBingoRebuildResponse applied = transactions.execute(status -> applySnapshot(current));
             previews.remove(previewToken);
             return applied;
         } finally {
@@ -156,6 +164,7 @@ public class TemporaryBingoRebuildService {
         Map<String, PubgPlayer> playerByAccount = loadedPlayers.stream().collect(Collectors.toMap(
                 PubgPlayer::accountId, Function.identity(), (left, right) -> left));
         Map<Long, Set<String>> candidates = new LinkedHashMap<>();
+        Map<Long, Set<String>> processedByParticipant = new LinkedHashMap<>();
         for (BingoParticipant participant : participantRows) {
             AccountSnapshot account = accounts.get(participant.getId());
             PubgPlayer player = playerByAccount.get(account.accountId());
@@ -163,7 +172,10 @@ public class TemporaryBingoRebuildService {
                 failures.add(failure(participant, null, "Player API 응답에 현재 accountId가 없습니다."));
                 continue;
             }
-            Set<String> union = new LinkedHashSet<>(processedMatches.findMatchIds(event.getId(), participant.getId()));
+            Set<String> processedIds = new LinkedHashSet<>(
+                    processedMatches.findMatchIds(event.getId(), participant.getId()));
+            processedByParticipant.put(participant.getId(), processedIds);
+            Set<String> union = new LinkedHashSet<>(processedIds);
             union.addAll(player.matchIds());
             candidates.put(participant.getId(), union);
         }
@@ -199,7 +211,6 @@ public class TemporaryBingoRebuildService {
             cells.forEach(cell -> byCell.put(cell.getId(), new Accumulator()));
             accumulators.put(participant.getId(), byCell);
         });
-        List<ProcessedAddition> processedAdditions = new ArrayList<>();
         Set<String> countedMatches = new LinkedHashSet<>();
         List<PubgMatch> orderedMatches = loadedMatches.values().stream()
                 .sorted(Comparator.comparing(PubgMatch::playedAt, Comparator.nullsLast(Comparator.naturalOrder()))
@@ -211,6 +222,14 @@ public class TemporaryBingoRebuildService {
             Set<Long> eligibleParticipants = participantIdsByMatch.getOrDefault(match.matchId(), Set.of()).stream()
                     .filter(id -> !match.playedAt().isBefore(accounts.get(id).eligibleFrom())).collect(Collectors.toSet());
             if (eligibleParticipants.isEmpty()) continue;
+            Set<Long> notProcessed = eligibleParticipants.stream()
+                    .filter(id -> !processedByParticipant.getOrDefault(id, Set.of()).contains(match.matchId()))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!notProcessed.isEmpty()) {
+                notProcessed.forEach(id -> failures.add(failure(participant(id, participantRows), match.matchId(),
+                        "아직 일반 집계되지 않은 최신 Match입니다. 일반 집계를 먼저 실행한 뒤 다시 검증해 주세요.")));
+                continue;
+            }
             Map<String, PlayerMatchFacts> matchFacts;
             try {
                 matchFacts = requireTelemetry ? facts.factsRequired(match, communityAccounts)
@@ -233,7 +252,6 @@ public class TemporaryBingoRebuildService {
                     advance(accumulators.get(participantId).get(cell.getId()), cell, playerFacts,
                             match.matchId(), playerFacts.latestEvidenceAt() == null ? match.playedAt() : playerFacts.latestEvidenceAt());
                 }
-                processedAdditions.add(new ProcessedAddition(participantId, match.matchId(), match.playedAt()));
                 countedMatches.add(match.matchId());
             }
         }
@@ -285,7 +303,7 @@ public class TemporaryBingoRebuildService {
         PreviewSnapshot snapshot = new PreviewSnapshot(null, event.getId(), communityId,
                 communityGameId, event.getTitle(), calculatedAt, null,
                 event.getLastAggregatedAt(), cellFingerprint(cells), List.copyOf(competitionFingerprint),
-                snapshots, processedAdditions, countedMatches.size(), changed);
+                snapshots, countedMatches.size(), changed);
         return new BuildResult(snapshot, List.of());
     }
 
@@ -328,41 +346,41 @@ public class TemporaryBingoRebuildService {
         Instant now = clock.instant();
         for (ParticipantSnapshot participantSnapshot : snapshot.participants()) {
             BingoParticipant participant = currentParticipants.get(participantSnapshot.participantId());
-            participant.synchronizePubgAccount(participantSnapshot.account().accountId(), participantSnapshot.account().nickname());
             Map<Long, BingoProgress> rows = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())
                     .stream().collect(Collectors.toMap(BingoProgress::getId, Function.identity()));
-            participantSnapshot.progress().forEach(value -> rows.get(value.progressId()).replaceSnapshot(
-                    value.recomputedValue(), value.recomputedOccurrences(), value.recomputedCompleted(),
-                    value.recomputedCompletedAt(), value.evidenceMatchId(), value.evidenceAt(), now));
+            participantSnapshot.progress().stream().filter(ProgressSnapshot::changed).forEach(value ->
+                    rows.get(value.progressId()).replaceSnapshot(
+                            value.recomputedValue(), value.recomputedOccurrences(), value.recomputedCompleted(),
+                            value.recomputedCompletedAt(), value.evidenceMatchId(), value.evidenceAt(), now));
             rebuildLines(event, participant, participantSnapshot.progress(), now);
-        }
-        Map<Long, BingoParticipant> participantMap = currentParticipants;
-        for (ProcessedAddition addition : snapshot.processedAdditions()) {
-            if (!processedMatches.existsByEventIdAndParticipantIdAndMatchId(
-                    event.getId(), addition.participantId(), addition.matchId())) {
-                processedMatches.save(new BingoProcessedMatch(event, participantMap.get(addition.participantId()),
-                        addition.matchId(), addition.matchStartedAt(), now));
-            }
         }
         return response("REBUILD_APPLIED", snapshot.token(), snapshot);
     }
 
     private void rebuildLines(BingoEvent event, BingoParticipant participant,
                               List<ProgressSnapshot> values, Instant fallback) {
-        List<BingoLineCompletion> oldLines = lineCompletions.findByParticipantId(participant.getId());
-        if (!oldLines.isEmpty()) lineCompletions.deleteAllInBatch(oldLines);
         Map<Integer, Instant> completedAtByPosition = new HashMap<>();
         Map<Long, Integer> positions = event.getCells().stream().collect(Collectors.toMap(BingoCell::getId, BingoCell::getPosition));
         values.stream().filter(ProgressSnapshot::recomputedCompleted).forEach(value -> completedAtByPosition.put(
                 positions.get(value.cellId()), Optional.ofNullable(value.recomputedCompletedAt()).orElse(fallback)));
         Set<String> completed = lineCalculator.completedLines(event.getBoardSize(), completedAtByPosition.keySet());
-        List<Instant> lineTimes = new ArrayList<>();
+        Map<String, Instant> expectedLines = new LinkedHashMap<>();
         for (String key : completed) {
             Instant completedAt = linePositions(key, event.getBoardSize()).stream()
                     .map(completedAtByPosition::get).max(Comparator.naturalOrder()).orElse(fallback);
-            lineCompletions.save(new BingoLineCompletion(participant, key, completedAt));
-            lineTimes.add(completedAt);
+            expectedLines.put(key, completedAt);
         }
+        Map<String, BingoLineCompletion> currentLines = lineCompletions.findByParticipantId(participant.getId())
+                .stream().collect(Collectors.toMap(BingoLineCompletion::getLineKey, Function.identity()));
+        List<BingoLineCompletion> obsolete = currentLines.entrySet().stream()
+                .filter(entry -> !expectedLines.containsKey(entry.getKey())).map(Map.Entry::getValue).toList();
+        if (!obsolete.isEmpty()) lineCompletions.deleteAllInBatch(obsolete);
+        expectedLines.forEach((key, completedAt) -> {
+            BingoLineCompletion current = currentLines.get(key);
+            if (current == null) lineCompletions.save(new BingoLineCompletion(participant, key, completedAt));
+            else current.repairCompletedAt(completedAt);
+        });
+        List<Instant> lineTimes = new ArrayList<>(expectedLines.values());
         lineTimes.sort(Comparator.naturalOrder());
         Instant targetAt = lineTimes.size() >= event.getTargetLines() ? lineTimes.get(event.getTargetLines() - 1) : null;
         Instant blackoutAt = event.isBlackoutEnabled() && completedAtByPosition.size() == event.getCells().size()
@@ -436,7 +454,8 @@ public class TemporaryBingoRebuildService {
     private TemporaryBingoRebuildResponse response(String status, String token, PreviewSnapshot snapshot) {
         List<TemporaryBingoRebuildResponse.ParticipantResult> rows = snapshot.participants().stream().map(participant ->
                 new TemporaryBingoRebuildResponse.ParticipantResult(participant.participantId(),
-                        participant.account().nickname(), participant.progress().stream().map(value ->
+                        participant.account().nickname(), participant.progress().stream()
+                        .filter(ProgressSnapshot::changed).map(value ->
                         new TemporaryBingoRebuildResponse.ProgressChange(value.cellId(), value.missionType().name(),
                                 value.title(), value.previousValue(), value.recomputedValue(),
                                 value.previousCompleted(), value.recomputedCompleted())).toList())).toList();
@@ -478,6 +497,29 @@ public class TemporaryBingoRebuildService {
     }
     private void conflict(String message) { throw new ResponseStatusException(HttpStatus.CONFLICT, message); }
 
+    private boolean sameRepairPlan(PreviewSnapshot before, PreviewSnapshot current) {
+        if (!Objects.equals(before.eventId(), current.eventId())
+                || !Objects.equals(before.lastAggregatedAt(), current.lastAggregatedAt())
+                || !Objects.equals(before.cellFingerprint(), current.cellFingerprint())
+                || !Objects.equals(before.competitionFingerprint(), current.competitionFingerprint())
+                || before.matchCount() != current.matchCount()
+                || before.participants().size() != current.participants().size()) return false;
+        Map<Long, ParticipantSnapshot> currentParticipants = current.participants().stream()
+                .collect(Collectors.toMap(ParticipantSnapshot::participantId, Function.identity()));
+        for (ParticipantSnapshot previousParticipant : before.participants()) {
+            ParticipantSnapshot currentParticipant = currentParticipants.get(previousParticipant.participantId());
+            if (currentParticipant == null || !Objects.equals(previousParticipant.account(), currentParticipant.account())
+                    || previousParticipant.progress().size() != currentParticipant.progress().size()) return false;
+            Map<Long, ProgressSnapshot> currentProgress = currentParticipant.progress().stream()
+                    .collect(Collectors.toMap(ProgressSnapshot::progressId, Function.identity()));
+            for (ProgressSnapshot previous : previousParticipant.progress()) {
+                ProgressSnapshot next = currentProgress.get(previous.progressId());
+                if (next == null || !previous.sameCalculation(next)) return false;
+            }
+        }
+        return true;
+    }
+
     private static final class Accumulator {
         private BingoMissionEngine.Outcome outcome = BingoMissionEngine.Outcome.zero();
         private Instant completedAt;
@@ -485,7 +527,6 @@ public class TemporaryBingoRebuildService {
         private Instant evidenceAt;
     }
     private record AccountSnapshot(String accountId, String nickname, Long memberId, Instant eligibleFrom) {}
-    private record ProcessedAddition(Long participantId, String matchId, Instant matchStartedAt) {}
     private record ParticipantSnapshot(Long participantId, AccountSnapshot account,
                                        List<ProgressSnapshot> progress) {}
     private record ProgressSnapshot(Long progressId, Long cellId, BingoMissionType missionType, String title,
@@ -504,13 +545,24 @@ public class TemporaryBingoRebuildService {
                     && previousCompleted == row.isCompleted()
                     && Objects.equals(previousCompletedAt, row.getCompletedAt());
         }
+        boolean sameCalculation(ProgressSnapshot other) {
+            return previousValue.compareTo(other.previousValue) == 0
+                    && previousOccurrences == other.previousOccurrences
+                    && previousCompleted == other.previousCompleted
+                    && Objects.equals(previousCompletedAt, other.previousCompletedAt)
+                    && recomputedValue.compareTo(other.recomputedValue) == 0
+                    && recomputedOccurrences == other.recomputedOccurrences
+                    && recomputedCompleted == other.recomputedCompleted
+                    && Objects.equals(recomputedCompletedAt, other.recomputedCompletedAt)
+                    && Objects.equals(evidenceMatchId, other.evidenceMatchId)
+                    && Objects.equals(evidenceAt, other.evidenceAt);
+        }
     }
     private record PreviewSnapshot(String token, Long eventId, Long communityId, Long communityGameId,
                                    String eventTitle, Instant calculatedAt, Instant expiresAt,
                                    Instant lastAggregatedAt, String cellFingerprint,
                                    List<String> competitionFingerprint,
                                    List<ParticipantSnapshot> participants,
-                                   List<ProcessedAddition> processedAdditions,
                                    int matchCount, int changedCount) {}
     private record BuildResult(PreviewSnapshot snapshot,
                                List<TemporaryBingoRebuildResponse.Failure> failures) {
@@ -518,7 +570,7 @@ public class TemporaryBingoRebuildService {
             return new PreviewSnapshot(token, snapshot.eventId(), snapshot.communityId(), snapshot.communityGameId(),
                     snapshot.eventTitle(), snapshot.calculatedAt(), expiresAt, snapshot.lastAggregatedAt(),
                     snapshot.cellFingerprint(), snapshot.competitionFingerprint(), snapshot.participants(),
-                    snapshot.processedAdditions(), snapshot.matchCount(), snapshot.changedCount());
+                    snapshot.matchCount(), snapshot.changedCount());
         }
     }
 }

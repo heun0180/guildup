@@ -31,7 +31,7 @@ public class BingoProgress {
             evidenceMatchId = matchId; evidenceEventAt = evidenceAt;
         }
     }
-    /** TEMPORARY rebuild hook: 계산이 모두 끝난 snapshot으로 누적 상태를 원자적으로 교체한다. */
+    /** TEMPORARY repair hook: 값이 다른 row만 검증된 snapshot으로 보정한다. */
     public void replaceSnapshot(BigDecimal value, int occurrences, boolean complete,
                                 Instant completedAt, String matchId, Instant evidenceAt, Instant now) {
         currentValue = value; occurrenceCount = occurrences; completed = complete;

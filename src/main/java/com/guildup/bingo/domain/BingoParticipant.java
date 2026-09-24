@@ -42,11 +42,14 @@ public class BingoParticipant {
         pubgNickname = nickname;
         return true;
     }
-    /** TEMPORARY rebuild hook: 재계산된 셀에서 파생된 줄/블랙빙고 상태로 교체한다. */
-    public void replaceDerivedProgress(int count, Instant targetCompletedAt, Instant blackoutCompletedAt) {
+    /** TEMPORARY repair hook: 검증된 셀에서 파생된 줄/블랙빙고 상태만 보정한다. */
+    public boolean replaceDerivedProgress(int count, Instant targetCompletedAt, Instant blackoutCompletedAt) {
+        if (lineCount == count && Objects.equals(this.targetLinesCompletedAt, targetCompletedAt)
+                && Objects.equals(this.blackoutCompletedAt, blackoutCompletedAt)) return false;
         lineCount = count;
         targetLinesCompletedAt = targetCompletedAt;
         this.blackoutCompletedAt = blackoutCompletedAt;
+        return true;
     }
     public Long getId() { return id; }
     public BingoEvent getEvent() { return event; }

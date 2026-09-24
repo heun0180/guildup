@@ -25,7 +25,7 @@
 .community-name-skeleton { width: 76px; height: 14px; border-radius: 5px; background: #e2e4ea; }
 .community-switcher-copy span { color: var(--color-text-secondary); font-size: 0.75rem; }
 .community-chevron { color: var(--color-text-secondary); font-size: 1rem; }
-.sidebar-nav { display: grid; gap: 4px; }
+.sidebar-nav { display: grid; min-height: 0; gap: 4px; overflow-y: auto; }
 .sidebar-section-divider { display: flex; align-items: center; gap: 8px; margin: 12px 4px 6px; color: var(--color-text-secondary); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; }
 .sidebar-section-divider::before, .sidebar-section-divider::after { height: 0; flex: 1; border-top: 1px dashed var(--color-border); content: ""; }
 .sidebar-section-divider span { flex: 0 0 auto; }
@@ -62,7 +62,7 @@
   .community-switcher { margin-bottom: 10px; padding: 9px 10px; }
   .community-mark { width: 34px; height: 34px; }
   .community-chevron { display: none; }
-  .sidebar-nav { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+  .sidebar-nav { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; }
   .sidebar-section-divider { flex: 0 0 auto; margin: 0 2px; border-left: 1px dashed var(--color-border); padding: 0 8px; }
   .sidebar-section-divider::before, .sidebar-section-divider::after { display: none; }
   .sidebar-item { min-height: 40px; flex: 0 0 auto; gap: 8px; padding: 0 11px; white-space: nowrap; }

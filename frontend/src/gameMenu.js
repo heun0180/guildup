@@ -8,16 +8,29 @@ const GAME_FEATURES = [
 ];
 
 export function gameMenuItems(community, communityId) {
-  const canManage = canManageCommunity(community?.role);
   if (!/^\d+$/.test(communityId ?? "")) return [];
   return (community?.games || []).map((game) => ({
     ...game,
     items: GAME_FEATURES.filter((feature) => game.capabilities?.includes(feature.capability))
-      .filter((feature) => !feature.management || canManage)
+      .filter((feature) => !feature.management)
       .map((feature) => ({
         ...feature,
         key: `${game.communityGameId}-${feature.id}`,
         href: `${feature.path}?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(game.communityGameId)}`,
       })),
   })).filter((game) => game.items.length > 0);
+}
+
+export function gameManagementMenuItems(community, communityId) {
+  if (!canManageCommunity(community?.role) || !/^\d+$/.test(communityId ?? "")) return [];
+  const games = community?.games || [];
+  const multipleGames = games.length > 1;
+  return games.flatMap((game) => GAME_FEATURES
+    .filter((feature) => feature.management && game.capabilities?.includes(feature.capability))
+    .map((feature) => ({
+      ...feature,
+      key: `${game.communityGameId}-${feature.id}`,
+      label: multipleGames ? `${game.gameName} · ${feature.label}` : feature.label,
+      href: `${feature.path}?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(game.communityGameId)}`,
+    })));
 }

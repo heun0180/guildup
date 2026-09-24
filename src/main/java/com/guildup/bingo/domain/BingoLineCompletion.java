@@ -2,6 +2,7 @@ package com.guildup.bingo.domain;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.Objects;
 
 @Entity
 @Table(name = "bingo_line_completions", uniqueConstraints = @UniqueConstraint(
@@ -14,6 +15,12 @@ public class BingoLineCompletion {
     protected BingoLineCompletion() {}
     public BingoLineCompletion(BingoParticipant participant, String lineKey, Instant completedAt) {
         this.participant = participant; this.lineKey = lineKey; this.completedAt = completedAt;
+    }
+    /** TEMPORARY repair hook: 기존 파생 row를 유지하면서 실제 완료 시각만 보정한다. */
+    public boolean repairCompletedAt(Instant value) {
+        if (Objects.equals(completedAt, value)) return false;
+        completedAt = value;
+        return true;
     }
     public String getLineKey() { return lineKey; }
     public Instant getCompletedAt() { return completedAt; }
