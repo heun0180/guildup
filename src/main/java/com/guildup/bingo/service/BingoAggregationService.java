@@ -147,10 +147,11 @@ public class BingoAggregationService {
                 processedCount++; updated.add(locked.getId());
             }
         }
-        event.aggregated(now);
+        Instant completedAt = clock.instant();
+        event.aggregated(completedAt);
         if (event.getStatus() == BingoStatus.SETTLING
-                && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
-        return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), now);
+                && !completedAt.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(completedAt);
+        return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), completedAt);
     }
 
 }

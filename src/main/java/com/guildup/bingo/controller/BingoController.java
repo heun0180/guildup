@@ -11,9 +11,9 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/communities/{communityId}/games/{communityGameId}/bingos")
 public class BingoController {
-    private final BingoEventService bingos; private final BingoAggregationService aggregation;
-    public BingoController(BingoEventService bingos, BingoAggregationService aggregation) {
-        this.bingos = bingos; this.aggregation = aggregation;
+    private final BingoEventService bingos; private final BingoAggregationJobService aggregationJobs;
+    public BingoController(BingoEventService bingos, BingoAggregationJobService aggregationJobs) {
+        this.bingos = bingos; this.aggregationJobs = aggregationJobs;
     }
     @GetMapping public List<BingoSummaryResponse> list(@PathVariable Long communityId, @PathVariable Long communityGameId, HttpSession session) {
         return bingos.list(CurrentUserSession.requireUserId(session), communityId, communityGameId);
@@ -48,10 +48,19 @@ public class BingoController {
     public void delete(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long bingoId, HttpSession session) {
         bingos.deleteOrCancel(CurrentUserSession.requireUserId(session), communityId, communityGameId, bingoId);
     }
-    @PostMapping("/{bingoId:\\d+}/aggregate")
-    public BingoAggregationResponse aggregate(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long bingoId, HttpSession session) {
-        bingos.get(CurrentUserSession.requireUserId(session), communityId, communityGameId, bingoId);
-        return aggregation.aggregate(CurrentUserSession.requireUserId(session), communityId, bingoId);
+    @PostMapping("/{bingoId:\\d+}/aggregate") @ResponseStatus(HttpStatus.ACCEPTED)
+    public BingoAggregationJobResponse aggregate(@PathVariable Long communityId, @PathVariable Long communityGameId,
+                                                  @PathVariable Long bingoId, HttpSession session) {
+        Long userId = CurrentUserSession.requireUserId(session);
+        bingos.get(userId, communityId, communityGameId, bingoId);
+        return aggregationJobs.start(userId, communityId, communityGameId, bingoId);
+    }
+    @GetMapping("/{bingoId:\\d+}/aggregate/status")
+    public BingoAggregationJobResponse aggregationStatus(@PathVariable Long communityId,
+                                                          @PathVariable Long communityGameId,
+                                                          @PathVariable Long bingoId, HttpSession session) {
+        Long userId = CurrentUserSession.requireUserId(session);
+        return aggregationJobs.status(userId, communityId, communityGameId, bingoId);
     }
     @GetMapping("/{bingoId:\\d+}/cells/{cellId:\\d+}/completions")
     public List<BingoCellCompletionResponse> completions(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long bingoId,

@@ -54,9 +54,10 @@ export function bingoParticipantNames(participant) {
 }
 
 export function bingoAggregationCooldown(lastAggregatedAt, now = Date.now()) {
-  if (!lastAggregatedAt) return { disabled: false, remainingMs: 0, label: "빙고 집계" };
-  const remainingMs = Math.max(0, new Date(lastAggregatedAt).getTime() + 30 * 60 * 1000 - now);
-  if (remainingMs === 0) return { disabled: false, remainingMs: 0, label: "빙고 집계" };
+  if (!lastAggregatedAt) return { disabled: false, remainingMs: 0, label: "빙고 집계", nextAvailableAt: null };
+  const nextAvailableAt = new Date(new Date(lastAggregatedAt).getTime() + 30 * 60 * 1000).toISOString();
+  const remainingMs = Math.max(0, new Date(nextAvailableAt).getTime() - now);
+  if (remainingMs === 0) return { disabled: false, remainingMs: 0, label: "빙고 집계", nextAvailableAt };
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -64,5 +65,6 @@ export function bingoAggregationCooldown(lastAggregatedAt, now = Date.now()) {
     disabled: true,
     remainingMs,
     label: `빙고 집계 (${minutes}:${String(seconds).padStart(2, "0")})`,
+    nextAvailableAt,
   };
 }

@@ -46,6 +46,7 @@ export default function BingoPage() {
   const [message,setMessage]=useState(""), [editing,setEditing]=useState(false), [cellModal,setCellModal]=useState(null);
   const [editingId,setEditingId]=useState(null);
   const [viewedBoard,setViewedBoard]=useState(null);
+  const [aggregationJob,setAggregationJob]=useState(null);
   const [form,setForm]=useState(() => initialForm()); const [completions,setCompletions]=useState([]);
 
   const load = useCallback(async () => {
@@ -71,6 +72,44 @@ export default function BingoPage() {
   },[bingoApi,managing]);
   useEffect(()=>{ load(); },[load]);
 
+  useEffect(()=>{
+    if(!admin||!managing||!selected?.id){setAggregationJob(null);return undefined;}
+    let cancelled=false;
+    api(`${bingoApi}/${selected.id}/aggregate/status`)
+      .then(job=>{if(!cancelled)setAggregationJob(job);})
+      .catch(error=>{if(!cancelled&&!redirectToLogin(error))setMessage(error.message);});
+    return()=>{cancelled=true;};
+  },[admin,managing,selected?.id,bingoApi]);
+
+  useEffect(()=>{
+    if(aggregationJob?.state!=="RUNNING"||aggregationJob.bingoId!==selected?.id)return undefined;
+    let cancelled=false, timer;
+    const poll=async()=>{
+      try{
+        const job=await api(`${bingoApi}/${selected.id}/aggregate/status`);
+        if(cancelled)return;
+        if(job.state==="RUNNING"){
+          setAggregationJob(job);
+          timer=window.setTimeout(poll,2000);
+        }
+        else if(job.state==="SUCCEEDED"){
+          await Promise.all([open(selected.id),load()]);
+          if(!cancelled){
+            setMessage(`빙고 집계 완료: Match ${job.processedMatches??0}개 · 참가자 ${job.updatedParticipants??0}명 반영`);
+            setAggregationJob(job);
+          }
+        }else if(job.state==="FAILED"){
+          setMessage(job.message||"빙고 집계에 실패했습니다.");
+          setAggregationJob(job);
+        }
+      }catch(error){
+        if(!cancelled&&!redirectToLogin(error))setMessage(error.message);
+      }
+    };
+    timer=window.setTimeout(poll,1500);
+    return()=>{cancelled=true;window.clearTimeout(timer);};
+  },[aggregationJob?.state,aggregationJob?.bingoId,selected?.id,bingoApi,load]);
+
   async function open(id) {
     try { setSelected(await api(`${bingoApi}/${id}`)); setViewedBoard(null); setEditing(false); }
     catch(error){ setMessage(error.message); }
@@ -86,7 +125,14 @@ export default function BingoPage() {
     try { const created=await api(`${bingoApi}${editingId?`/${editingId}`:""}`,{method:editingId?"PATCH":"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); setSelected(created);setEditing(false);setEditingId(null);await load(); }
     catch(error){ setMessage(error.message); }
   }
-  async function aggregate(){ try { await api(`${bingoApi}/${selected.id}/aggregate`,{method:"POST"}); await open(selected.id); await load(); } catch(error){setMessage(error.message);} }
+  async function aggregate(){
+    setMessage("");
+    try{
+      const job=await api(`${bingoApi}/${selected.id}/aggregate`,{method:"POST"});
+      setAggregationJob(job);
+      setMessage("집계를 시작했습니다. PUBG 경기와 Telemetry를 확인하는 동안 상태를 자동으로 갱신합니다.");
+    }catch(error){setMessage(error.message);}
+  }
   async function remove(){ if(!window.confirm("이 빙고를 삭제하거나 취소할까요?")) return; try {await api(`${bingoApi}/${selected.id}`,{method:"DELETE"});setSelected(null);await load();}catch(error){setMessage(error.message);} }
   async function showCell(cell){ setCellModal(cell); setCompletions([]); try{setCompletions(await api(`${bingoApi}/${selected.id}/cells/${cell.id}/completions`));}catch(error){setMessage(error.message);} }
   async function viewParticipant(participantId){ try{setViewedBoard(await api(`${bingoApi}/${selected.id}/participants/${participantId}`));}catch(error){setMessage(error.message);} }
@@ -99,7 +145,7 @@ export default function BingoPage() {
     <div className="dashboard-content bingo-content">
       <div className="page-heading bingo-heading"><div><p className="eyebrow">PUBG Bingo</p><h1>{managing?"빙고 관리":"빙고"}</h1></div>{admin&&!editing&&(managing?<div className="bingo-heading-actions"><button className="secondary-button" onClick={()=>moveTo(null)}>내 빙고판</button><button onClick={startCreate}><Icon name="plus"/>빙고 생성</button></div>:<button onClick={()=>moveTo("manage")}>빙고 관리</button>)}</div>
       {message&&<p className="message" role="alert">{message}</p>}
-      {loading?<section className="panel page-state">빙고를 불러오는 중입니다.</section>:editing?<BingoEditor form={form} setForm={setForm} resize={resize} save={save} cancel={()=>setEditing(false)} editCell={setCellModal}/>:!managing&&currentScreen==="SCHEDULED"&&selected?<ScheduledBingo bingo={selected} showCell={showCell}/>:selected?<><BingoDetail bingo={selected} viewedBoard={viewedBoard} admin={admin&&managing} aggregate={aggregate} remove={remove} edit={startEdit} back={managing?()=>setSelected(null):null} showCell={showCell} viewParticipant={viewParticipant}/>{admin&&managing&&selected.status==="ACTIVE"&&<TemporaryBingoRebuildPanel bingoApi={bingoApi} onApplied={()=>open(selected.id)}/>}</>:managing?<>
+      {loading?<section className="panel page-state">빙고를 불러오는 중입니다.</section>:editing?<BingoEditor form={form} setForm={setForm} resize={resize} save={save} cancel={()=>setEditing(false)} editCell={setCellModal}/>:!managing&&currentScreen==="SCHEDULED"&&selected?<ScheduledBingo bingo={selected} showCell={showCell}/>:selected?<><BingoDetail bingo={selected} viewedBoard={viewedBoard} admin={admin&&managing} aggregate={aggregate} aggregationJob={aggregationJob} remove={remove} edit={startEdit} back={managing?()=>setSelected(null):null} showCell={showCell} viewParticipant={viewParticipant}/>{admin&&managing&&selected.status==="ACTIVE"&&<TemporaryBingoRebuildPanel bingoApi={bingoApi} onApplied={()=>open(selected.id)}/>}</>:managing?<>
         <BingoSection title="현재 진행 중인 빙고" empty="진행 중인 빙고가 없습니다." items={groups.active} open={open}/>
         <BingoSection title="예정된 빙고" empty="예정된 빙고가 없습니다." items={groups.scheduled} open={open}/>
         <BingoSection title="작성 중인 빙고" empty="작성 중인 빙고가 없습니다." items={groups.draft} open={open}/>
@@ -150,6 +196,39 @@ function MissionModal({cell,index,catalog,close,saveCell}) {
   </form></div>;
 }
 
-function BingoDetail({bingo,viewedBoard,admin,aggregate,remove,edit,back,showCell,viewParticipant}){const board=viewedBoard||bingo.me,progress=board?.progress||[];const [now,setNow]=useState(Date.now());const cooldown=bingoAggregationCooldown(bingo.lastAggregatedAt,now);const needsPubg=bingo.cells.some(cell=>cell.missionType!=="KILL_BET_WIN");useEffect(()=>{if(!admin||!cooldown.disabled)return undefined;const timer=window.setInterval(()=>setNow(Date.now()),1000);return()=>window.clearInterval(timer);},[admin,cooldown.disabled,bingo.lastAggregatedAt]);return <>{(back||admin)&&<div className="bingo-detail-actions">{back&&<button className="secondary-button" onClick={back}>목록</button>}{admin&&!["COMPLETED","CANCELLED","SETTLING"].includes(bingo.status)&&<button className="secondary-button" onClick={edit}>수정</button>}{admin&&["ACTIVE","SETTLING"].includes(bingo.status)&&<button onClick={aggregate} disabled={cooldown.disabled} title={cooldown.disabled?"마지막 집계 후 30분이 지나면 다시 집계할 수 있습니다.":undefined}>{cooldown.label}</button>}{admin&&<button className="danger-button" onClick={remove}>{["ACTIVE","SETTLING"].includes(bingo.status)?"취소":"삭제"}</button>}</div>}<section className="panel bingo-overview"><div><span className={`bingo-status status-${bingo.status.toLowerCase()}`}>{bingo.status}</span><h2>{bingo.title}</h2><p>{kst(bingo.startsAt)} ~ {kst(bingo.endsAt)}</p><p>남은 기간 {remaining(bingo.endsAt)}</p><p>일반전 및 경쟁전 경기만 집계됩니다.</p></div><dl><div><dt>완료</dt><dd>{bingo.me?.completedCells??0} / {bingo.boardSize*bingo.boardSize}</dd></div><div><dt>현재</dt><dd>{bingo.me?.lineCount??0}줄 빙고</dd></div><div><dt>목표</dt><dd>{bingo.targetLines}줄</dd></div><div><dt>블랙빙고</dt><dd>{!bingo.blackoutEnabled?"사용 안 함":bingo.me?.blackoutCompletedAt?"달성":"진행 중"}</dd></div></dl></section>{bingo.me&&!bingo.me.pubgConnected&&needsPubg&&<p className="message">PUBG 계정을 등록해야 빙고 진행 상황을 집계할 수 있습니다.</p>}{viewedBoard&&<p className="bingo-viewing"><strong>{viewedBoard.pubgNickname||viewedBoard.nickname}</strong>님의 빙고판</p>}<BingoGrid size={bingo.boardSize} cells={bingo.cells} progress={progress} onCell={showCell}/>{bingo.participants.length>0&&<section className="panel bingo-participants"><h2>참가자 달성 현황</h2>{bingo.participants.map(p=>{const names=bingoParticipantNames(p);return <button type="button" key={p.participantId} onClick={()=>viewParticipant(p.participantId)}><span className="bingo-participant-name"><strong>{names.primary}</strong>{names.secondary&&<small>{names.secondary}</small>}</span><span>{p.completedCells}/{bingo.boardSize*bingo.boardSize} · {p.lineCount}줄</span></button>})}</section>}</>}
+function BingoDetail({bingo,viewedBoard,admin,aggregate,aggregationJob,remove,edit,back,showCell,viewParticipant}) {
+  const board=viewedBoard||bingo.me,progress=board?.progress||[];
+  const [now,setNow]=useState(Date.now());
+  const cooldown=bingoAggregationCooldown(bingo.lastAggregatedAt,now);
+  const running=aggregationJob?.bingoId===bingo.id&&aggregationJob.state==="RUNNING";
+  const needsPubg=bingo.cells.some(cell=>cell.missionType!=="KILL_BET_WIN");
+  useEffect(()=>{
+    if(!admin||!cooldown.disabled)return undefined;
+    const timer=window.setInterval(()=>setNow(Date.now()),1000);
+    return()=>window.clearInterval(timer);
+  },[admin,cooldown.disabled,bingo.lastAggregatedAt]);
+  return <>
+    {(back||admin)&&<>
+      <div className="bingo-detail-actions">
+        {back&&<button className="secondary-button" onClick={back}>목록</button>}
+        {admin&&!["COMPLETED","CANCELLED","SETTLING"].includes(bingo.status)&&<button className="secondary-button" onClick={edit}>수정</button>}
+        {admin&&["ACTIVE","SETTLING"].includes(bingo.status)&&<button onClick={aggregate} disabled={running||cooldown.disabled} title={running?"현재 집계가 진행 중입니다.":cooldown.disabled?"마지막 집계 후 30분이 지나면 다시 집계할 수 있습니다.":undefined}>{running?"빙고 집계 중…":cooldown.label}</button>}
+        {admin&&<button className="danger-button" onClick={remove}>{["ACTIVE","SETTLING"].includes(bingo.status)?"취소":"삭제"}</button>}
+      </div>
+      {admin&&<div className="bingo-aggregation-status">
+        <span>마지막 성공 집계: <strong>{bingo.lastAggregatedAt?kst(bingo.lastAggregatedAt):"아직 없음"}</strong></span>
+        {cooldown.nextAvailableAt&&<span>다음 집계 가능: <strong>{kst(cooldown.nextAvailableAt)}</strong></span>}
+        {running&&<span>현재 집계 시작: <strong>{kst(aggregationJob.startedAt||aggregationJob.requestedAt)}</strong></span>}
+        {aggregationJob?.state==="FAILED"&&aggregationJob.finishedAt&&<span>마지막 집계 시도 실패: <strong>{kst(aggregationJob.finishedAt)}</strong></span>}
+      </div>}
+    </>}
+    <section className="panel bingo-overview"><div><span className={`bingo-status status-${bingo.status.toLowerCase()}`}>{bingo.status}</span><h2>{bingo.title}</h2><p>{kst(bingo.startsAt)} ~ {kst(bingo.endsAt)}</p><p>남은 기간 {remaining(bingo.endsAt)}</p><p>일반전 및 경쟁전 경기만 집계됩니다.</p></div><dl><div><dt>완료</dt><dd>{bingo.me?.completedCells??0} / {bingo.boardSize*bingo.boardSize}</dd></div><div><dt>현재</dt><dd>{bingo.me?.lineCount??0}줄 빙고</dd></div><div><dt>목표</dt><dd>{bingo.targetLines}줄</dd></div><div><dt>블랙빙고</dt><dd>{!bingo.blackoutEnabled?"사용 안 함":bingo.me?.blackoutCompletedAt?"달성":"진행 중"}</dd></div></dl></section>
+    {bingo.me&&!bingo.me.pubgConnected&&needsPubg&&<p className="message">PUBG 계정을 등록해야 빙고 진행 상황을 집계할 수 있습니다.</p>}
+    {viewedBoard&&<p className="bingo-viewing"><strong>{viewedBoard.pubgNickname||viewedBoard.nickname}</strong>님의 빙고판</p>}
+    <BingoGrid size={bingo.boardSize} cells={bingo.cells} progress={progress} onCell={showCell}/>
+    {bingo.participants.length>0&&<section className="panel bingo-participants"><h2>참가자 달성 현황</h2>{bingo.participants.map(p=>{const names=bingoParticipantNames(p);return <button type="button" key={p.participantId} onClick={()=>viewParticipant(p.participantId)}><span className="bingo-participant-name"><strong>{names.primary}</strong>{names.secondary&&<small>{names.secondary}</small>}</span><span>{p.completedCells}/{bingo.boardSize*bingo.boardSize} · {p.lineCount}줄</span></button>})}</section>}
+  </>;
+}
+
 function BingoGrid({size,cells,progress,onCell,editable=false}){const byCell=Object.fromEntries(progress.map(p=>[p.cellId,p]));return <div className="bingo-board-scroll"><div className={`bingo-board size-${size}`} style={{gridTemplateColumns:`repeat(${size}, minmax(112px,1fr))`}}>{cells.map((cell,index)=>{const p=byCell[cell.id];return <button type="button" className={`bingo-cell${p?.completed?" is-complete":p&&Number(p.currentValue)>0?" is-progress":""}${!cell.configured&&editable?" is-empty":""}`} key={cell.id??index} onClick={()=>onCell(cell,index)}>{p?.completed&&<Icon name="check" size={20}/>}<strong>{cell.title||cell.customTitle||LABELS[cell.missionType]||"미션 설정"}</strong>{p&&!p.completed&&<small>{cell.aggregationType==="MATCH_OCCURRENCES"?`${p.occurrenceCount} / ${cell.occurrenceTarget}`:`${Number(p.currentValue).toLocaleString()} / ${Number(cell.targetValue).toLocaleString()}`}</small>}</button>})}</div></div>}
 function CellDetail({bingo,cell,completions,close}){const p=bingo.me?.progress.find(x=>x.cellId===cell.id);return <div className="modal-backdrop"><section className="panel bingo-modal"><h2>{cell.title}</h2><dl className="bingo-cell-facts"><div><dt>내 진행 상황</dt><dd>{p?`${Number(p.currentValue).toLocaleString()} / ${Number(cell.targetValue).toLocaleString()}${p.completed?" · 완료":""}`:"참가 전"}</dd></div>{p?.completedAt&&<div><dt>달성</dt><dd>{kst(p.completedAt)}</dd></div>}{p?.evidenceMatchId&&<div><dt>달성에 사용된 경기</dt><dd><code>{p.evidenceMatchId}</code><br/>{kst(p.evidenceEventAt)}</dd></div>}</dl><h3>이 미션을 완료한 클랜원</h3>{completions.length===0?<p className="empty-state">아직 완료한 클랜원이 없습니다.</p>:<ul className="bingo-completions">{completions.map((x,i)=><li key={`${x.nickname}-${i}`}><strong>{x.nickname}</strong><span>{kst(x.completedAt)}</span></li>)}</ul>}<button type="button" className="secondary-button" onClick={close}>닫기</button></section></div>}

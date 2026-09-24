@@ -29,9 +29,11 @@ test("운영진 목록은 상태별 관리 영역으로 분리한다", () => {
 test("빙고 집계는 마지막 집계 후 30분 동안 비활성화된다", () => {
   const last = "2026-09-22T12:00:00Z";
   assert.deepEqual(bingoAggregationCooldown(null, Date.parse(last)), {
-    disabled: false, remainingMs: 0, label: "빙고 집계",
+    disabled: false, remainingMs: 0, label: "빙고 집계", nextAvailableAt: null,
   });
-  assert.equal(bingoAggregationCooldown(last, Date.parse("2026-09-22T12:10:00Z")).label, "빙고 집계 (20:00)");
+  const coolingDown = bingoAggregationCooldown(last, Date.parse("2026-09-22T12:10:00Z"));
+  assert.equal(coolingDown.label, "빙고 집계 (20:00)");
+  assert.equal(coolingDown.nextAvailableAt, "2026-09-22T12:30:00.000Z");
   assert.equal(bingoAggregationCooldown(last, Date.parse("2026-09-22T12:29:59.100Z")).label, "빙고 집계 (0:01)");
   assert.equal(bingoAggregationCooldown(last, Date.parse("2026-09-22T12:30:00Z")).disabled, false);
 });
