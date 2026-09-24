@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "test": "node --test",
-    "build": "vite build",
+    "build": "vite build && node scripts/complete-production-build.mjs",
+    "verify:build": "node scripts/verify-production-build.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

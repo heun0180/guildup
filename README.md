@@ -485,7 +485,7 @@ flowchart TB
 - PostgreSQL migration 적용 절차
 - Spring Boot 프로세스 관리와 로그/재시작 정책
 
-현재 Vite build는 `index.html`, `rankings.html`, `kill-competitions.html`, `bingos.html`, `feedback.html`만 직접 생성한다. 다른 React `.html` 경로는 웹 서버 fallback 없이 정적 파일만 배포하면 404가 발생한다.
+Vite build 뒤의 검증 스크립트는 React Router에 등록된 모든 `.html` 경로에 현재 빌드의 진입 파일을 생성한다. 운영에서는 `frontend/dist/` 전체를 한 단위로 배포해야 하며, 백엔드 JAR만 교체하면 React 변경은 반영되지 않는다.
 
 ## 현재 개발 상태
 
