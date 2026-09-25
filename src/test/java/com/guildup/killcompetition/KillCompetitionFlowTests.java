@@ -20,12 +20,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.server.ResponseStatusException;
 import net.dv8tion.jda.api.JDA;
 
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.*;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -56,6 +58,7 @@ class KillCompetitionFlowTests {
     @Autowired UserExternalAccountRepository userAccounts;
     @Autowired UserRepository users;
     @Autowired PubgStoredMatchRepository storedMatches;
+    @Autowired JdbcTemplate jdbcTemplate;
     @Autowired MutableClock clock;
     @MockitoBean KillCompetitionPubgAggregator aggregator;
     @MockitoBean PubgPlayerService pubgPlayers;
@@ -322,6 +325,25 @@ class KillCompetitionFlowTests {
     }
 
     @Test
+    void adminCanEndRunningMemberCompetitionAndMemberCannot() {
+        Person admin = person("관리자", CommunityUserRole.ADMIN, true);
+        Person member = person("일반", CommunityUserRole.MEMBER, true);
+        var started = startedSolo(List.of(creator));
+
+        clock.set(started.startedAt().plusSeconds(10));
+        assertForbidden(() -> competitions.end(member.user().getId(), community.getId(), started.id()));
+
+        var ended = competitions.end(admin.user().getId(), community.getId(), started.id());
+        assertThat(ended.status()).isEqualTo("ENDED");
+        assertThat(ended.endsAt()).isEqualTo(clock.instant());
+        assertThat(ended.recruitmentOpen()).isFalse();
+
+        var pending = settlements.finalizeResult(admin.user().getId(), community.getId(), started.id());
+        assertThat(pending.status()).isEqualTo("RESULT_PENDING");
+        assertThat(pending.resultPublishAt()).isEqualTo(clock.instant().plus(Duration.ofMinutes(30)));
+    }
+
+    @Test
     void creatorOwnerAndAdminCanDeleteButMemberCannotAndCompletedScoreIsReverted() {
         Person owner = person("소유자", CommunityUserRole.OWNER, true);
         Person admin = person("관리자", CommunityUserRole.ADMIN, true);
@@ -540,6 +562,123 @@ class KillCompetitionFlowTests {
     }
 
     @Test
+    void finalClaimTokenSurvivesTimestampPrecisionChangeAcrossTransactions() {
+        var started = startedSolo(List.of(creator));
+        clock.set(Instant.parse("2026-09-15T12:31:00.123456789Z"));
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        clock.set(pending.resultPublishAt());
+
+        var work = settlementStore.claimDueFinal(started.id());
+        assertThat(work.finalizationClaimToken()).isNotNull();
+        Instant databasePrecision = Instant.ofEpochSecond(
+                work.claimAt().getEpochSecond(), work.claimAt().getNano() / 1_000 * 1_000L);
+        jdbcTemplate.update("update kill_competitions set finalization_started_at = ? where id = ?",
+                java.sql.Timestamp.from(databasePrecision), started.id());
+
+        settlementStore.finishFinal(work.communityId(), work, snapshot(List.of()));
+
+        assertThat(competitionRepository.findById(started.id())).get().satisfies(completed -> {
+            assertThat(completed.getStatus().name()).isEqualTo("COMPLETED");
+            assertThat(completed.getCompletedAt()).isNotNull();
+            assertThat(completed.getFinalizationStartedAt()).isNull();
+            assertThat(completed.getFinalizationClaimToken()).isNull();
+        });
+    }
+
+    @Test
+    void staleWorkerCannotFinishAfterAReplacementClaimWasIssued() {
+        var started = startedSolo(List.of(creator));
+        clock.set(started.endsAt().plusSeconds(1));
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        clock.set(pending.resultPublishAt());
+        var first = settlementStore.claimDueFinal(started.id());
+
+        clock.set(clock.instant().plus(Duration.ofMinutes(10)));
+        var replacement = settlementStore.claimDueFinal(started.id());
+        assertThat(replacement.finalizationClaimToken()).isNotEqualTo(first.finalizationClaimToken());
+
+        assertConflict(() -> settlementStore.finishFinal(first.communityId(), first, snapshot(List.of())));
+        settlementStore.finishFinal(replacement.communityId(), replacement, snapshot(List.of()));
+        assertThat(competitionRepository.findById(started.id()).orElseThrow().getStatus().name())
+                .isEqualTo("COMPLETED");
+    }
+
+    @Test
+    void concurrentWorkersCannotOwnTheSameFinalization() throws Exception {
+        var started = startedSolo(List.of(creator));
+        clock.set(started.endsAt().plusSeconds(1));
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        clock.set(pending.resultPublishAt());
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Callable<KillCompetitionSettlementStore.SettlementWork> claim = () -> {
+                ready.countDown();
+                start.await();
+                return settlementStore.claimDueFinal(started.id());
+            };
+            Future<KillCompetitionSettlementStore.SettlementWork> first = executor.submit(claim);
+            Future<KillCompetitionSettlementStore.SettlementWork> second = executor.submit(claim);
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(Arrays.asList(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS)))
+                    .filteredOn(Objects::nonNull).singleElement()
+                    .extracting(KillCompetitionSettlementStore.SettlementWork::finalizationClaimToken)
+                    .isNotNull();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void finalFailureIsRecordedAndReleasedForRetryAfterBackoff() {
+        var started = startedSolo(List.of(creator));
+        clock.set(started.endsAt().plusSeconds(1));
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        clock.set(pending.resultPublishAt());
+        var failedWork = settlementStore.claimDueFinal(started.id());
+
+        assertThat(settlementStore.recordFinalFailure(
+                failedWork.communityId(), failedWork, new IllegalStateException("final save failed"))).isTrue();
+        assertThat(competitionRepository.findById(started.id())).get().satisfies(failed -> {
+            assertThat(failed.getStatus().name()).isEqualTo("RESULT_PENDING");
+            assertThat(failed.getResultLastError()).isEqualTo("final save failed");
+            assertThat(failed.getFinalizationClaimToken()).isNull();
+            assertThat(failed.getFinalizationStartedAt()).isNotNull();
+        });
+        assertThat(settlementStore.claimDueFinal(started.id())).isNull();
+
+        clock.set(clock.instant().plus(Duration.ofMinutes(10)));
+        var retry = settlementStore.claimDueFinal(started.id());
+        assertThat(retry).isNotNull();
+        assertThat(retry.finalizationClaimToken()).isNotEqualTo(failedWork.finalizationClaimToken());
+        assertThat(competitionRepository.findById(started.id()).orElseThrow().getResultLastError()).isNull();
+    }
+
+    @Test
+    void overdueLegacyPendingCompetitionWithoutTokenIsRecoveredAutomatically() {
+        var started = startedSolo(List.of(creator));
+        clock.set(started.endsAt().plusSeconds(1));
+        var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
+        clock.set(pending.resultPublishAt().plus(Duration.ofMinutes(20)));
+        jdbcTemplate.update("update kill_competitions set finalization_started_at = ?, "
+                        + "finalization_claim_token = null where id = ?",
+                java.sql.Timestamp.from(clock.instant().minus(Duration.ofMinutes(20))), started.id());
+        mockKills(Map.of("account-생성자", 4));
+
+        settlements.publishDueResult(started.id());
+
+        assertThat(competitions.get(creator.user().getId(), community.getId(), started.id())).satisfies(completed -> {
+            assertThat(completed.status()).isEqualTo("COMPLETED");
+            assertThat(completed.finalStandings()).singleElement()
+                    .extracting(KillCompetitionDetailResponse.Standing::kills).isEqualTo(4);
+        });
+        assertThat(competitionRepository.findById(started.id()).orElseThrow().getFinalizationClaimToken()).isNull();
+    }
+
+    @Test
     void otherCommunityCannotReadCompetitionAndAdminCanCancel() {
         var created = create(KillCompetitionGameMode.SOLO);
         Community foreign = communities.save(new Community("다른 클랜"));
@@ -623,7 +762,7 @@ class KillCompetitionFlowTests {
         @Bean @Primary MutableClock mutableClock() { return new MutableClock(); }
     }
     static class MutableClock extends Clock {
-        private Instant instant = Instant.EPOCH;
+        private volatile Instant instant = Instant.EPOCH;
         void set(Instant instant) { this.instant = instant; }
         @Override public ZoneId getZone() { return ZoneOffset.UTC; }
         @Override public Clock withZone(ZoneId zone) { return this; }

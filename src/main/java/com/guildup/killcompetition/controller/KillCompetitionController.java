@@ -89,6 +89,10 @@ public class KillCompetitionController {
     public KillCompetitionDetailResponse start(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
         return competitions.start(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
     }
+    @PostMapping("/{competitionId}/end")
+    public KillCompetitionDetailResponse end(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
+        return competitions.end(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
+    }
     @PutMapping("/{competitionId}/ends-at")
     public KillCompetitionDetailResponse updateEndTime(@PathVariable Long communityId, @PathVariable Long communityGameId,
                                                        @PathVariable Long competitionId,

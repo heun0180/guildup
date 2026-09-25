@@ -44,12 +44,41 @@ public class KillCompetitionSettlementService {
     public void publishDueResult(Long competitionId) {
         var work = store.claimDueFinal(competitionId);
         if (work == null) return;
+        long startedNanos = System.nanoTime();
+        String stage = "CLAIM";
+        log.info("Kill competition finalization competition={} claim={} stage=CLAIM_STARTED",
+                competitionId, work.finalizationClaimToken());
         try {
+            stage = "PUBG_FETCH";
+            long pubgStartedNanos = System.nanoTime();
+            log.info("Kill competition finalization competition={} claim={} stage=PUBG_FETCH_STARTED",
+                    competitionId, work.finalizationClaimToken());
             var snapshot = aggregator.aggregate(work.shard(), work.startedAt(), work.rangeEnd(), work.players());
+            log.info("Kill competition finalization competition={} claim={} stage=PUBG_FETCH_COMPLETED durationMs={} matches={}",
+                    competitionId, work.finalizationClaimToken(), elapsedMillis(pubgStartedNanos), snapshot.matchKills().size());
+            stage = "FINAL_SAVE";
+            log.info("Kill competition finalization competition={} claim={} stage=FINAL_SAVE_STARTED",
+                    competitionId, work.finalizationClaimToken());
             store.finishFinal(work.communityId(), work, snapshot);
+            log.info("Kill competition finalization competition={} claim={} stage=FINAL_SAVE_SUCCEEDED durationMs={}",
+                    competitionId, work.finalizationClaimToken(), elapsedMillis(startedNanos));
         } catch (RuntimeException exception) {
-            store.recordFinalFailure(work.communityId(), work, exception);
-            log.warn("킬내기 {} 자동 결과 발표 실패; claim 만료 후 재시도합니다.", competitionId, exception);
+            boolean failureRecorded = false;
+            try {
+                failureRecorded = store.recordFinalFailure(work.communityId(), work, exception);
+            } catch (RuntimeException recordException) {
+                log.error("Kill competition finalization competition={} claim={} stage=FAILURE_RECORD_FAILED "
+                                + "durationMs={} error={}", competitionId, work.finalizationClaimToken(),
+                        elapsedMillis(startedNanos), recordException.getMessage(), recordException);
+            }
+            log.warn("Kill competition finalization competition={} claim={} stage={} durationMs={} "
+                            + "failureRecorded={} error={}; claim timeout 후 재시도합니다.",
+                    competitionId, work.finalizationClaimToken(), stage, elapsedMillis(startedNanos),
+                    failureRecorded, exception.getMessage(), exception);
         }
+    }
+
+    private long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000;
     }
 }

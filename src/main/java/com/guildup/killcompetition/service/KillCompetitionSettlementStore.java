@@ -21,7 +21,8 @@ public class KillCompetitionSettlementStore {
     private static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(10);
 
     public record SettlementWork(Long competitionId, Long communityId, String shard, Instant startedAt, Instant rangeEnd,
-                                 Instant claimAt, List<KillCompetitionPubgAggregator.PlayerInput> players) {}
+                                 Instant claimAt, UUID finalizationClaimToken,
+                                 List<KillCompetitionPubgAggregator.PlayerInput> players) {}
 
     private final KillCompetitionRepository competitions;
     private final KillCompetitionMatchResultRepository matchResults;
@@ -56,7 +57,7 @@ public class KillCompetitionSettlementStore {
         }
         if (activeClaim(competition.getInterimCalculationStartedAt(), now)) conflict("다른 참가자가 정산 중입니다.");
         competition.beginInterim(now);
-        return work(competition, now, now);
+        return work(competition, now, now, null);
     }
 
     @Transactional
@@ -98,17 +99,17 @@ public class KillCompetitionSettlementStore {
         if (competition.getStatus() != KillCompetitionStatus.RESULT_PENDING
                 || competition.getResultPublishAt() == null || competition.getResultPublishAt().isAfter(now)
                 || activeClaim(competition.getFinalizationStartedAt(), now)) return null;
-        competition.beginFinalization(now);
-        return work(competition, competition.getEndsAt(), now);
+        UUID claimToken = UUID.randomUUID();
+        competition.beginFinalization(now, claimToken);
+        return work(competition, competition.getEndsAt(), now, claimToken);
     }
 
     /** 외부 API 계산이 끝난 뒤 결과, 점수 원장, COMPLETED 상태를 짧은 한 트랜잭션으로 확정한다. */
     @Transactional
     public void finishFinal(Long communityId, SettlementWork work, KillCompetitionKillSnapshot snapshot) {
         KillCompetition competition = requireForUpdate(communityId, work.competitionId());
-        if (competition.getStatus() == KillCompetitionStatus.COMPLETED) return;
         if (competition.getStatus() != KillCompetitionStatus.RESULT_PENDING) conflict("결과 발표 대기 상태가 아닙니다.");
-        if (!Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) {
+        if (!competition.ownsFinalizationClaim(work.finalizationClaimToken())) {
             conflict("결과 발표 요청이 만료되었습니다. 다시 시도해 주세요.");
         }
         List<KillCompetitionMatchResult> accumulated = mergeMatchResults(competition, snapshot, work.rangeEnd());
@@ -132,18 +133,18 @@ public class KillCompetitionSettlementStore {
     }
 
     @Transactional
-    public void recordFinalFailure(Long communityId, SettlementWork work, RuntimeException failure) {
-        competitions.findForUpdate(communityId, work.competitionId()).ifPresent(competition -> {
-            if (Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) {
-                competition.recordResultFailure(failure.getMessage(), clock.instant());
-            }
-        });
+    public boolean recordFinalFailure(Long communityId, SettlementWork work, RuntimeException failure) {
+        return competitions.findForUpdate(communityId, work.competitionId()).map(competition -> {
+            if (!competition.ownsFinalizationClaim(work.finalizationClaimToken())) return false;
+            competition.recordResultFailure(failure.getMessage(), clock.instant());
+            return true;
+        }).orElse(false);
     }
 
-    private SettlementWork work(KillCompetition competition, Instant end, Instant claimAt) {
+    private SettlementWork work(KillCompetition competition, Instant end, Instant claimAt, UUID finalizationClaimToken) {
         String shard = PubgGameSupport.requireShard(competition.getCommunityGame().getGameType());
         return new SettlementWork(competition.getId(), competition.getCommunity().getId(), shard,
-                competition.getStartedAt(), end, claimAt,
+                competition.getStartedAt(), end, claimAt, finalizationClaimToken,
                 competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
                         .map(p -> new KillCompetitionPubgAggregator.PlayerInput(
                                 p.getId(), p.getPubgAccountId(), p.getEligibleFrom() == null

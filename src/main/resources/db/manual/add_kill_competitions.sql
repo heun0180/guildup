@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS kill_competitions (
     last_interim_match_started_at TIMESTAMPTZ,
     interim_calculation_started_at TIMESTAMPTZ,
     finalization_started_at TIMESTAMPTZ,
+    finalization_claim_token UUID,
     result_requested_at TIMESTAMPTZ,
     result_publish_at TIMESTAMPTZ,
     result_last_error VARCHAR(500),
@@ -73,6 +74,7 @@ ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS last_interim_match_starte
 ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_requested_at TIMESTAMPTZ;
 ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ;
 ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_last_error VARCHAR(500);
+ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS finalization_claim_token UUID;
 ALTER TABLE kill_competitions DROP CONSTRAINT IF EXISTS ck_kill_competition_status;
 ALTER TABLE kill_competitions DROP CONSTRAINT IF EXISTS kill_competitions_status_check;
 ALTER TABLE kill_competitions ADD CONSTRAINT ck_kill_competition_status

@@ -3,11 +3,13 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
-import { canManageKillGame, formatDateTime, remainingLabel, statusLabel, statusMessage, toDateTimeLocal } from "../killCompetitionView.js";
+import { canCancelKillGame, canEndKillGame, canManageKillGame, formatDateTime, remainingLabel, statusLabel, statusMessage, toDateTimeLocal } from "../killCompetitionView.js";
+import { useCommunity } from "../community/CommunityContext.jsx";
 
 const basePath = (communityId, communityGameId) => `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/kill-competitions`;
 
 export default function KillCompetitionsPage() {
+  const { community } = useCommunity();
   const navigate = useNavigate();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
@@ -47,10 +49,10 @@ export default function KillCompetitionsPage() {
     return () => window.clearInterval(timer);
   }, [detail?.status, load]);
   useEffect(() => {
-    if (!canManageKillGame(detail)) return;
+    if (!canManageKillGame(detail, community?.role)) return;
     api(`/api/communities/${encodeURIComponent(communityId)}/members`)
       .then(setCommunityMembers).catch((error) => handleError(error, "클랜원 목록을 불러오지 못했습니다."));
-  }, [communityId, detail?.canManageKillGame, detail?.creatorView, detail?.administratorView, handleError]);
+  }, [communityId, community?.role, detail?.canManageKillGame, detail?.creatorView, detail?.administratorView, handleError]);
   useEffect(() => {
     if (!detail?.serverTime) return undefined;
     const offset = new Date(detail.serverTime).getTime() - Date.now();
@@ -123,7 +125,7 @@ export default function KillCompetitionsPage() {
               communityId={communityId} communityGameId={communityGameId} mutate={mutate} deleteCompetition={deleteCompetition}
               teamCount={teamCount} setTeamCount={setTeamCount}
               assignments={assignments} setAssignments={setAssignments} saveTeams={saveTeams}
-              communityMembers={communityMembers} />}
+              communityMembers={communityMembers} communityRole={community?.role} />}
       </div>
     </DashboardLayout>
   );
@@ -160,7 +162,7 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
 }
 
 function CompetitionDetail({ detail, loading, message, busy, now, communityId, communityGameId, mutate,
-  deleteCompetition, teamCount, setTeamCount, assignments, setAssignments, saveTeams, communityMembers }) {
+  deleteCompetition, teamCount, setTeamCount, assignments, setAssignments, saveTeams, communityMembers, communityRole }) {
   const [editingEndTime, setEditingEndTime] = useState(false);
   const [endTime, setEndTime] = useState("");
   useEffect(() => { setEndTime(toDateTimeLocal(detail?.endsAt)); }, [detail?.endsAt]);
@@ -171,7 +173,7 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
   }
   const pending = detail.participants.filter((participant) => participant.participationStatus === "PENDING");
   const approved = detail.participants.filter((participant) => participant.participationStatus === "APPROVED");
-  const canManage = canManageKillGame(detail);
+  const canManage = canManageKillGame(detail, communityRole);
   const canInterim = detail.status === "IN_PROGRESS" && canManage;
   const canChangeRoster = ["RECRUITING", "READY", "IN_PROGRESS"].includes(detail.status) && now < new Date(detail.endsAt).getTime();
   const cooldownUntil = detail.lastInterimCalculatedAt ? new Date(detail.lastInterimCalculatedAt).getTime() + 300_000 : 0;
@@ -182,6 +184,14 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
   function confirmDeletion() {
     if (!window.confirm("정말 이 킬내기를 삭제하시겠습니까? 삭제한 킬내기와 관련된 결과는 복구할 수 없습니다.")) return;
     deleteCompetition(detail.id);
+  }
+  function confirmEnd() {
+    if (!window.confirm("지금 이 킬내기를 종료하시겠습니까? 종료 후에는 참가자와 팀을 변경할 수 없습니다.")) return;
+    mutate("/end");
+  }
+  function confirmCancellation() {
+    if (!window.confirm("이 킬내기를 취소하시겠습니까? 취소한 킬내기는 다시 시작할 수 없습니다.")) return;
+    mutate("/cancel");
   }
   return <>
     <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}`}>← 킬내기 목록</a>
@@ -232,6 +242,10 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
 
     {canInterim && <section className="panel kill-actions-panel"><div><h2>중간 정산</h2><p>PUBG API 특성상 최근 종료된 경기는 바로 반영되지 않을 수 있습니다. 현재 API에서 확인되는 경기까지만 집계됩니다.</p></div>
       <button disabled={busy || cooldown > 0} onClick={() => mutate("/interim")}>{busy ? "정산 중..." : cooldown > 0 ? `${Math.ceil(cooldown / 60000)}분 후 가능` : "중간 정산"}</button></section>}
+    {canEndKillGame(detail, now, communityRole) && <section className="panel kill-actions-panel"><div><h2>킬내기 관리</h2><p>예정 시각 전이라도 지금 종료하고 결과 발표 단계로 전환할 수 있습니다.</p></div>
+      <button className="secondary-button danger-button" disabled={busy} onClick={confirmEnd}>킬내기 종료</button></section>}
+    {canCancelKillGame(detail, communityRole) && <section className="panel kill-actions-panel"><div><h2>킬내기 관리</h2><p>시작하지 않을 킬내기를 취소할 수 있습니다.</p></div>
+      <button className="secondary-button danger-button" disabled={busy} onClick={confirmCancellation}>킬내기 취소</button></section>}
     {detail.interimStandings.length > 0 && detail.lastInterimCalculatedAt && <><Standings title="중간 정산 결과" standings={detail.interimStandings} /><p className="kill-api-note">최근 종료된 경기는 PUBG API에 아직 반영되지 않았을 수 있습니다. 현재 결과는 참고용 중간 집계입니다.</p></>}
     {detail.status === "ENDED" && <section className="panel kill-actions-panel"><div><h2>킬내기가 종료되었습니다.</h2><p>최근 종료된 경기는 PUBG API 반영까지 시간이 걸릴 수 있습니다.</p></div>
       {canManage && <button disabled={busy} onClick={() => mutate("/result-request")}>{busy ? "요청 중..." : "결과 발표 요청"}</button>}</section>}

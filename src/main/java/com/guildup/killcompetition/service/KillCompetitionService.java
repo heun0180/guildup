@@ -197,6 +197,22 @@ public class KillCompetitionService {
     @Transactional public KillCompetitionDetailResponse start(Long userId, Long communityId, Long competitionId) { return start(userId, communityId, gameId(communityId, competitionId), competitionId); }
 
     @Transactional
+    public KillCompetitionDetailResponse end(Long userId, Long communityId, Long communityGameId, Long competitionId) {
+        KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
+        managementAccess.requireCanManage(userId, communityId, competition);
+        if (competition.getStatus() != KillCompetitionStatus.IN_PROGRESS) {
+            conflict("진행 중인 킬내기만 종료할 수 있습니다.");
+        }
+        Instant now = clock.instant();
+        if (!now.isBefore(competition.getEndsAt())) {
+            conflict("이미 종료된 킬내기입니다.");
+        }
+        competition.end(now);
+        return detailForMutation(competition, userId);
+    }
+    @Transactional public KillCompetitionDetailResponse end(Long userId, Long communityId, Long competitionId) { return end(userId, communityId, gameId(communityId, competitionId), competitionId); }
+
+    @Transactional
     public KillCompetitionDetailResponse cancel(Long userId, Long communityId, Long communityGameId, Long competitionId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
         managementAccess.requireCanManage(userId, communityId, competition);

@@ -1,3 +1,5 @@
+import { canManageCommunity } from "./communityAccess.js";
+
 export const STATUS_COPY = {
   RECRUITING: ["모집 중", "현재 참가자를 모집하고 있습니다."],
   READY: ["시작 준비", "참가 모집이 완료되었습니다. 팀 구성을 완료한 뒤 킬내기를 시작해주세요."],
@@ -24,9 +26,21 @@ export function remainingLabel(endsAt, nowMs) {
   return `${hours ? `${hours}시간 ` : ""}${minutes}분 ${seconds}초`;
 }
 
-export function canManageKillGame(detail) {
+export function canManageKillGame(detail, communityRole) {
+  if (canManageCommunity(communityRole)) return true;
   return Boolean(detail?.canManageKillGame
     ?? (detail?.creatorView || detail?.administratorView));
+}
+
+export function canEndKillGame(detail, nowMs, communityRole) {
+  return canManageKillGame(detail, communityRole)
+    && detail?.status === "IN_PROGRESS"
+    && nowMs < new Date(detail.endsAt).getTime();
+}
+
+export function canCancelKillGame(detail, communityRole) {
+  return canManageKillGame(detail, communityRole)
+    && ["RECRUITING", "READY"].includes(detail?.status);
 }
 
 export function toDateTimeLocal(value) {

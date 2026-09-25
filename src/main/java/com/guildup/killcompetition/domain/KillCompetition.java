@@ -11,7 +11,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 @Entity
 @Table(name = "kill_competitions", indexes = {
@@ -55,6 +57,7 @@ public class KillCompetition {
     @Column(name = "last_interim_match_started_at") private Instant lastInterimMatchStartedAt;
     @Column(name = "interim_calculation_started_at") private Instant interimCalculationStartedAt;
     @Column(name = "finalization_started_at") private Instant finalizationStartedAt;
+    @Column(name = "finalization_claim_token") private UUID finalizationClaimToken;
     @Column(name = "result_requested_at") private Instant resultRequestedAt;
     @Column(name = "result_publish_at") private Instant resultPublishAt;
     @Column(name = "result_last_error", length = 500) private String resultLastError;
@@ -112,6 +115,13 @@ public class KillCompetition {
         this.updatedAt = now;
     }
 
+    public void end(Instant now) {
+        endsAt = now;
+        recruitmentOpen = false;
+        if (recruitmentClosedAt == null) recruitmentClosedAt = now;
+        updatedAt = now;
+    }
+
     public void beginInterim(Instant now) { interimCalculationStartedAt = now; updatedAt = now; }
     public void finishInterim(Instant now, Instant latestMatchStartedAt) {
         lastInterimCalculatedAt = now;
@@ -120,24 +130,41 @@ public class KillCompetition {
         updatedAt = now;
     }
     public void clearInterimClaim() { interimCalculationStartedAt = null; }
-    public void beginFinalization(Instant now) { finalizationStartedAt = now; updatedAt = now; }
-    public void clearFinalizationClaim() { finalizationStartedAt = null; }
+    public void beginFinalization(Instant now, UUID claimToken) {
+        finalizationStartedAt = now;
+        finalizationClaimToken = Objects.requireNonNull(claimToken);
+        resultLastError = null;
+        updatedAt = now;
+    }
+    public boolean ownsFinalizationClaim(UUID claimToken) {
+        return claimToken != null && claimToken.equals(finalizationClaimToken);
+    }
+    public void clearFinalizationClaim() {
+        finalizationStartedAt = null;
+        finalizationClaimToken = null;
+    }
     public void requestResult(Instant now, Instant publishAt) {
         status = KillCompetitionStatus.RESULT_PENDING;
         recruitmentOpen = false;
         resultRequestedAt = now;
         resultPublishAt = publishAt;
         resultLastError = null;
+        finalizationStartedAt = null;
+        finalizationClaimToken = null;
         updatedAt = now;
     }
     public void recordResultFailure(String message, Instant now) {
         resultLastError = message == null ? "최종 결과 집계에 실패했습니다." : message.substring(0, Math.min(500, message.length()));
+        // 실패가 확인된 작업의 소유권은 해제하되 시작 시각은 재시도 backoff 기준으로 유지한다.
+        finalizationClaimToken = null;
         updatedAt = now;
     }
     public void complete(Instant now) {
         status = KillCompetitionStatus.COMPLETED;
         completedAt = now;
         finalizationStartedAt = null;
+        finalizationClaimToken = null;
+        resultLastError = null;
         updatedAt = now;
     }
     public void cancel(Instant now) { status = KillCompetitionStatus.CANCELLED; updatedAt = now; }
@@ -164,6 +191,7 @@ public class KillCompetition {
     public Instant getLastInterimMatchStartedAt() { return lastInterimMatchStartedAt; }
     public Instant getInterimCalculationStartedAt() { return interimCalculationStartedAt; }
     public Instant getFinalizationStartedAt() { return finalizationStartedAt; }
+    public UUID getFinalizationClaimToken() { return finalizationClaimToken; }
     public Instant getResultRequestedAt() { return resultRequestedAt; }
     public Instant getResultPublishAt() { return resultPublishAt; }
     public String getResultLastError() { return resultLastError; }
