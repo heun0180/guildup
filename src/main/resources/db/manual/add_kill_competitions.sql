@@ -74,6 +74,7 @@ ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_requested_at TIMES
 ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_publish_at TIMESTAMPTZ;
 ALTER TABLE kill_competitions ADD COLUMN IF NOT EXISTS result_last_error VARCHAR(500);
 ALTER TABLE kill_competitions DROP CONSTRAINT IF EXISTS ck_kill_competition_status;
+ALTER TABLE kill_competitions DROP CONSTRAINT IF EXISTS kill_competitions_status_check;
 ALTER TABLE kill_competitions ADD CONSTRAINT ck_kill_competition_status
     CHECK (status IN ('RECRUITING', 'READY', 'IN_PROGRESS', 'RESULT_PENDING', 'COMPLETED', 'CANCELLED'));
 CREATE INDEX IF NOT EXISTS idx_kill_competition_result_publish
