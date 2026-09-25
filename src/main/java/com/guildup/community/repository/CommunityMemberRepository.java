@@ -38,6 +38,13 @@ public interface CommunityMemberRepository extends JpaRepository<CommunityMember
             @Param("status") CommunityMemberStatus status
     );
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select member from CommunityMember member where member.id = :memberId and member.community.id = :communityId")
+    Optional<CommunityMember> findAnyForUpdate(
+            @Param("communityId") Long communityId,
+            @Param("memberId") Long memberId
+    );
+
     /** 점수 행이 아직 없는 ACTIVE 멤버도 0점으로 포함하고 순서를 고정한다. */
     @Query("""
             select member, coalesce(score.totalScore, 0)

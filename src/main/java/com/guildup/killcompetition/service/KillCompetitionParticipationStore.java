@@ -30,6 +30,7 @@ public class KillCompetitionParticipationStore {
     private final CommunityMemberAccountRepository accounts;
     private final CommunityMemberRepository memberRepository;
     private final CommunityMemberPubgIdentityService identities;
+    private final KillCompetitionManagementAccess managementAccess;
     private final Clock clock;
 
     public KillCompetitionParticipationStore(KillCompetitionRepository competitions,
@@ -38,6 +39,7 @@ public class KillCompetitionParticipationStore {
                                              CommunityMemberAccountRepository accounts,
                                              CommunityMemberRepository memberRepository,
                                              CommunityMemberPubgIdentityService identities,
+                                             KillCompetitionManagementAccess managementAccess,
                                              Clock clock) {
         this.competitions = competitions;
         this.participants = participants;
@@ -45,6 +47,7 @@ public class KillCompetitionParticipationStore {
         this.accounts = accounts;
         this.memberRepository = memberRepository;
         this.identities = identities;
+        this.managementAccess = managementAccess;
         this.clock = clock;
     }
 
@@ -64,7 +67,7 @@ public class KillCompetitionParticipationStore {
     @Transactional(readOnly = true)
     public JoinPreparation prepareDirect(Long userId, Long communityId, Long competitionId, Long memberId) {
         KillCompetition competition = requireDetail(communityId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         requireMutable(competition, clock.instant());
         CommunityMember member = memberRepository.findById(memberId).filter(candidate ->
                         Objects.equals(candidate.getCommunity().getId(), communityId))
@@ -116,7 +119,7 @@ public class KillCompetitionParticipationStore {
     public void commitDirect(Long userId, Long communityId, Long competitionId, JoinPreparation preparation,
                              PubgPlayer resolvedPlayer, Long teamId) {
         KillCompetition competition = requireForUpdate(communityId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         Instant now = clock.instant();
         requireMutable(competition, now);
         CommunityMember member = memberRepository.findById(preparation.memberId()).filter(candidate ->
@@ -167,13 +170,6 @@ public class KillCompetitionParticipationStore {
         }
         return competition.getTeams().stream().filter(team -> Objects.equals(team.getId(), teamId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "올바른 팀을 선택해 주세요."));
-    }
-
-    private void requireCreator(Long userId, Long communityId, KillCompetition competition) {
-        CommunityMember creator = currentMembers.require(userId, communityId);
-        if (!Objects.equals(creator.getId(), competition.getCreatedBy().getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "킬내기 생성자만 수행할 수 있습니다.");
-        }
     }
 
     private void requireJoinable(KillCompetition competition, Instant now) {

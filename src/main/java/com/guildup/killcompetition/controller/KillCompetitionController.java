@@ -89,6 +89,14 @@ public class KillCompetitionController {
     public KillCompetitionDetailResponse start(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
         return competitions.start(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
     }
+    @PutMapping("/{competitionId}/ends-at")
+    public KillCompetitionDetailResponse updateEndTime(@PathVariable Long communityId, @PathVariable Long communityGameId,
+                                                       @PathVariable Long competitionId,
+                                                       @RequestBody KillCompetitionEndTimeRequest request,
+                                                       HttpSession session) {
+        return competitions.updateEndTime(CurrentUserSession.requireUserId(session), communityId, communityGameId,
+                competitionId, request == null ? null : request.endsAt());
+    }
     @PostMapping("/{competitionId}/interim")
     public KillCompetitionDetailResponse interim(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
         competitions.get(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
@@ -103,8 +111,9 @@ public class KillCompetitionController {
     public KillCompetitionDetailResponse cancel(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
         return competitions.cancel(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
     }
-    @DeleteMapping("/{competitionId}")
-    public KillCompetitionDetailResponse deactivate(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
-        return competitions.cancel(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
+    @DeleteMapping("/{competitionId}") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long communityId, @PathVariable Long communityGameId,
+                       @PathVariable Long competitionId, HttpSession session) {
+        competitions.delete(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);
     }
 }

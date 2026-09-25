@@ -9,6 +9,8 @@ import com.guildup.killcompetition.repository.*;
 import com.guildup.killcompetition.service.*;
 import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.model.PubgPlayer;
+import com.guildup.pubg.domain.PubgStoredMatch;
+import com.guildup.pubg.repository.PubgStoredMatchRepository;
 import com.guildup.pubg.service.PubgPlayerService;
 import com.guildup.discord.bot.DiscordBot;
 import com.guildup.user.domain.*;
@@ -53,6 +55,7 @@ class KillCompetitionFlowTests {
     @Autowired CommunityRepository communities;
     @Autowired UserExternalAccountRepository userAccounts;
     @Autowired UserRepository users;
+    @Autowired PubgStoredMatchRepository storedMatches;
     @Autowired MutableClock clock;
     @MockitoBean KillCompetitionPubgAggregator aggregator;
     @MockitoBean PubgPlayerService pubgPlayers;
@@ -64,7 +67,7 @@ class KillCompetitionFlowTests {
 
     @BeforeEach
     void setUp() {
-        matchResults.deleteAll(); competitionRepository.deleteAll(); histories.deleteAll(); scores.deleteAll();
+        matchResults.deleteAll(); competitionRepository.deleteAll(); histories.deleteAll(); scores.deleteAll(); storedMatches.deleteAll();
         memberAccounts.deleteAll(); members.deleteAll(); communityUsers.deleteAll(); nicknameRules.deleteAll(); communityGames.deleteAll();
         communities.deleteAll(); userAccounts.deleteAll(); users.deleteAll(); reset(aggregator, pubgPlayers);
         clock.set(Instant.parse("2026-09-15T12:00:00Z"));
@@ -77,6 +80,7 @@ class KillCompetitionFlowTests {
     void memberCreatesWithoutAutomaticParticipationAndParticipantCanJoinCancelAndDuplicateIsRejected() {
         var created = create(KillCompetitionGameMode.SOLO);
         assertThat(created.creatorView()).isTrue();
+        assertThat(created.canManageKillGame()).isTrue();
         assertThat(created.participants()).isEmpty();
 
         var joined = participation.join(creator.user().getId(), community.getId(), created.id());
@@ -204,6 +208,7 @@ class KillCompetitionFlowTests {
     void interimRecalculatesSnapshotHasCompetitionWideCooldownAndDoesNotComplete() {
         var started = startedSolo(List.of(creator));
         mockKills(Map.of("account-생성자", 4));
+        clock.set(started.startedAt().plusSeconds(2));
         var interim = settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
         assertThat(interim.interimStandings()).singleElement().extracting(KillCompetitionDetailResponse.Standing::kills).isEqualTo(4);
         assertThat(interim.status()).isEqualTo("IN_PROGRESS");
@@ -216,13 +221,146 @@ class KillCompetitionFlowTests {
     }
 
     @Test
-    void interimClaimIsSharedByTheCompetitionAcrossParticipants() {
+    void interimRequiresManagerAndClaimIsSharedByTheCompetition() {
         Person second = person("둘", CommunityUserRole.MEMBER, true);
+        Person admin = person("관리자", CommunityUserRole.ADMIN, true);
         var started = startedSolo(List.of(creator, second));
         var work = settlementStore.claimInterim(creator.user().getId(), community.getId(), started.id());
-        assertConflict(() -> settlementStore.claimInterim(second.user().getId(), community.getId(), started.id()));
+        assertForbidden(() -> settlementStore.claimInterim(second.user().getId(), community.getId(), started.id()));
+        assertConflict(() -> settlementStore.claimInterim(admin.user().getId(), community.getId(), started.id()));
         settlementStore.releaseInterim(community.getId(), work);
-        assertThat(settlementStore.claimInterim(second.user().getId(), community.getId(), started.id())).isNotNull();
+        assertThat(settlementStore.claimInterim(admin.user().getId(), community.getId(), started.id())).isNotNull();
+    }
+
+    @Test
+    void lateParticipantKeepsExistingScoresUsesOwnEligibleFromAndDoesNotDuplicateMatches() {
+        Person second = person("둘", CommunityUserRole.MEMBER, true);
+        Person third = person("셋", CommunityUserRole.MEMBER, true);
+        Person late = person("넷", CommunityUserRole.MEMBER, true);
+        var started = startedSolo(List.of(creator, second, third));
+        Map<String, Long> participantIds = started.participants().stream().collect(java.util.stream.Collectors.toMap(
+                KillCompetitionDetailResponse.Participant::nickname,
+                KillCompetitionDetailResponse.Participant::participantId));
+        Instant oldMatchAt = started.startedAt().plusSeconds(60);
+        var firstRows = List.of(
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("생성자"), "old-match", oldMatchAt, 7),
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("둘"), "old-match", oldMatchAt, 5),
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("셋"), "old-match", oldMatchAt, 3));
+        when(aggregator.aggregate(anyString(), any(), any(), anyList()))
+                .thenReturn(snapshot(firstRows));
+
+        clock.set(started.startedAt().plusSeconds(120));
+        var first = settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
+        assertThat(first.interimStandings()).extracting(
+                KillCompetitionDetailResponse.Standing::name,
+                KillCompetitionDetailResponse.Standing::kills)
+                .containsExactlyInAnyOrder(tuple("생성자", 7), tuple("둘", 5), tuple("셋", 3));
+
+        clock.set(clock.instant().plus(Duration.ofMinutes(5)));
+        Instant joinedAt = clock.instant();
+        var joined = participation.addMember(creator.user().getId(), community.getId(), started.id(), late.member().getId(), null);
+        var lateParticipant = joined.participants().stream().filter(p -> p.nickname().equals("넷")).findFirst().orElseThrow();
+        assertThat(lateParticipant.eligibleFrom()).isEqualTo(joinedAt);
+        participantIds = joined.participants().stream().collect(java.util.stream.Collectors.toMap(
+                KillCompetitionDetailResponse.Participant::nickname,
+                KillCompetitionDetailResponse.Participant::participantId));
+        Instant newMatchAt = joinedAt.plusSeconds(30);
+        clock.set(joinedAt.plusSeconds(60));
+        var secondRows = new ArrayList<>(firstRows);
+        secondRows.addAll(List.of(
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("생성자"), "new-match", newMatchAt, 2),
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("둘"), "new-match", newMatchAt, 4),
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("셋"), "new-match", newMatchAt, 1),
+                new KillCompetitionKillSnapshot.MatchKill(participantIds.get("넷"), "new-match", newMatchAt, 6)));
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(snapshot(secondRows));
+
+        var secondResult = settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
+        assertThat(secondResult.interimStandings()).extracting(
+                KillCompetitionDetailResponse.Standing::name,
+                KillCompetitionDetailResponse.Standing::kills)
+                .containsExactlyInAnyOrder(tuple("생성자", 9), tuple("둘", 9), tuple("셋", 4), tuple("넷", 6));
+        assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(started.id()))
+                .hasSize(7);
+    }
+
+    @Test
+    void ownerAndAdminManageMemberCompetitionWhileUnrelatedMemberIsRejected() {
+        Person owner = person("소유자", CommunityUserRole.OWNER, true);
+        Person admin = person("관리자", CommunityUserRole.ADMIN, true);
+        Person member = person("일반", CommunityUserRole.MEMBER, true);
+        var created = create(KillCompetitionGameMode.SOLO);
+
+        assertThat(competitions.get(admin.user().getId(), community.getId(), created.id())).satisfies(detail -> {
+            assertThat(detail.creatorView()).isFalse();
+            assertThat(detail.administratorView()).isTrue();
+            assertThat(detail.canManageKillGame()).isTrue();
+        });
+        assertThat(competitions.get(member.user().getId(), community.getId(), created.id()).canManageKillGame()).isFalse();
+        Instant changedEnd = clock.instant().plus(Duration.ofHours(1));
+        assertBadRequest(() -> competitions.updateEndTime(admin.user().getId(), community.getId(),
+                communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId(),
+                created.id(), clock.instant()));
+        assertThat(competitions.updateEndTime(admin.user().getId(), community.getId(),
+                communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId(), created.id(), changedEnd).endsAt())
+                .isEqualTo(changedEnd);
+        assertForbidden(() -> competitions.updateEndTime(member.user().getId(), community.getId(),
+                communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId(), created.id(), changedEnd.plusSeconds(1)));
+
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(admin.user().getId(), community.getId(), created.id());
+        var started = competitions.start(owner.user().getId(), community.getId(), created.id());
+        assertConflict(() -> competitions.updateEndTime(admin.user().getId(), community.getId(),
+                communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId(), created.id(), changedEnd.plusSeconds(1)));
+        mockKills(Map.of("account-생성자", 2));
+        clock.set(started.startedAt().plusSeconds(2));
+        assertThat(settlements.calculateInterim(admin.user().getId(), community.getId(), started.id())
+                .interimStandings()).singleElement().extracting(KillCompetitionDetailResponse.Standing::kills).isEqualTo(2);
+        assertForbidden(() -> settlements.calculateInterim(member.user().getId(), community.getId(), started.id()));
+        clock.set(started.endsAt().plusSeconds(1));
+        assertThat(settlements.finalizeResult(owner.user().getId(), community.getId(), started.id()).status())
+                .isEqualTo("RESULT_PENDING");
+    }
+
+    @Test
+    void creatorOwnerAndAdminCanDeleteButMemberCannotAndCompletedScoreIsReverted() {
+        Person owner = person("소유자", CommunityUserRole.OWNER, true);
+        Person admin = person("관리자", CommunityUserRole.ADMIN, true);
+        Person member = person("일반", CommunityUserRole.MEMBER, true);
+        Long gameId = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst().getId();
+
+        var creatorDelete = create(KillCompetitionGameMode.SOLO);
+        PubgStoredMatch sharedMatch = storedMatches.save(new PubgStoredMatch(
+                "shared-pubg-match", "kakao", clock.instant(), "solo", "official",
+                "Baltic_Main", false, null, 1200, clock.instant()));
+        competitions.delete(creator.user().getId(), community.getId(), gameId, creatorDelete.id());
+        assertThat(competitionRepository.findById(creatorDelete.id())).isEmpty();
+        assertThat(storedMatches.findById(sharedMatch.getId())).isPresent();
+
+        var ownerDelete = create(KillCompetitionGameMode.SOLO);
+        competitions.delete(owner.user().getId(), community.getId(), gameId, ownerDelete.id());
+        assertThat(competitionRepository.findById(ownerDelete.id())).isEmpty();
+
+        var protectedCompetition = create(KillCompetitionGameMode.SOLO);
+        assertForbidden(() -> competitions.delete(member.user().getId(), community.getId(), gameId, protectedCompetition.id()));
+        assertThat(competitionRepository.findById(protectedCompetition.id())).isPresent();
+        competitions.delete(admin.user().getId(), community.getId(), gameId, protectedCompetition.id());
+
+        List<Person> people = new ArrayList<>(List.of(creator));
+        people.add(person("둘", CommunityUserRole.MEMBER, true));
+        people.add(person("셋", CommunityUserRole.MEMBER, true));
+        people.add(person("넷", CommunityUserRole.MEMBER, true));
+        var started = startedSolo(people);
+        clock.set(started.endsAt().plusSeconds(1));
+        mockKills(Map.of("account-생성자", 9, "account-둘", 4, "account-셋", 3, "account-넷", 2));
+        var completed = finalizeAndPublish(started.id());
+        assertThat(scores.findByCommunityMemberId(creator.member().getId()).orElseThrow().getTotalScore()).isEqualTo(3);
+
+        competitions.delete(admin.user().getId(), community.getId(), gameId, completed.id());
+        assertThat(competitionRepository.findById(completed.id())).isEmpty();
+        assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(completed.id())).isEmpty();
+        assertThat(histories.findByReferenceTypeAndReferenceId(
+                CommunityScoreReferenceType.KILL_COMPETITION, completed.id())).isEmpty();
+        assertThat(scores.findByCommunityMemberId(creator.member().getId()).orElseThrow().getTotalScore()).isZero();
     }
 
     @Test
@@ -372,6 +510,7 @@ class KillCompetitionFlowTests {
                 .isEqualTo(configured.teams().getFirst().teamId());
 
         mockKills(Map.of("account-생성자", 1, "account-둘", 1, "account-늦참팀", 1));
+        clock.set(started.startedAt().plusSeconds(2));
         settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
         assertConflict(() -> competitions.changeParticipantTeam(creator.user().getId(), community.getId(), started.id(),
                 pending.participantId(), configured.teams().get(1).teamId()));
@@ -457,6 +596,15 @@ class KillCompetitionFlowTests {
             return new KillCompetitionKillSnapshot(totals, rows);
         });
     }
+    private KillCompetitionKillSnapshot snapshot(List<KillCompetitionKillSnapshot.MatchKill> rows) {
+        Map<Long, KillCompetitionKillSnapshot.PlayerTotal> totals = new LinkedHashMap<>();
+        rows.forEach(row -> {
+            var old = totals.getOrDefault(row.participantId(), new KillCompetitionKillSnapshot.PlayerTotal(0, 0));
+            totals.put(row.participantId(), new KillCompetitionKillSnapshot.PlayerTotal(
+                    old.kills() + row.kills(), old.matchCount() + 1));
+        });
+        return new KillCompetitionKillSnapshot(totals, rows);
+    }
     private void assertConflict(ThrowingCallable callable) {
         assertThatThrownBy(callable).isInstanceOfSatisfying(ResponseStatusException.class,
                 error -> assertThat(error.getStatusCode().value()).isEqualTo(409));
@@ -464,6 +612,10 @@ class KillCompetitionFlowTests {
     private void assertBadRequest(ThrowingCallable callable) {
         assertThatThrownBy(callable).isInstanceOfSatisfying(ResponseStatusException.class,
                 error -> assertThat(error.getStatusCode().value()).isEqualTo(400));
+    }
+    private void assertForbidden(ThrowingCallable callable) {
+        assertThatThrownBy(callable).isInstanceOfSatisfying(ResponseStatusException.class,
+                error -> assertThat(error.getStatusCode().value()).isEqualTo(403));
     }
     private record Person(User user, CommunityMember member) {}
     @TestConfiguration

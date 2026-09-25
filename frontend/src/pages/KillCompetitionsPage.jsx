@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
-import { formatDateTime, remainingLabel, statusLabel, statusMessage } from "../killCompetitionView.js";
+import { canManageKillGame, formatDateTime, remainingLabel, statusLabel, statusMessage, toDateTimeLocal } from "../killCompetitionView.js";
 
 const basePath = (communityId, communityGameId) => `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/kill-competitions`;
 
 export default function KillCompetitionsPage() {
   const navigate = useNavigate();
-  const params = new URLSearchParams(window.location.search);
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
   const communityId = params.get("communityId");
   const communityGameId = params.get("communityGameId");
   const competitionId = params.get("competitionId");
@@ -46,10 +47,10 @@ export default function KillCompetitionsPage() {
     return () => window.clearInterval(timer);
   }, [detail?.status, load]);
   useEffect(() => {
-    if (!detail?.creatorView) return;
+    if (!canManageKillGame(detail)) return;
     api(`/api/communities/${encodeURIComponent(communityId)}/members`)
       .then(setCommunityMembers).catch((error) => handleError(error, "클랜원 목록을 불러오지 못했습니다."));
-  }, [communityId, detail?.creatorView, handleError]);
+  }, [communityId, detail?.canManageKillGame, detail?.creatorView, detail?.administratorView, handleError]);
   useEffect(() => {
     if (!detail?.serverTime) return undefined;
     const offset = new Date(detail.serverTime).getTime() - Date.now();
@@ -72,8 +73,8 @@ export default function KillCompetitionsPage() {
   async function mutate(path, options = { method: "POST" }) {
     if (busy) return;
     setBusy(true); setMessage("");
-    try { setDetail(await api(`${basePath(communityId, communityGameId)}/${detail.id}${path}`, options)); }
-    catch (error) { handleError(error, "요청을 처리하지 못했습니다."); }
+    try { setDetail(await api(`${basePath(communityId, communityGameId)}/${detail.id}${path}`, options)); return true; }
+    catch (error) { handleError(error, "요청을 처리하지 못했습니다."); return false; }
     finally { setBusy(false); }
   }
 
@@ -87,6 +88,9 @@ export default function KillCompetitionsPage() {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: form.get("title"), gameMode: form.get("gameMode"), endsAt: new Date(localEnd).toISOString() }),
       });
+      setDetail(created);
+      setLoading(false);
+      setBusy(false);
       navigate(`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}&competitionId=${created.id}`);
     } catch (error) { handleError(error, "킬내기를 만들지 못했습니다."); setBusy(false); }
   }
@@ -99,13 +103,25 @@ export default function KillCompetitionsPage() {
     }) });
   }
 
+  async function deleteCompetition(id) {
+    if (busy) return;
+    setBusy(true); setMessage("");
+    try {
+      await api(`${basePath(communityId, communityGameId)}/${id}`, { method: "DELETE" });
+      setDetail(null);
+      navigate(`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}`);
+    } catch (error) { handleError(error, "킬내기를 삭제하지 못했습니다."); }
+    finally { setBusy(false); }
+  }
+
   return (
     <DashboardLayout active="kill-competitions" communityId={communityId} onError={setMessage}>
       <div className="dashboard-content kill-content">
         {!competitionId ? <CompetitionList items={items} loading={loading} showCreate={showCreate}
           setShowCreate={setShowCreate} createCompetition={createCompetition} busy={busy} message={message} />
           : <CompetitionDetail detail={detail} loading={loading} message={message} busy={busy} now={now}
-              communityId={communityId} mutate={mutate} teamCount={teamCount} setTeamCount={setTeamCount}
+              communityId={communityId} communityGameId={communityGameId} mutate={mutate} deleteCompetition={deleteCompetition}
+              teamCount={teamCount} setTeamCount={setTeamCount}
               assignments={assignments} setAssignments={setAssignments} saveTeams={saveTeams}
               communityMembers={communityMembers} />}
       </div>
@@ -143,8 +159,11 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
   </>;
 }
 
-function CompetitionDetail({ detail, loading, message, busy, now, communityId, mutate, teamCount, setTeamCount,
-  assignments, setAssignments, saveTeams, communityMembers }) {
+function CompetitionDetail({ detail, loading, message, busy, now, communityId, communityGameId, mutate,
+  deleteCompetition, teamCount, setTeamCount, assignments, setAssignments, saveTeams, communityMembers }) {
+  const [editingEndTime, setEditingEndTime] = useState(false);
+  const [endTime, setEndTime] = useState("");
+  useEffect(() => { setEndTime(toDateTimeLocal(detail?.endsAt)); }, [detail?.endsAt]);
   if (loading && !detail) return <section className="panel kill-empty">킬내기 상세 정보를 불러오는 중입니다.</section>;
   if (!detail) return <>{message && <p className="message">{message}</p>}</>;
   if (detail.status === "IN_PROGRESS" && now >= new Date(detail.endsAt).getTime()) {
@@ -152,15 +171,20 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, m
   }
   const pending = detail.participants.filter((participant) => participant.participationStatus === "PENDING");
   const approved = detail.participants.filter((participant) => participant.participationStatus === "APPROVED");
-  const canInterim = detail.status === "IN_PROGRESS" && approved.some((participant) => participant.participantId === detail.myParticipantId);
+  const canManage = canManageKillGame(detail);
+  const canInterim = detail.status === "IN_PROGRESS" && canManage;
   const canChangeRoster = ["RECRUITING", "READY", "IN_PROGRESS"].includes(detail.status) && now < new Date(detail.endsAt).getTime();
   const cooldownUntil = detail.lastInterimCalculatedAt ? new Date(detail.lastInterimCalculatedAt).getTime() + 300_000 : 0;
   const cooldown = Math.max(0, cooldownUntil - now);
   const assignedCounts = Array.from({ length: Number(teamCount) }, (_, index) =>
     detail.participants.filter((p) => Number(assignments[p.participantId]) === index + 1).length);
   const imbalance = assignedCounts.length && Math.max(...assignedCounts) - Math.min(...assignedCounts) > 1;
+  function confirmDeletion() {
+    if (!window.confirm("정말 이 킬내기를 삭제하시겠습니까? 삭제한 킬내기와 관련된 결과는 복구할 수 없습니다.")) return;
+    deleteCompetition(detail.id);
+  }
   return <>
-    <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(new URLSearchParams(location.search).get("communityGameId"))}`}>← 킬내기 목록</a>
+    <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}`}>← 킬내기 목록</a>
     <div className="page-heading kill-detail-heading"><div><p className="eyebrow">{detail.gameMode} Competition</p><h1>{detail.title}</h1>
       <p>생성자 {detail.creator.nickname} · 참가자 {detail.participantCount}명</p></div><span className={`kill-status status-${detail.status.toLowerCase()}`}>{statusLabel(detail.status)}</span></div>
     {message && <p className="message" role="alert">{message}</p>}
@@ -170,21 +194,27 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, m
       {detail.status === "RESULT_PENDING" && <div className="kill-countdown"><span>결과 발표 예정 {formatDateTime(detail.resultPublishAt)}</span><strong>{remainingLabel(detail.resultPublishAt, now)} 남음</strong></div>}</section>
     <section className="panel kill-overview"><dl><div><dt>방식</dt><dd>{detail.gameMode}</dd></div><div><dt>시작</dt><dd>{formatDateTime(detail.startedAt)}</dd></div>
       <div><dt>종료</dt><dd>{formatDateTime(detail.endsAt)}</dd></div><div><dt>참가 신청</dt><dd>{detail.recruitmentOpen ? "ON" : "OFF"}</dd></div></dl>
+      {canManage && !detail.startedAt && !["RESULT_PENDING", "COMPLETED", "CANCELLED"].includes(detail.status) && <div className="kill-form-actions">
+        {!editingEndTime ? <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditingEndTime(true)}>종료시간 수정</button>
+          : <><label><span>변경할 종료 날짜 및 시각</span><input aria-label="변경할 종료 날짜 및 시각" type="datetime-local" value={endTime} min={toDateTimeLocal(new Date(now + 60_000))} onChange={(event) => setEndTime(event.target.value)} /></label>
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => { setEndTime(toDateTimeLocal(detail.endsAt)); setEditingEndTime(false); }}>취소</button>
+            <button type="button" disabled={busy || !endTime} onClick={async () => { if (await mutate("/ends-at", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endsAt: new Date(endTime).toISOString() }) })) setEditingEndTime(false); }}>저장</button></>}
+      </div>}
       {detail.lastInterimCalculatedAt && <p className="kill-api-note">마지막 정산: {formatDateTime(detail.lastInterimCalculatedAt)}{detail.lastInterimMatchStartedAt && <> · 현재 반영된 최근 경기: {formatDateTime(detail.lastInterimMatchStartedAt)} 시작</>}</p>}
       {!detail.scoreEligible && <p className="kill-score-warning">참가자 4명 미만의 킬내기는 랭킹 점수가 지급되지 않습니다.</p>}</section>
 
-    {canChangeRoster && <section className="panel kill-actions-panel"><div><h2>참가 신청 {detail.recruitmentOpen ? "받는 중" : "닫힘"}</h2><p>{detail.status === "IN_PROGRESS" ? "진행 중 신청은 생성자 승인 후 참가가 확정됩니다." : "생성자도 참가하려면 직접 신청해야 합니다."}</p></div>
+    {canChangeRoster && <section className="panel kill-actions-panel"><div><h2>참가 신청 {detail.recruitmentOpen ? "받는 중" : "닫힘"}</h2><p>{detail.status === "IN_PROGRESS" ? "진행 중 신청은 킬내기 관리자 승인 후 참가가 확정됩니다." : "생성자도 참가하려면 직접 신청해야 합니다."}</p></div>
       <div className="kill-actions">{detail.myParticipantId
         ? pending.some((p) => p.participantId === detail.myParticipantId) && <button className="secondary-button" disabled={busy} onClick={() => mutate("/participants/me", { method: "DELETE" })}>신청 취소</button>
         : detail.pubgNicknameConfigured && detail.recruitmentOpen ? <button disabled={busy} onClick={() => mutate("/participants/me")}>참가 신청</button>
           : <p className="kill-nickname-guide">{detail.recruitmentOpen ? "커뮤니티 닉네임에서 PUBG 인게임 닉네임을 확인할 수 없습니다. 닉네임 형식을 확인해주세요." : "현재 참가 신청을 받지 않습니다."}</p>}
-        {detail.creatorView && <button className="secondary-button" disabled={busy} onClick={() => mutate("/recruitment", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ open: !detail.recruitmentOpen }) })}>참가 신청 {detail.recruitmentOpen ? "OFF" : "ON"}</button>}
-        {detail.creatorView && detail.status === "RECRUITING" && <button disabled={busy || !detail.participantCount} onClick={() => mutate("/close-recruitment")}>시작 준비</button>}</div></section>}
+        {canManage && <button className="secondary-button" disabled={busy} onClick={() => mutate("/recruitment", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ open: !detail.recruitmentOpen }) })}>참가 신청 {detail.recruitmentOpen ? "OFF" : "ON"}</button>}
+        {canManage && detail.status === "RECRUITING" && <button disabled={busy || !detail.participantCount} onClick={() => mutate("/close-recruitment")}>시작 준비</button>}</div></section>}
 
-    {detail.creatorView && canChangeRoster && <ParticipantManager detail={detail} pending={pending} approved={approved}
+    {canManage && canChangeRoster && <ParticipantManager detail={detail} pending={pending} approved={approved}
       members={communityMembers} busy={busy} mutate={mutate} />}
 
-    {detail.status === "READY" && detail.gameMode !== "SOLO" && detail.creatorView && <section className="panel kill-team-builder">
+    {detail.status === "READY" && detail.gameMode !== "SOLO" && canManage && <section className="panel kill-team-builder">
       <div className="kill-section-heading"><div><h2>팀 구성</h2><p>모든 참가자를 한 팀에만 배정해 주세요. 시작 전까지 다시 저장할 수 있습니다.</p></div>
         <label><span>팀 수</span><select value={teamCount} onChange={(e) => setTeamCount(e.target.value)}>
           {Array.from({ length: Math.min(19, Math.max(1, detail.participantCount - 1)) }, (_, i) => i + 2).map((count) => <option key={count}>{count}</option>)}</select></label></div>
@@ -195,7 +225,7 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, m
       <div className="kill-builder-actions"><button disabled={busy} className="secondary-button" onClick={saveTeams}>팀 구성 저장</button>
         <button disabled={busy || detail.teams.length < 2 || detail.participants.some((p) => !p.teamId)} onClick={() => mutate("/start")}>킬내기 시작</button></div>
     </section>}
-    {detail.status === "READY" && detail.gameMode === "SOLO" && detail.creatorView && <section className="panel kill-actions-panel"><div><h2>시작 준비 완료</h2><p>SOLO는 별도 팀 구성 없이 바로 시작할 수 있습니다.</p></div>
+    {detail.status === "READY" && detail.gameMode === "SOLO" && canManage && <section className="panel kill-actions-panel"><div><h2>시작 준비 완료</h2><p>SOLO는 별도 팀 구성 없이 바로 시작할 수 있습니다.</p></div>
       <button disabled={busy} onClick={() => mutate("/start")}>킬내기 시작</button></section>}
 
     <Roster detail={detail} />
@@ -204,12 +234,12 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, m
       <button disabled={busy || cooldown > 0} onClick={() => mutate("/interim")}>{busy ? "정산 중..." : cooldown > 0 ? `${Math.ceil(cooldown / 60000)}분 후 가능` : "중간 정산"}</button></section>}
     {detail.interimStandings.length > 0 && detail.lastInterimCalculatedAt && <><Standings title="중간 정산 결과" standings={detail.interimStandings} /><p className="kill-api-note">최근 종료된 경기는 PUBG API에 아직 반영되지 않았을 수 있습니다. 현재 결과는 참고용 중간 집계입니다.</p></>}
     {detail.status === "ENDED" && <section className="panel kill-actions-panel"><div><h2>킬내기가 종료되었습니다.</h2><p>최근 종료된 경기는 PUBG API 반영까지 시간이 걸릴 수 있습니다.</p></div>
-      {detail.creatorView && <button disabled={busy} onClick={() => mutate("/result-request")}>{busy ? "요청 중..." : "결과 발표 요청"}</button>}</section>}
+      {canManage && <button disabled={busy} onClick={() => mutate("/result-request")}>{busy ? "요청 중..." : "결과 발표 요청"}</button>}</section>}
     {detail.status === "COMPLETED" && <><Standings title="🏆 최종 결과" standings={detail.finalStandings} winners />
       <p className="kill-api-note">결과 집계 완료: {formatDateTime(detail.completedAt)}</p>
       {detail.finalMatches.length > 0 && <MatchEvidence matches={detail.finalMatches} />}</>}
-    {detail.administratorView && !["RESULT_PENDING", "COMPLETED", "CANCELLED"].includes(detail.status) && <div className="kill-admin-actions">
-      <button className="secondary-button danger-button" disabled={busy} onClick={() => mutate("/cancel")}>관리자 강제 취소</button></div>}
+    {canManage && <div className="kill-admin-actions">
+      <button className="secondary-button danger-button" disabled={busy} onClick={confirmDeletion}>킬내기 삭제</button></div>}
   </>;
 }
 

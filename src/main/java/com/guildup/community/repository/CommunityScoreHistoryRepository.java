@@ -2,6 +2,8 @@ package com.guildup.community.repository;
 
 import com.guildup.community.domain.CommunityScoreHistory;
 import com.guildup.community.domain.CommunityScoreType;
+import com.guildup.community.domain.CommunityScoreReferenceType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -15,5 +17,9 @@ public interface CommunityScoreHistoryRepository extends JpaRepository<Community
     );
     boolean existsByCommunityMemberIdAndScoreTypeAndReferenceId(
             Long memberId, CommunityScoreType scoreType, Long referenceId
+    );
+    @EntityGraph(attributePaths = "communityMember")
+    List<CommunityScoreHistory> findByReferenceTypeAndReferenceId(
+            CommunityScoreReferenceType referenceType, Long referenceId
     );
 }

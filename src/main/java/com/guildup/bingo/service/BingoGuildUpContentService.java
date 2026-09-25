@@ -84,4 +84,41 @@ public class BingoGuildUpContentService {
             }
         }
     }
+
+    /** 삭제된 킬내기가 반영한 KILL_BET_WIN 진행도와 파생 줄 결과를 되돌린다. */
+    @Transactional
+    public void removeKillCompetition(Long competitionId, Instant removedAt) {
+        String sourceId = competitionId.toString();
+        List<BingoProcessedSource> removed = processedSources.findBySourceTypeAndSourceId(
+                BingoProgressSourceType.KILL_COMPETITION, sourceId);
+        if (removed.isEmpty()) return;
+        Map<Long, BingoParticipant> affected = removed.stream().collect(java.util.stream.Collectors.toMap(
+                row -> row.getParticipant().getId(), BingoProcessedSource::getParticipant, (first, ignored) -> first));
+        Map<Long, Long> eventIds = removed.stream().collect(java.util.stream.Collectors.toMap(
+                row -> row.getParticipant().getId(), row -> row.getEvent().getId(), (first, ignored) -> first));
+        processedSources.deleteAllInBatch(removed);
+
+        for (Map.Entry<Long, BingoParticipant> entry : affected.entrySet()) {
+            BingoParticipant participant = entry.getValue();
+            BingoEvent event = events.findForUpdate(eventIds.get(entry.getKey())).orElseThrow();
+            List<BingoProcessedSource> remaining = processedSources
+                    .findByEventIdAndParticipantIdAndSourceTypeOrderByOccurredAtAscIdAsc(
+                            event.getId(), participant.getId(), BingoProgressSourceType.KILL_COMPETITION);
+            List<BingoProgress> rows = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId());
+            for (BingoProgress row : rows) {
+                if (row.getCell().getMissionType() != BingoMissionType.KILL_BET_WIN) continue;
+                BigDecimal value = BigDecimal.valueOf(remaining.size());
+                boolean completed = value.compareTo(row.getCell().getTargetValue()) >= 0;
+                Instant completedAt = null;
+                if (completed) {
+                    int threshold = Math.max(1, row.getCell().getTargetValue().setScale(
+                            0, java.math.RoundingMode.CEILING).intValueExact());
+                    completedAt = remaining.get(threshold - 1).getOccurredAt();
+                }
+                row.replaceSnapshot(value, row.getOccurrenceCount(), completed, completedAt,
+                        null, completedAt, removedAt);
+            }
+            completions.rebuildLines(event, participant, rows, removedAt);
+        }
+    }
 }

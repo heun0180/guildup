@@ -57,6 +57,19 @@ public class PubgMatchFactQueryService {
         return result;
     }
 
+    /** 최근 Player API 목록에서 밀려난 경기라도 연결 account의 미완료 Telemetry는 다시 시도한다. */
+    @Transactional(readOnly = true)
+    public List<PubgMatch> findTelemetryMissingForAccounts(Collection<String> accountIds) {
+        if (accountIds.isEmpty()) return List.of();
+        Map<String, PubgMatch> result = new LinkedHashMap<>();
+        List<String> ids = List.copyOf(accountIds);
+        for (int start = 0; start < ids.size(); start += 500) {
+            matches.findTelemetryMissingForAccounts(ids.subList(start, Math.min(start + 500, ids.size())))
+                    .forEach(match -> result.putIfAbsent(match.getMatchId(), toMatch(match)));
+        }
+        return List.copyOf(result.values());
+    }
+
     private StoredMatchFacts toFacts(PubgStoredMatch match, Set<String> communityAccounts,
                                      List<com.guildup.pubg.domain.PubgStoredMatchKill> storedKills) {
         Map<Integer, Set<String>> accountsByTeam = match.getPlayers().stream().collect(Collectors.groupingBy(

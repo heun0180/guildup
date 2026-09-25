@@ -54,6 +54,12 @@ public class CommunityMemberScore {
         this.updatedAt = updatedAt;
     }
 
+    public void remove(int score, Instant updatedAt) {
+        if (score < 0 || totalScore < score) throw new IllegalStateException("차감할 커뮤니티 점수가 올바르지 않습니다.");
+        totalScore = Math.subtractExact(totalScore, score);
+        this.updatedAt = updatedAt;
+    }
+
     public Long getId() { return id; }
     public Community getCommunity() { return community; }
     public CommunityMember getCommunityMember() { return communityMember; }

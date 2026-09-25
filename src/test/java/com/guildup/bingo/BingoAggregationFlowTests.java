@@ -10,6 +10,8 @@ import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
 import com.guildup.discord.bot.DiscordBot;
 import com.guildup.pubg.model.*;
+import com.guildup.pubg.exception.PubgApiException;
+import com.guildup.pubg.repository.PubgStoredMatchRepository;
 import com.guildup.pubg.service.*;
 import com.guildup.user.domain.*;
 import com.guildup.user.repository.*;
@@ -39,6 +41,7 @@ import org.springframework.web.server.ResponseStatusException;
 class BingoAggregationFlowTests {
     @Autowired BingoEventService events; @Autowired BingoAggregationService aggregation;
     @Autowired BingoParticipantRepository participants; @Autowired BingoProgressRepository progress;
+    @Autowired BingoProcessedMatchRepository processed; @Autowired PubgStoredMatchRepository storedMatches;
     @Autowired CommunityRepository communities; @Autowired CommunityUserRepository memberships;
     @Autowired CommunityMemberRepository members; @Autowired CommunityMemberAccountRepository memberAccounts;
     @Autowired CommunityGameRepository games; @Autowired UserRepository users; @Autowired UserExternalAccountRepository userAccounts;
@@ -114,6 +117,66 @@ class BingoAggregationFlowTests {
         clock.set(clock.instant().plus(Duration.ofMinutes(30)));
         aggregation.aggregate(owner.getId(),community.getId(),event.id());
         verify(pubgPlayers,times(2)).findByAccountIdsFresh(eq("kakao"),anyList());
+    }
+
+    @Test void failedTelemetryMatchStaysRetryableAndIsNotMarkedProcessed() {
+        var event = events.create(owner.getId(), community.getId(), request());
+        Instant at = clock.instant().minus(Duration.ofMinutes(10));
+        PubgMatch good = match("good", at);
+        PubgMatch failed = match("failed", at.plusSeconds(1));
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "ApplePUBG", List.of("good", "failed"))));
+        when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of(
+                "good", good, "failed", failed));
+        when(factService.facts(argThat(value -> value != null && value.matchId().equals("good")), anySet()))
+                .thenReturn(Map.of("account-a", facts("good", at, 3)));
+        when(factService.facts(argThat(value -> value != null && value.matchId().equals("failed")), anySet()))
+                .thenThrow(new PubgApiException("upstream unavailable", null, 500, true));
+
+        var result = aggregation.aggregate(owner.getId(), community.getId(), event.id());
+
+        assertThat(result.telemetryFailures()).isEqualTo(1);
+        assertThat(result.processedMatches()).isEqualTo(1);
+        assertThat(processed.findDistinctMatchIdsByEventId(event.id())).contains("good").doesNotContain("failed");
+        assertThat(storedMatches.findByMatchId("good").orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(storedMatches.findByMatchId("failed").orElseThrow().isTelemetryLoaded()).isFalse();
+    }
+
+    @Test void longDistanceKillIsAppliedAfterFailedTelemetryRetriesFromStoredMatch() {
+        var event = events.create(owner.getId(), community.getId(), longDistanceRequest());
+        BingoParticipant participant = participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        Instant at = clock.instant().minus(Duration.ofMinutes(10));
+        PubgMatch match = match("long-distance-retry", at);
+        PlayerMatchFacts longDistanceFact = new PlayerMatchFacts(match.matchId(), at, "Erangel_Main", "squad",
+                Map.of("KILLS", BigDecimal.ONE),
+                List.of(new PlayerMatchFacts.KillFact("victim", "M24", "SR", null, 250, false, at)),
+                Map.of(), 0, at);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList()))
+                .thenReturn(List.of(new PubgPlayer("account-a", "ApplePUBG", List.of(match.matchId()))))
+                .thenReturn(List.of(new PubgPlayer("account-a", "ApplePUBG", List.of())));
+        when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of(match.matchId(), match));
+        when(factService.facts(argThat(value -> value != null && value.matchId().equals(match.matchId())), anySet()))
+                .thenThrow(new PubgApiException("timeout", null))
+                .thenReturn(Map.of("account-a", longDistanceFact));
+
+        aggregation.aggregate(owner.getId(), community.getId(), event.id());
+        BingoProgress first = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst();
+        assertThat(first.getCurrentValue()).isZero();
+        assertThat(first.isCompleted()).isFalse();
+        assertThat(storedMatches.findByMatchId(match.matchId()).orElseThrow().isTelemetryLoaded()).isFalse();
+        assertThat(processed.existsByEventIdAndParticipantIdAndMatchId(
+                event.id(), participant.getId(), match.matchId())).isFalse();
+
+        clock.set(clock.instant().plus(Duration.ofMinutes(30)));
+        aggregation.aggregate(owner.getId(), community.getId(), event.id());
+
+        BingoProgress retried = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst();
+        assertThat(retried.getCurrentValue()).isEqualByComparingTo("1");
+        assertThat(retried.isCompleted()).isTrue();
+        assertThat(storedMatches.findByMatchId(match.matchId()).orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(processed.existsByEventIdAndParticipantIdAndMatchId(
+                event.id(), participant.getId(), match.matchId())).isTrue();
+        verify(pubgMatches, times(1)).findUniqueMatches(eq("kakao"), anyCollection());
     }
 
     @Test void lateParticipantIgnoresMatchesBeforeEligibleFrom(){
@@ -434,6 +497,15 @@ class BingoAggregationFlowTests {
         for(int i=0;i<9;i++) cells.add(new BingoEventRequest.Cell(i,BingoMissionType.KILLS,BingoAggregationType.EVENT_TOTAL,
                 BingoOperator.GREATER_THAN_OR_EQUAL,BigDecimal.valueOf(5),null,Map.of(),null));
         return new BingoEventRequest("진행 빙고",null,clock.instant().minus(Duration.ofHours(1)),clock.instant().plus(Duration.ofHours(2)),3,3,true,false,BingoStatus.ACTIVE,cells);
+    }
+    private BingoEventRequest longDistanceRequest(){
+        List<BingoEventRequest.Cell> cells=new ArrayList<>();
+        cells.add(new BingoEventRequest.Cell(0,BingoMissionType.LONG_DISTANCE_KILL,BingoAggregationType.EVENT_TOTAL,
+                BingoOperator.GREATER_THAN_OR_EQUAL,BigDecimal.ONE,null,Map.of("distance",200),"200m 이상 1킬"));
+        for(int i=1;i<9;i++) cells.add(new BingoEventRequest.Cell(i,BingoMissionType.KILLS,BingoAggregationType.EVENT_TOTAL,
+                BingoOperator.GREATER_THAN_OR_EQUAL,BigDecimal.valueOf(999),null,Map.of(),null));
+        return new BingoEventRequest("장거리 빙고",null,clock.instant().minus(Duration.ofHours(1)),
+                clock.instant().plus(Duration.ofHours(2)),3,3,true,false,BingoStatus.ACTIVE,cells);
     }
     private BingoEventRequest mixedMissionRequest(){
         List<BingoMissionType> types=List.of(BingoMissionType.KILLS,BingoMissionType.DAMAGE_DEALT,

@@ -3,14 +3,17 @@ package com.guildup.pubg.service;
 import com.guildup.pubg.model.PlayerMatchFacts;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
+import com.guildup.pubg.exception.PubgApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.client.RestClientResponseException;
 import jakarta.annotation.PreDestroy;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
@@ -68,7 +71,11 @@ public class PubgMatchSyncService {
             }
         }
 
-        List<PubgMatch> telemetryMatches = query.findTelemetryMissing(discovered).stream()
+        Map<String, PubgMatch> missingTelemetry = new LinkedHashMap<>();
+        query.findTelemetryMissing(discovered).forEach(match -> missingTelemetry.put(match.matchId(), match));
+        query.findTelemetryMissingForAccounts(accounts).forEach(
+                match -> missingTelemetry.putIfAbsent(match.matchId(), match));
+        List<PubgMatch> telemetryMatches = missingTelemetry.values().stream()
                 .filter(telemetryRequired).toList();
         progress.stage("TELEMETRY_FETCH", 0, telemetryMatches.size(),
                 "Telemetry 0 / " + telemetryMatches.size());
@@ -88,27 +95,38 @@ public class PubgMatchSyncService {
                     total.players += count.players(); total.kills += count.kills();
                 } catch (RuntimeException exception) {
                     total.failures++;
-                    log.warn("PUBG telemetry fetch failed - matchId={}", values.get(i).matchId(), exception);
+                    logTelemetryFailure(values.get(i).matchId(), exception);
                 }
                 progress.stage("TELEMETRY_FETCH", i + 1, values.size(),
                         "Telemetry " + (i + 1) + " / " + values.size());
             }
             return total;
         }
-        List<Future<PubgMatchFactWriter.StoredCounts>> futures = values.stream()
-                .map(match -> telemetryExecutor.submit(() -> fetchTelemetryOnce(match))).toList();
-        for (int i = 0; i < futures.size(); i++) {
+        CompletionService<TelemetryOutcome> completions = new ExecutorCompletionService<>(telemetryExecutor);
+        values.forEach(match -> completions.submit(() -> {
             try {
-                PubgMatchFactWriter.StoredCounts count = futures.get(i).get();
-                total.players += count.players(); total.kills += count.kills();
+                return TelemetryOutcome.success(match.matchId(), fetchTelemetryOnce(match));
+            } catch (RuntimeException exception) {
+                return TelemetryOutcome.failure(match.matchId(), exception);
+            }
+        }));
+        for (int completed = 1; completed <= values.size(); completed++) {
+            try {
+                TelemetryOutcome outcome = completions.take().get();
+                if (outcome.failure() == null) {
+                    total.players += outcome.counts().players();
+                    total.kills += outcome.counts().kills();
+                } else {
+                    total.failures++;
+                    logTelemetryFailure(outcome.matchId(), outcome.failure());
+                }
             } catch (InterruptedException exception) {
                 Thread.currentThread().interrupt(); throw new IllegalStateException("PUBG Telemetry 수집이 중단되었습니다.", exception);
             } catch (ExecutionException exception) {
-                total.failures++;
-                log.warn("PUBG telemetry fetch failed - matchId={}", values.get(i).matchId(), exception.getCause());
+                throw new IllegalStateException("PUBG Telemetry 작업 결과를 확인하지 못했습니다.", exception.getCause());
             }
-            progress.stage("TELEMETRY_FETCH", i + 1, values.size(),
-                    "Telemetry " + (i + 1) + " / " + values.size());
+            progress.stage("TELEMETRY_FETCH", completed, values.size(),
+                    "Telemetry " + completed + " / " + values.size());
         }
         return total;
     }
@@ -127,12 +145,12 @@ public class PubgMatchSyncService {
             try {
                 // parser는 Match의 전체 participant fact를 만든다. community 관련 값은 조회 시점에 재구성한다.
                 parsed = facts.facts(match, Set.of());
+                PubgMatchFactWriter.StoredCounts result = writer.saveTelemetry(match.matchId(), parsed);
+                mine.complete(null);
+                return result;
             } finally {
                 telemetryPermits.release();
             }
-            PubgMatchFactWriter.StoredCounts result = writer.saveTelemetry(match.matchId(), parsed);
-            mine.complete(null);
-            return result;
         } catch (RuntimeException exception) {
             mine.completeExceptionally(exception);
             throw exception;
@@ -155,6 +173,39 @@ public class PubgMatchSyncService {
         }
     }
 
+    private void logTelemetryFailure(String matchId, RuntimeException exception) {
+        Throwable root = rootCause(exception);
+        log.warn("PUBG telemetry fetch failed - matchId={} exceptionClass={} rootCause={} httpStatus={} " +
+                        "reason={} attempt=1 timestamp={}", matchId, exception.getClass().getName(),
+                root.getClass().getName(), httpStatus(exception), safeReason(root), Instant.now());
+    }
+
+    private Throwable rootCause(Throwable value) {
+        Throwable result = value;
+        while (result.getCause() != null && result.getCause() != result) result = result.getCause();
+        return result;
+    }
+
+    private String httpStatus(Throwable value) {
+        Throwable current = value;
+        while (current != null) {
+            if (current instanceof PubgApiException pubg && pubg.getUpstreamStatus() != null)
+                return Integer.toString(pubg.getUpstreamStatus());
+            if (current instanceof RestClientResponseException response)
+                return Integer.toString(response.getStatusCode().value());
+            current = current.getCause();
+        }
+        return "NONE";
+    }
+
+    private String safeReason(Throwable value) {
+        String message = value.getMessage();
+        if (message == null || message.isBlank()) return value.getClass().getSimpleName();
+        String sanitized = message.replaceAll("https?://\\S+", "[telemetry-url]")
+                .replaceAll("(?i)(authorization|api[-_ ]?key)[:= ]+\\S+", "$1=[redacted]");
+        return sanitized.length() <= 300 ? sanitized : sanitized.substring(0, 300);
+    }
+
     @PreDestroy
     void shutdownExecutor() { telemetryExecutor.shutdown(); }
 
@@ -166,5 +217,14 @@ public class PubgMatchSyncService {
                              int newMatchIds, int matchApiCalls, int matchFailures, int telemetryApiCalls,
                              int telemetryFailures, int dbMatchesInserted, int dbPlayerFactsInserted,
                              int dbKillFactsInserted) {}
+    private record TelemetryOutcome(String matchId, PubgMatchFactWriter.StoredCounts counts,
+                                    RuntimeException failure) {
+        static TelemetryOutcome success(String matchId, PubgMatchFactWriter.StoredCounts counts) {
+            return new TelemetryOutcome(matchId, counts, null);
+        }
+        static TelemetryOutcome failure(String matchId, RuntimeException failure) {
+            return new TelemetryOutcome(matchId, null, failure);
+        }
+    }
     private static final class Counters { int players; int kills; int failures; }
 }

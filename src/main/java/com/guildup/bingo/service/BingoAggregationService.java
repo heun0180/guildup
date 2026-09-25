@@ -98,7 +98,7 @@ public class BingoAggregationService {
                 sync.matchApiCalls(), sync.matchFailures(), sync.telemetryApiCalls(), sync.telemetryFailures(),
                 sync.dbMatchesInserted(), sync.dbPlayerFactsInserted(), sync.dbKillFactsInserted(), calculationMs, totalMs);
         listener.stage("COMPLETED", facts.size(), facts.size(), "빙고 집계가 완료되었습니다.");
-        return response;
+        return response.withTelemetryFailures(sync.telemetryFailures());
     }
 
     private boolean telemetryRequired(BingoAggregationPreparationService.PreparedAggregation prepared, PubgMatch match) {

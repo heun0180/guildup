@@ -2,10 +2,7 @@ package com.guildup.killcompetition.service;
 
 import com.guildup.bingo.service.BingoGuildUpContentService;
 import com.guildup.community.domain.CommunityMember;
-import com.guildup.community.repository.CommunityGameRepository;
-import com.guildup.community.service.CommunityAccessService;
 import com.guildup.community.service.CommunityScoreService;
-import com.guildup.community.service.CurrentCommunityMemberService;
 import com.guildup.killcompetition.domain.*;
 import com.guildup.killcompetition.repository.*;
 import com.guildup.pubg.support.PubgGameSupport;
@@ -28,9 +25,7 @@ public class KillCompetitionSettlementStore {
 
     private final KillCompetitionRepository competitions;
     private final KillCompetitionMatchResultRepository matchResults;
-    private final CommunityGameRepository communityGames;
-    private final CurrentCommunityMemberService currentMembers;
-    private final CommunityAccessService access;
+    private final KillCompetitionManagementAccess managementAccess;
     private final CommunityScoreService scores;
     private final BingoGuildUpContentService bingoContent;
     private final KillCompetitionWinnerResolver winnerResolver;
@@ -38,24 +33,19 @@ public class KillCompetitionSettlementStore {
 
     public KillCompetitionSettlementStore(KillCompetitionRepository competitions,
                                           KillCompetitionMatchResultRepository matchResults,
-                                          CommunityGameRepository communityGames,
-                                          CurrentCommunityMemberService currentMembers,
-                                          CommunityAccessService access,
+                                          KillCompetitionManagementAccess managementAccess,
                                           CommunityScoreService scores,
                                           BingoGuildUpContentService bingoContent,
                                           KillCompetitionWinnerResolver winnerResolver, Clock clock) {
-        this.competitions = competitions; this.matchResults = matchResults; this.communityGames = communityGames;
-        this.currentMembers = currentMembers; this.access = access; this.scores = scores;
+        this.competitions = competitions; this.matchResults = matchResults;
+        this.managementAccess = managementAccess; this.scores = scores;
         this.bingoContent = bingoContent; this.winnerResolver = winnerResolver; this.clock = clock;
     }
 
     @Transactional
     public SettlementWork claimInterim(Long userId, Long communityId, Long competitionId) {
-        access.requireCommunityMember(userId, communityId);
         KillCompetition competition = requireForUpdate(communityId, competitionId);
-        CommunityMember member = currentMembers.require(userId, communityId);
-        if (competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).noneMatch(p -> Objects.equals(
-                p.getCommunityMember().getId(), member.getId()))) forbidden("승인된 참가자만 중간 정산을 할 수 있습니다.");
+        managementAccess.requireCanManage(userId, communityId, competition);
         Instant now = clock.instant();
         if (competition.getStatus() != KillCompetitionStatus.IN_PROGRESS || !now.isBefore(competition.getEndsAt())) {
             conflict("진행 중인 킬내기만 중간 정산할 수 있습니다.");
@@ -75,18 +65,17 @@ public class KillCompetitionSettlementStore {
         if (!Objects.equals(competition.getInterimCalculationStartedAt(), work.claimAt())) {
             conflict("중간 정산 요청이 만료되었습니다. 다시 시도해 주세요.");
         }
-        applyTotals(competition, snapshot, false);
-        Instant latest = snapshot.matchKills().stream().map(KillCompetitionKillSnapshot.MatchKill::startedAt)
+        List<KillCompetitionMatchResult> accumulated = mergeMatchResults(competition, snapshot, work.rangeEnd());
+        applyTotals(competition, accumulated, false);
+        Instant latest = accumulated.stream().map(KillCompetitionMatchResult::getMatchStartedAt)
                 .max(Comparator.naturalOrder()).orElse(null);
         competition.finishInterim(clock.instant(), latest);
     }
 
     @Transactional
     public void requestFinal(Long userId, Long communityId, Long competitionId) {
-        access.requireCommunityMember(userId, communityId);
         KillCompetition competition = requireForUpdate(communityId, competitionId);
-        CommunityMember member = currentMembers.require(userId, communityId);
-        if (!Objects.equals(competition.getCreatedBy().getId(), member.getId())) forbidden("킬내기 생성자만 결과를 발표할 수 있습니다.");
+        managementAccess.requireCanManage(userId, communityId, competition);
         Instant now = clock.instant();
         if (competition.getStatus() == KillCompetitionStatus.RESULT_PENDING) conflict("이미 결과 발표를 요청했습니다.");
         if (competition.getStatus() == KillCompetitionStatus.COMPLETED) conflict("이미 결과가 확정된 킬내기입니다.");
@@ -122,12 +111,8 @@ public class KillCompetitionSettlementStore {
         if (!Objects.equals(competition.getFinalizationStartedAt(), work.claimAt())) {
             conflict("결과 발표 요청이 만료되었습니다. 다시 시도해 주세요.");
         }
-        applyTotals(competition, snapshot, true);
-        matchResults.deleteByCompetitionId(competition.getId());
-        Map<Long, KillCompetitionParticipant> byId = new HashMap<>();
-        competition.getParticipants().forEach(p -> byId.put(p.getId(), p));
-        matchResults.saveAll(snapshot.matchKills().stream().map(row -> new KillCompetitionMatchResult(
-                competition, byId.get(row.participantId()), row.matchId(), row.startedAt(), row.kills())).toList());
+        List<KillCompetitionMatchResult> accumulated = mergeMatchResults(competition, snapshot, work.rangeEnd());
+        applyTotals(competition, accumulated, true);
 
         Instant completedAt = clock.instant();
         List<CommunityMember> winners = winnerResolver.winnerMembers(competition);
@@ -165,11 +150,57 @@ public class KillCompetitionSettlementStore {
                                         ? competition.getStartedAt() : p.getEligibleFrom())).toList());
     }
 
-    private void applyTotals(KillCompetition competition, KillCompetitionKillSnapshot snapshot, boolean finalResult) {
+    private List<KillCompetitionMatchResult> mergeMatchResults(KillCompetition competition,
+                                                               KillCompetitionKillSnapshot snapshot,
+                                                               Instant rangeEnd) {
+        List<KillCompetitionMatchResult> accumulated = new ArrayList<>(
+                matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(competition.getId()));
+        record MatchKey(Long participantId, String matchId) {}
+        Map<MatchKey, KillCompetitionMatchResult> byKey = accumulated.stream().collect(java.util.stream.Collectors.toMap(
+                row -> new MatchKey(row.getParticipant().getId(), row.getMatchId()), row -> row));
+        Map<Long, KillCompetitionParticipant> participantsById = competition.getParticipants().stream()
+                .filter(KillCompetitionParticipant::isApproved)
+                .collect(java.util.stream.Collectors.toMap(KillCompetitionParticipant::getId, participant -> participant));
+        List<KillCompetitionMatchResult> discovered = new ArrayList<>();
+        for (KillCompetitionKillSnapshot.MatchKill row : snapshot.matchKills()) {
+            KillCompetitionParticipant participant = participantsById.get(row.participantId());
+            if (participant == null) throw new IllegalStateException("참가자 정산 결과가 올바르지 않습니다.");
+            Instant eligibleFrom = participant.getEligibleFrom() == null
+                    ? competition.getStartedAt() : participant.getEligibleFrom();
+            Instant lowerBound = eligibleFrom.isAfter(competition.getStartedAt())
+                    ? eligibleFrom : competition.getStartedAt();
+            if (row.startedAt() == null || row.startedAt().isBefore(lowerBound)
+                    || !row.startedAt().isBefore(rangeEnd)) continue;
+            MatchKey key = new MatchKey(row.participantId(), row.matchId());
+            KillCompetitionMatchResult existing = byKey.get(key);
+            if (existing != null) {
+                existing.refresh(row.startedAt(), row.kills());
+                continue;
+            }
+            KillCompetitionMatchResult result = new KillCompetitionMatchResult(
+                    competition, participant, row.matchId(), row.startedAt(), row.kills());
+            byKey.put(key, result);
+            discovered.add(result);
+            accumulated.add(result);
+        }
+        if (!discovered.isEmpty()) matchResults.saveAll(discovered);
+        return accumulated;
+    }
+
+    private void applyTotals(KillCompetition competition, List<KillCompetitionMatchResult> accumulated,
+                             boolean finalResult) {
+        Map<Long, KillCompetitionKillSnapshot.PlayerTotal> totals = new HashMap<>();
+        for (KillCompetitionMatchResult row : accumulated) {
+            Long participantId = row.getParticipant().getId();
+            KillCompetitionKillSnapshot.PlayerTotal old = totals.getOrDefault(
+                    participantId, new KillCompetitionKillSnapshot.PlayerTotal(0, 0));
+            totals.put(participantId, new KillCompetitionKillSnapshot.PlayerTotal(
+                    Math.addExact(old.kills(), row.getKills()), Math.addExact(old.matchCount(), 1)));
+        }
         for (KillCompetitionParticipant participant : competition.getParticipants().stream()
                 .filter(KillCompetitionParticipant::isApproved).toList()) {
-            var total = snapshot.totals().get(participant.getId());
-            if (total == null) throw new IllegalStateException("참가자 정산 결과가 누락되었습니다.");
+            var total = totals.getOrDefault(participant.getId(),
+                    new KillCompetitionKillSnapshot.PlayerTotal(0, 0));
             if (finalResult) participant.recordFinal(total.kills(), total.matchCount());
             else participant.recordInterim(total.kills(), total.matchCount());
         }
@@ -183,5 +214,4 @@ public class KillCompetitionSettlementStore {
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "킬내기를 찾을 수 없습니다."));
     }
     private void conflict(String message) { throw new ResponseStatusException(HttpStatus.CONFLICT, message); }
-    private void forbidden(String message) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, message); }
 }

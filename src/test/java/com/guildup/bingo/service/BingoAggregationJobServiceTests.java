@@ -58,6 +58,21 @@ class BingoAggregationJobServiceTests {
     }
 
     @Test
+    void partialTelemetryFailurePublishesCompletedWithWarningsAndFailureCount() {
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenReturn(new BingoAggregationResponse(
+                100L, 9, 3, "ACTIVE", Instant.parse("2026-09-24T05:00:00Z"), 1));
+
+        jobs.start(1L, 10L, 20L, 100L);
+        tasks.remove().run();
+
+        var completed = jobs.status(1L, 10L, 20L, 100L);
+        assertThat(completed.state()).isEqualTo("COMPLETED_WITH_WARNINGS");
+        assertThat(completed.telemetryFailures()).isEqualTo(1);
+        assertThat(completed.message()).contains("다음 집계에서 다시 시도");
+        assertThat(completed.processedMatches()).isEqualTo(9);
+    }
+
+    @Test
     void aSecondClickWhileRunningReturnsTheSameJobWithoutEnqueueingAnotherOne() {
         var first = jobs.start(1L, 10L, 20L, 100L);
         var second = jobs.start(1L, 10L, 20L, 100L);

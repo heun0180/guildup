@@ -23,3 +23,15 @@ export function remainingLabel(endsAt, nowMs) {
   const seconds = Math.floor((remaining % 60_000) / 1000);
   return `${hours ? `${hours}시간 ` : ""}${minutes}분 ${seconds}초`;
 }
+
+export function canManageKillGame(detail) {
+  return Boolean(detail?.canManageKillGame
+    ?? (detail?.creatorView || detail?.administratorView));
+}
+
+export function toDateTimeLocal(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}

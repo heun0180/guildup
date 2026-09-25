@@ -10,7 +10,7 @@ public record KillCompetitionDetailResponse(
         Instant lastInterimCalculatedAt, Instant lastInterimMatchStartedAt,
         Instant resultRequestedAt, Instant resultPublishAt, String resultLastError,
         Instant completedAt, Instant serverTime,
-        Member creator, boolean creatorView, boolean administratorView,
+        Member creator, boolean creatorView, boolean administratorView, boolean canManageKillGame,
         Long myParticipantId, boolean pubgNicknameConfigured,
         boolean scoreEligible, int participantCount,
         List<Participant> participants, List<Team> teams,
@@ -29,7 +29,7 @@ public record KillCompetitionDetailResponse(
     public record MatchPlayer(Long participantId, String nickname, int kills) {}
 
     public static KillCompetitionDetailResponse from(
-            KillCompetition competition, Long currentMemberId, boolean administrator,
+            KillCompetition competition, Long currentMemberId, boolean administrator, boolean canManage,
             boolean pubgConfigured, Instant now, List<KillCompetitionMatchResult> matchResults
     ) {
         List<KillCompetitionParticipant> approved = competition.getParticipants().stream()
@@ -60,7 +60,7 @@ public record KillCompetitionDetailResponse(
                 competition.getResultRequestedAt(), competition.getResultPublishAt(), competition.getResultLastError(),
                 competition.getCompletedAt(), now,
                 new Member(competition.getCreatedBy().getId(), competition.getCreatedBy().getNickname()),
-                Objects.equals(competition.getCreatedBy().getId(), currentMemberId), administrator,
+                Objects.equals(competition.getCreatedBy().getId(), currentMemberId), administrator, canManage,
                 myParticipantId, pubgConfigured, approved.size() >= 4,
                 approved.size(), participantDtos, teamDtos,
                 standings(competition, false), standings(competition, true), matches(matchResults)

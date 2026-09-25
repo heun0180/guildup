@@ -28,4 +28,8 @@ public interface PubgStoredMatchRepository extends JpaRepository<PubgStoredMatch
 
     @Query("select match from PubgStoredMatch match where match.matchId in :matchIds and match.telemetryLoaded = false")
     List<PubgStoredMatch> findTelemetryMissing(@Param("matchIds") Collection<String> matchIds);
+
+    @Query("select distinct match from PubgStoredMatch match join match.players player " +
+            "where player.accountId in :accountIds and match.telemetryLoaded = false")
+    List<PubgStoredMatch> findTelemetryMissingForAccounts(@Param("accountIds") Collection<String> accountIds);
 }

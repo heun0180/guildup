@@ -33,4 +33,10 @@ public class BingoProcessedSource {
         this.occurredAt = occurredAt;
         this.processedAt = processedAt;
     }
+    public Long getId() { return id; }
+    public BingoEvent getEvent() { return event; }
+    public BingoParticipant getParticipant() { return participant; }
+    public BingoProgressSourceType getSourceType() { return sourceType; }
+    public String getSourceId() { return sourceId; }
+    public Instant getOccurredAt() { return occurredAt; }
 }

@@ -122,6 +122,24 @@ class BingoKillCompetitionFlowTests {
     }
 
     @Test
+    void deletingCompletedCompetitionRemovesBingoSourceProgressAndDerivedLines() {
+        Long bingoId = createActiveBingo(owner, BigDecimal.ONE, clock.instant().plus(Duration.ofHours(4)));
+        var started = startSolo(List.of(owner));
+        clock.set(started.endsAt().plusSeconds(1));
+        mockKills(Map.of(owner.accountId(), 5));
+        var completed = finalizeAndPublish(started.id());
+        assertProgress(bingoId, owner, BigDecimal.ONE, true);
+        assertThat(participant(bingoId, owner).getLineCount()).isEqualTo(8);
+
+        competitions.delete(owner.user().getId(), community.getId(), game.getId(), completed.id());
+
+        assertProgress(bingoId, owner, BigDecimal.ZERO, false);
+        assertThat(participant(bingoId, owner).getLineCount()).isZero();
+        assertThat(bingoLines.findByParticipantId(participant(bingoId, owner).getId())).isEmpty();
+        assertThat(processedSources.count()).isZero();
+    }
+
+    @Test
     void completedTeamResultCountsEveryWinningTeamMember() {
         Person fox = person(community, "Fox", CommunityUserRole.MEMBER);
         Person cheese = person(community, "Cheese", CommunityUserRole.MEMBER);

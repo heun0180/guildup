@@ -107,6 +107,11 @@ public class KillCompetition {
         updatedAt = now;
     }
 
+    public void updateEndsAt(Instant endsAt, Instant now) {
+        this.endsAt = endsAt;
+        this.updatedAt = now;
+    }
+
     public void beginInterim(Instant now) { interimCalculationStartedAt = now; updatedAt = now; }
     public void finishInterim(Instant now, Instant latestMatchStartedAt) {
         lastInterimCalculatedAt = now;

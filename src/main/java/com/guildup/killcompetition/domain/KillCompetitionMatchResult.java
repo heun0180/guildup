@@ -24,6 +24,10 @@ public class KillCompetitionMatchResult {
         this.competition = competition; this.participant = participant; this.matchId = matchId;
         this.matchStartedAt = matchStartedAt; this.kills = kills;
     }
+    public void refresh(Instant matchStartedAt, int kills) {
+        this.matchStartedAt = matchStartedAt;
+        this.kills = kills;
+    }
     public String getMatchId() { return matchId; }
     public Instant getMatchStartedAt() { return matchStartedAt; }
     public KillCompetitionParticipant getParticipant() { return participant; }

@@ -75,20 +75,22 @@ export default function BingoPage() {
 
   useEffect(()=>{
     if(!admin||!managing||!selected?.id){setAggregationJob(null);return undefined;}
-    let cancelled=false;
-    api(`${bingoApi}/${selected.id}/aggregate/status`)
+    let cancelled=false,timer;
+    const loadStatus=()=>api(`${bingoApi}/${selected.id}/aggregate/status`)
       .then(job=>{if(!cancelled)setAggregationJob(job);})
-      .catch(error=>{if(!cancelled&&!redirectToLogin(error))setMessage(error.message);});
-    return()=>{cancelled=true;};
+      .catch(error=>{if(!cancelled&&!redirectToLogin(error)){setMessage("집계 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
+    loadStatus();
+    return()=>{cancelled=true;window.clearTimeout(timer);};
   },[admin,managing,selected?.id,bingoApi]);
 
   useEffect(()=>{
     if(!selected?.id||!selected?.me||!["ACTIVE","SETTLING"].includes(selected.status)){setPersonalAggregationJob(null);return undefined;}
-    let cancelled=false;
-    api(`${bingoApi}/${selected.id}/aggregate/me/status`)
+    let cancelled=false,timer;
+    const loadStatus=()=>api(`${bingoApi}/${selected.id}/aggregate/me/status`)
       .then(job=>{if(!cancelled)setPersonalAggregationJob(job);})
-      .catch(error=>{if(!cancelled&&!redirectToLogin(error))setMessage(error.message);});
-    return()=>{cancelled=true;};
+      .catch(error=>{if(!cancelled&&!redirectToLogin(error)){setMessage("업데이트 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
+    loadStatus();
+    return()=>{cancelled=true;window.clearTimeout(timer);};
   },[selected?.id,selected?.me?.participantId,selected?.status,bingoApi]);
 
   useEffect(()=>{
@@ -102,10 +104,10 @@ export default function BingoPage() {
           setAggregationJob(job);
           timer=window.setTimeout(poll,2000);
         }
-        else if(job.state==="SUCCEEDED"){
+        else if(job.state==="SUCCEEDED"||job.state==="COMPLETED_WITH_WARNINGS"){
           await Promise.all([open(selected.id),load()]);
           if(!cancelled){
-            setMessage(`빙고 집계 완료: Match ${job.processedMatches??0}개 · 참가자 ${job.updatedParticipants??0}명 반영`);
+            setMessage(job.state==="COMPLETED_WITH_WARNINGS"?(job.message||`집계는 완료됐지만 ${job.telemetryFailures??0}개 경기는 다음에 다시 확인합니다.`):`빙고 집계 완료: Match ${job.processedMatches??0}개 · 참가자 ${job.updatedParticipants??0}명 반영`);
             setAggregationJob(job);
           }
         }else if(job.state==="FAILED"){
@@ -113,7 +115,10 @@ export default function BingoPage() {
           setAggregationJob(job);
         }
       }catch(error){
-        if(!cancelled&&!redirectToLogin(error))setMessage(error.message);
+        if(!cancelled&&!redirectToLogin(error)){
+          setMessage("집계는 계속 진행 중입니다. 상태 확인을 다시 시도하고 있습니다.");
+          timer=window.setTimeout(poll,3000);
+        }
       }
     };
     timer=window.setTimeout(poll,1500);
@@ -130,10 +135,10 @@ export default function BingoPage() {
         if(job.state==="RUNNING"){
           setPersonalAggregationJob(job);
           timer=window.setTimeout(poll,2000);
-        }else if(job.state==="SUCCEEDED"){
+        }else if(job.state==="SUCCEEDED"||job.state==="COMPLETED_WITH_WARNINGS"){
           await Promise.all([open(selected.id),load()]);
           if(!cancelled){
-            setMessage(`내 빙고 업데이트 완료: 경기 ${job.processedMatches??0}개 반영`);
+            setMessage(job.state==="COMPLETED_WITH_WARNINGS"?(job.message||`업데이트는 완료됐지만 ${job.telemetryFailures??0}개 경기는 다음에 다시 확인합니다.`):`내 빙고 업데이트 완료: 경기 ${job.processedMatches??0}개 반영`);
             setPersonalAggregationJob(job);
           }
         }else if(job.state==="FAILED"){
@@ -141,7 +146,10 @@ export default function BingoPage() {
           setPersonalAggregationJob(job);
         }
       }catch(error){
-        if(!cancelled&&!redirectToLogin(error))setMessage(error.message);
+        if(!cancelled&&!redirectToLogin(error)){
+          setMessage("업데이트는 계속 진행 중입니다. 상태 확인을 다시 시도하고 있습니다.");
+          timer=window.setTimeout(poll,3000);
+        }
       }
     };
     timer=window.setTimeout(poll,1500);
@@ -268,6 +276,7 @@ function BingoDetail({bingo,viewedBoard,admin,aggregate,aggregationJob,aggregate
         {cooldown.nextAvailableAt&&<span>다음 집계 가능: <strong>{kst(cooldown.nextAvailableAt)}</strong></span>}
         {running&&<span>현재 집계 시작: <strong>{kst(aggregationJob.startedAt||aggregationJob.requestedAt)}</strong></span>}
         {running&&aggregationJob.message&&<span>진행 단계: <strong>{aggregationJob.message}</strong></span>}
+        {aggregationJob?.state==="COMPLETED_WITH_WARNINGS"&&<span>재시도 예정 경기: <strong>{aggregationJob.telemetryFailures??0}개</strong></span>}
         {aggregationJob?.state==="FAILED"&&aggregationJob.finishedAt&&<span>마지막 집계 시도 실패: <strong>{kst(aggregationJob.finishedAt)}</strong></span>}
       </div>}
     </>}
@@ -286,7 +295,7 @@ function BingoDetail({bingo,viewedBoard,admin,aggregate,aggregationJob,aggregate
           <div><span>완료 미션</span><strong>{bingo.me.completedCells}<small> / {bingo.boardSize*bingo.boardSize}</small></strong></div>
         </div>
         <div className="bingo-personal-action">
-          <p className={`bingo-personal-status${personalRunning?" is-active":""}`} aria-live="polite"><span aria-hidden="true"/>{personalRunning?(personalAggregationJob.message||"최근 경기 확인 중"):!bingo.me.pubgConnected?"PUBG 계정을 연결하면 업데이트할 수 있어요.":personalCooldown.disabled?<>다음 업데이트 <strong>{kst(personalCooldown.nextAvailableAt)}</strong></>:personalAggregationJob?.state==="SUCCEEDED"?<>최근 <strong>{personalAggregationJob.processedMatches??0}경기</strong>를 반영했어요.</>:"버튼을 눌러 내 진행도를 새로고침하세요."}</p>
+          <p className={`bingo-personal-status${personalRunning?" is-active":""}`} aria-live="polite"><span aria-hidden="true"/>{personalRunning?(personalAggregationJob.message||"최근 경기 확인 중"):!bingo.me.pubgConnected?"PUBG 계정을 연결하면 업데이트할 수 있어요.":personalCooldown.disabled?<>다음 업데이트 <strong>{kst(personalCooldown.nextAvailableAt)}</strong></>:personalAggregationJob?.state==="COMPLETED_WITH_WARNINGS"?<>일부 경기 <strong>{personalAggregationJob.telemetryFailures??0}개</strong>는 다음에 다시 확인해요.</>:personalAggregationJob?.state==="SUCCEEDED"?<>최근 <strong>{personalAggregationJob.processedMatches??0}경기</strong>를 반영했어요.</>:"버튼을 눌러 내 진행도를 새로고침하세요."}</p>
           <button className="bingo-update-button" onClick={aggregateMe} disabled={personalRunning||personalCooldown.disabled||!bingo.me.pubgConnected} title={!bingo.me.pubgConnected?"PUBG 계정을 연결해 주세요.":personalCooldown.disabled?"마지막 업데이트 후 30분이 지나면 다시 업데이트할 수 있습니다.":undefined}><Icon name="refresh" size={17} className={personalRunning?"is-spinning":""}/>{personalRunning?"업데이트 중…":"내 빙고 업데이트"}</button>
         </div>
       </div>

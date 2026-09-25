@@ -126,9 +126,14 @@ public class BingoAggregationJobService {
             BingoAggregationResponse result = participantId == null
                     ? aggregation.aggregate(userId, communityId, bingoId, progress)
                     : aggregation.aggregatePersonal(userId, communityId, bingoId, progress);
-            put(key, communityId, communityGameId, new BingoAggregationJobResponse(bingoId, "SUCCEEDED", requestedAt,
+            boolean warnings = result.telemetryFailures() > 0;
+            String state = warnings ? "COMPLETED_WITH_WARNINGS" : "SUCCEEDED";
+            String message = warnings
+                    ? "집계가 완료되었지만 " + result.telemetryFailures() + "개 경기 데이터는 다음 집계에서 다시 시도합니다."
+                    : "빙고 집계가 완료되었습니다.";
+            put(key, communityId, communityGameId, new BingoAggregationJobResponse(bingoId, state, requestedAt,
                     startedAt, clock.instant(), result.processedMatches(), result.updatedParticipants(),
-                    result.aggregatedAt(), "빙고 집계가 완료되었습니다.", "COMPLETED", null, null));
+                    result.aggregatedAt(), message, "COMPLETED", null, null, result.telemetryFailures()));
         } catch (RuntimeException exception) {
             String message = userMessage(exception);
             put(key, communityId, communityGameId, failed(bingoId, requestedAt, startedAt, message));

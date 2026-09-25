@@ -1,5 +1,6 @@
 package com.guildup.killcompetition.service;
 
+import com.guildup.bingo.service.BingoGuildUpContentService;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
 import com.guildup.community.service.*;
@@ -27,6 +28,9 @@ public class KillCompetitionService {
     private final CommunityAccessService access;
     private final CommunityGameAccessService gameAccess;
     private final CommunityMemberPubgIdentityService pubgIdentities;
+    private final KillCompetitionManagementAccess managementAccess;
+    private final CommunityScoreService scores;
+    private final BingoGuildUpContentService bingoContent;
     private final Clock clock;
 
     public KillCompetitionService(KillCompetitionRepository competitions,
@@ -36,11 +40,15 @@ public class KillCompetitionService {
                                   CurrentCommunityMemberService currentMembers,
                                   CommunityAccessService access,
                                   CommunityGameAccessService gameAccess,
-                                  CommunityMemberPubgIdentityService pubgIdentities, Clock clock) {
+                                  CommunityMemberPubgIdentityService pubgIdentities,
+                                  KillCompetitionManagementAccess managementAccess,
+                                  CommunityScoreService scores,
+                                  BingoGuildUpContentService bingoContent, Clock clock) {
         this.competitions = competitions; this.participants = participants; this.teamRepository = teamRepository;
         this.matchResults = matchResults;
         this.currentMembers = currentMembers; this.access = access; this.gameAccess = gameAccess;
-        this.pubgIdentities = pubgIdentities; this.clock = clock;
+        this.pubgIdentities = pubgIdentities; this.managementAccess = managementAccess;
+        this.scores = scores; this.bingoContent = bingoContent; this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -64,8 +72,10 @@ public class KillCompetitionService {
         List<KillCompetitionMatchResult> results = competition.getStatus() == KillCompetitionStatus.COMPLETED
                 ? matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(competitionId)
                 : List.of();
+        boolean administrator = managementAccess.isCommunityAdministrator(membership);
         return KillCompetitionDetailResponse.from(competition, current == null ? null : current.getId(),
-                isAdmin(membership), configured, clock.instant(), results);
+                administrator, managementAccess.canManage(userId, communityId, competition),
+                configured, clock.instant(), results);
     }
 
     /** Internal follow-up operations already identify a persisted competition and use its stored game. */
@@ -87,7 +97,9 @@ public class KillCompetitionService {
         if (request.endsAt() == null || !request.endsAt().isAfter(now)) bad("종료 시각은 현재보다 이후여야 합니다.");
         KillCompetition saved = competitions.save(new KillCompetition(
                 creator.getCommunity(), game, creator, request.title().trim(), request.gameMode(), request.endsAt(), now));
-        return KillCompetitionDetailResponse.from(saved, creator.getId(), false,
+        CommunityUser membership = access.requireCommunityMember(userId, communityId);
+        return KillCompetitionDetailResponse.from(saved, creator.getId(),
+                managementAccess.isCommunityAdministrator(membership), true,
                 hasUsablePubgAccount(creator, game), now, List.of());
     }
     public KillCompetitionDetailResponse create(Long userId, Long communityId, KillCompetitionCreateRequest request) {
@@ -108,23 +120,23 @@ public class KillCompetitionService {
                 .findByCompetitionIdAndCommunityMemberId(competitionId, member.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "참가 중인 킬내기가 아닙니다."));
         if (competition.getStatus() == KillCompetitionStatus.IN_PROGRESS && participant.isApproved()) {
-            conflict("진행 중인 참가자는 생성자만 제외할 수 있습니다.");
+            conflict("진행 중인 참가자는 킬내기 관리자만 제외할 수 있습니다.");
         }
         competition.removeParticipant(participant);
         participants.delete(participant);
-        return detailForMutation(competition, member.getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse leave(Long userId, Long communityId, Long competitionId) { return leave(userId, communityId, gameId(communityId, competitionId), competitionId); }
 
     @Transactional
     public KillCompetitionDetailResponse closeRecruitment(Long userId, Long communityId, Long communityGameId, Long competitionId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         if (competition.getStatus() != KillCompetitionStatus.RECRUITING) conflict("현재 모집 중인 킬내기가 아닙니다.");
         requireCompetitionMutable(competition);
         if (approved(competition).isEmpty()) conflict("참가자가 한 명 이상이어야 시작 준비로 전환할 수 있습니다.");
         competition.closeRecruitment(clock.instant());
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse closeRecruitment(Long userId, Long communityId, Long competitionId) { return closeRecruitment(userId, communityId, gameId(communityId, competitionId), competitionId); }
 
@@ -132,7 +144,7 @@ public class KillCompetitionService {
     public KillCompetitionDetailResponse configureTeams(Long userId, Long communityId, Long communityGameId, Long competitionId,
                                                         KillCompetitionTeamRequest request) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         if (competition.getStatus() != KillCompetitionStatus.READY) conflict("시작 전 준비 상태에서만 팀을 구성할 수 있습니다.");
         requireCompetitionMutable(competition);
         if (competition.getGameMode() == KillCompetitionGameMode.SOLO) bad("SOLO 방식에는 팀 구성이 필요하지 않습니다.");
@@ -163,14 +175,14 @@ public class KillCompetitionService {
         Map<Long, KillCompetitionParticipant> byId = approved.stream().collect(Collectors.toMap(
                 KillCompetitionParticipant::getId, Function.identity()));
         assignments.forEach(item -> byId.get(item.participantId()).assignTeam(byNumber.get(item.teamNumber())));
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse configureTeams(Long userId, Long communityId, Long competitionId, KillCompetitionTeamRequest request) { return configureTeams(userId, communityId, gameId(communityId, competitionId), competitionId, request); }
 
     @Transactional
     public KillCompetitionDetailResponse start(Long userId, Long communityId, Long communityGameId, Long competitionId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         if (competition.getStatus() != KillCompetitionStatus.READY) conflict("시작 준비 상태에서만 킬내기를 시작할 수 있습니다.");
         Instant now = clock.instant();
         if (!now.isBefore(competition.getEndsAt())) conflict("종료 시각이 지나 킬내기를 시작할 수 없습니다.");
@@ -180,35 +192,33 @@ public class KillCompetitionService {
             conflict("모든 참가자의 팀 구성을 완료해 주세요.");
         }
         competition.start(now);
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse start(Long userId, Long communityId, Long competitionId) { return start(userId, communityId, gameId(communityId, competitionId), competitionId); }
 
     @Transactional
     public KillCompetitionDetailResponse cancel(Long userId, Long communityId, Long communityGameId, Long competitionId) {
-        CommunityUser membership = access.requireCommunityAdmin(userId, communityId);
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
+        managementAccess.requireCanManage(userId, communityId, competition);
         if (Set.of(KillCompetitionStatus.RESULT_PENDING, KillCompetitionStatus.COMPLETED).contains(competition.getStatus())) {
             conflict("결과 발표 요청 이후에는 킬내기를 취소할 수 없습니다.");
         }
         competition.cancel(clock.instant());
-        CommunityMember current = currentMembers.find(userId, communityId).orElse(null);
-        return KillCompetitionDetailResponse.from(competition, current == null ? null : current.getId(),
-                isAdmin(membership), current != null && pubgIdentities.find(current, competition.getCommunityGame()).isPresent(), clock.instant(), List.of());
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse cancel(Long userId, Long communityId, Long competitionId) { return cancel(userId, communityId, gameId(communityId, competitionId), competitionId); }
 
     @Transactional
     public KillCompetitionDetailResponse setRecruitment(Long userId, Long communityId, Long communityGameId, Long competitionId, boolean open) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         Instant now = clock.instant();
         if (!now.isBefore(competition.getEndsAt()) || !Set.of(KillCompetitionStatus.RECRUITING,
                 KillCompetitionStatus.READY, KillCompetitionStatus.IN_PROGRESS).contains(competition.getStatus())) {
             conflict("종료되었거나 결과 발표 중인 킬내기의 참가 신청 상태는 변경할 수 없습니다.");
         }
         competition.setRecruitmentOpen(open, now);
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse setRecruitment(Long userId, Long communityId, Long competitionId, boolean open) { return setRecruitment(userId, communityId, gameId(communityId, competitionId), competitionId, open); }
 
@@ -216,13 +226,13 @@ public class KillCompetitionService {
     public KillCompetitionDetailResponse approveParticipant(Long userId, Long communityId, Long communityGameId, Long competitionId,
                                                              Long participantId, Long teamId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         requireInProgressMutable(competition);
         KillCompetitionParticipant participant = requireParticipant(competition, participantId);
         if (participant.isApproved()) conflict("이미 승인된 참가자입니다.");
         KillCompetitionTeam team = resolveTeamForActiveCompetition(competition, teamId);
         participant.approve(clock.instant(), team);
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse approveParticipant(Long userId, Long communityId, Long competitionId, Long participantId, Long teamId) { return approveParticipant(userId, communityId, gameId(communityId, competitionId), competitionId, participantId, teamId); }
 
@@ -230,13 +240,13 @@ public class KillCompetitionService {
     public KillCompetitionDetailResponse rejectParticipant(Long userId, Long communityId, Long communityGameId, Long competitionId,
                                                             Long participantId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         requireInProgressMutable(competition);
         KillCompetitionParticipant participant = requireParticipant(competition, participantId);
         if (participant.isApproved()) conflict("승인된 참가자는 제외 기능을 사용해 주세요.");
         competition.removeParticipant(participant);
         participants.delete(participant);
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse rejectParticipant(Long userId, Long communityId, Long competitionId, Long participantId) { return rejectParticipant(userId, communityId, gameId(communityId, competitionId), competitionId, participantId); }
 
@@ -244,13 +254,13 @@ public class KillCompetitionService {
     public KillCompetitionDetailResponse removeParticipant(Long userId, Long communityId, Long communityGameId, Long competitionId,
                                                             Long participantId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         requireCompetitionMutable(competition);
         KillCompetitionParticipant participant = requireParticipant(competition, participantId);
         if (hasRecognizedMatch(participant)) conflict("이미 경기 기록이 집계된 참가자는 진행 중에 제외할 수 없습니다.");
         competition.removeParticipant(participant);
         participants.delete(participant);
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse removeParticipant(Long userId, Long communityId, Long competitionId, Long participantId) { return removeParticipant(userId, communityId, gameId(communityId, competitionId), competitionId, participantId); }
 
@@ -258,16 +268,42 @@ public class KillCompetitionService {
     public KillCompetitionDetailResponse changeParticipantTeam(Long userId, Long communityId, Long communityGameId, Long competitionId,
                                                                 Long participantId, Long teamId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
-        requireCreator(userId, communityId, competition);
+        managementAccess.requireCanManage(userId, communityId, competition);
         requireCompetitionMutable(competition);
         if (competition.getGameMode() == KillCompetitionGameMode.SOLO) bad("SOLO 참가자는 팀을 변경할 수 없습니다.");
         KillCompetitionParticipant participant = requireParticipant(competition, participantId);
         if (!participant.isApproved()) conflict("승인 대기 참가자는 승인하면서 팀을 배정해 주세요.");
         if (hasRecognizedMatch(participant)) conflict("이미 경기 기록이 집계된 참가자는 진행 중에 팀을 변경할 수 없습니다.");
         participant.assignTeam(resolveTeamForActiveCompetition(competition, teamId));
-        return detailForMutation(competition, competition.getCreatedBy().getId(), userId);
+        return detailForMutation(competition, userId);
     }
     @Transactional public KillCompetitionDetailResponse changeParticipantTeam(Long userId, Long communityId, Long competitionId, Long participantId, Long teamId) { return changeParticipantTeam(userId, communityId, gameId(communityId, competitionId), competitionId, participantId, teamId); }
+
+    @Transactional
+    public KillCompetitionDetailResponse updateEndTime(Long userId, Long communityId, Long communityGameId,
+                                                       Long competitionId, Instant endsAt) {
+        KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
+        managementAccess.requireCanManage(userId, communityId, competition);
+        if (competition.getStartedAt() != null || !Set.of(KillCompetitionStatus.RECRUITING,
+                KillCompetitionStatus.READY).contains(competition.getStatus())) {
+            conflict("킬내기 시작 전까지만 종료 시각을 변경할 수 있습니다.");
+        }
+        Instant now = clock.instant();
+        if (endsAt == null || !endsAt.isAfter(now)) bad("종료 시각은 현재보다 이후여야 합니다.");
+        competition.updateEndsAt(endsAt, now);
+        return detailForMutation(competition, userId);
+    }
+
+    @Transactional
+    public void delete(Long userId, Long communityId, Long communityGameId, Long competitionId) {
+        KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
+        managementAccess.requireCanManage(userId, communityId, competition);
+        Instant now = clock.instant();
+        bingoContent.removeKillCompetition(competition.getId(), now);
+        scores.removeKillCompetitionScores(competition.getId(), now);
+        competitions.delete(competition);
+        competitions.flush();
+    }
 
     private void requireInProgressMutable(KillCompetition competition) {
         if (competition.getStatus() != KillCompetitionStatus.IN_PROGRESS) conflict("진행 중 참가 신청만 승인하거나 거절할 수 있습니다.");
@@ -303,17 +339,13 @@ public class KillCompetitionService {
         return competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved).toList();
     }
 
-    private KillCompetitionDetailResponse detailForMutation(KillCompetition competition, Long memberId, Long userId) {
+    private KillCompetitionDetailResponse detailForMutation(KillCompetition competition, Long userId) {
         CommunityUser membership = access.requireCommunityMember(userId, competition.getCommunity().getId());
         CommunityMember current = currentMembers.find(userId, competition.getCommunity().getId()).orElse(null);
-        return KillCompetitionDetailResponse.from(competition, memberId, isAdmin(membership),
+        boolean administrator = managementAccess.isCommunityAdministrator(membership);
+        return KillCompetitionDetailResponse.from(competition, current == null ? null : current.getId(),
+                administrator, managementAccess.canManage(userId, competition.getCommunity().getId(), competition),
                 current != null && pubgIdentities.find(current, competition.getCommunityGame()).isPresent(), clock.instant(), List.of());
-    }
-    private void requireCreator(Long userId, Long communityId, KillCompetition competition) {
-        CommunityMember member = currentMembers.require(userId, communityId);
-        if (!Objects.equals(member.getId(), competition.getCreatedBy().getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "킬내기 생성자만 수행할 수 있습니다.");
-        }
     }
     private KillCompetition requireDetail(Long communityId, Long communityGameId, Long id) {
         return competitions.findDetail(communityId, communityGameId, id).orElseThrow(() ->
@@ -330,9 +362,6 @@ public class KillCompetitionService {
     }
     private boolean hasUsablePubgAccount(CommunityMember member, CommunityGame game) {
         return pubgIdentities.find(member, game).isPresent();
-    }
-    private boolean isAdmin(CommunityUser membership) {
-        return membership.getRole() == CommunityUserRole.OWNER || membership.getRole() == CommunityUserRole.ADMIN;
     }
     private void bad(String message) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
     private void conflict(String message) { throw new ResponseStatusException(HttpStatus.CONFLICT, message); }

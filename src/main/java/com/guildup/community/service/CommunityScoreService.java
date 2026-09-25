@@ -85,6 +85,23 @@ public class CommunityScoreService {
         return true;
     }
 
+    /** 삭제되는 킬내기가 지급한 원장과 현재 총점을 같은 트랜잭션에서 되돌린다. */
+    @Transactional
+    public void removeKillCompetitionScores(Long competitionId, Instant removedAt) {
+        List<CommunityScoreHistory> awarded = histories.findByReferenceTypeAndReferenceId(
+                CommunityScoreReferenceType.KILL_COMPETITION, competitionId);
+        for (CommunityScoreHistory history : awarded) {
+            CommunityMember member = history.getCommunityMember();
+            members.findAnyForUpdate(member.getCommunity().getId(), member.getId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.CONFLICT, "킬내기 점수를 받은 클랜원 정보를 잠글 수 없습니다."));
+            CommunityMemberScore score = scores.findByCommunityMemberId(member.getId())
+                    .orElseThrow(() -> new IllegalStateException("킬내기 점수 원장과 현재 총점이 일치하지 않습니다."));
+            score.remove(history.getScoreChange(), removedAt);
+        }
+        if (!awarded.isEmpty()) histories.deleteAllInBatch(awarded);
+    }
+
     @Transactional(readOnly = true)
     public int getTotalScore(CommunityMember member) {
         return scores.findByCommunityMemberId(member.getId())

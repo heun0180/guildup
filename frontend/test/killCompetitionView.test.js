@@ -1,11 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { remainingLabel, statusLabel, statusMessage } from "../src/killCompetitionView.js";
+import { canManageKillGame, remainingLabel, statusLabel, statusMessage, toDateTimeLocal } from "../src/killCompetitionView.js";
 
 test("킬내기 상태 문구를 사용자 행동에 맞게 표시한다", () => {
   assert.equal(statusLabel("READY"), "시작 준비");
   assert.match(statusMessage("ENDED"), /결과를 발표/);
   assert.match(statusMessage("RESULT_PENDING"), /30분 후/);
+});
+
+test("킬내기 관리 권한은 서버의 통합 권한 값을 사용하고 기존 응답도 호환한다", () => {
+  assert.equal(canManageKillGame({ canManageKillGame: true }), true);
+  assert.equal(canManageKillGame({ canManageKillGame: false, creatorView: true }), false);
+  assert.equal(canManageKillGame({ administratorView: true }), true);
+  assert.equal(canManageKillGame({ creatorView: false, administratorView: false }), false);
+});
+
+test("종료 시각을 datetime-local 기본값으로 변환한다", () => {
+  assert.match(toDateTimeLocal("2026-09-15T12:00:00Z"), /^2026-09-15T\d{2}:00$/);
 });
 
 test("남은 시간은 전달받은 서버 기준 시각으로 계산한다", () => {
