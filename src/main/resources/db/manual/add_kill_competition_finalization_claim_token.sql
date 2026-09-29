@@ -2,5 +2,5 @@
 -- 기존 RESULT_PENDING 행은 NULL을 허용하며, 기존 finalization_started_at이 만료되면
 -- 스케줄러가 새 UUID token을 발급해 자동으로 다시 처리한다.
 
-ALTER TABLE kill_competitions
+ALTER TABLE pubg_kill_competitions
     ADD COLUMN IF NOT EXISTS finalization_claim_token UUID;

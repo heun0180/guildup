@@ -1,8 +1,8 @@
 -- Existing bingos retain their current aggregation behavior.
-alter table bingo_events
+alter table pubg_bingo_events
     add column if not exists exclude_bot_combat_stats boolean not null default false;
 
-alter table bingo_events
+alter table pubg_bingo_events
     add column if not exists clan_play_required boolean not null default false;
 
 -- Version 2 stores non-bot damage/DBNO/headshot metrics and headshot kill facts.

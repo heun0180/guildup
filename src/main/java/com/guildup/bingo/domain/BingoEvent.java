@@ -14,8 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "bingo_events", indexes = {
-        @Index(name = "idx_bingo_event_community_status", columnList = "community_id,status,starts_at,ends_at")
+@Table(name = "pubg_bingo_events", indexes = {
+        @Index(name = "idx_pubg_bingo_event_community_status", columnList = "community_id,status,starts_at,ends_at")
 })
 public class BingoEvent {
     public static final Duration SETTLEMENT_GRACE = Duration.ofMinutes(30);

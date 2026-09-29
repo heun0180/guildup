@@ -5,8 +5,8 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "bingo_processed_sources", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_processed_source", columnNames = {
+@Table(name = "pubg_bingo_processed_sources", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_processed_source", columnNames = {
         "bingo_event_id", "participant_id", "source_type", "source_id"
 }))
 public class BingoProcessedSource {

@@ -14,7 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class CommunityGameBoundaryDataMigration implements ApplicationRunner {
 
     private static final String BACKFILL_KILL_COMPETITIONS = """
-            UPDATE kill_competitions target
+            UPDATE pubg_kill_competitions target
             SET community_game_id = (
                 SELECT MIN(game.id)
                 FROM community_games game
@@ -29,7 +29,7 @@ public class CommunityGameBoundaryDataMigration implements ApplicationRunner {
             """;
 
     private static final String BACKFILL_BINGO_EVENTS = """
-            UPDATE bingo_events target
+            UPDATE pubg_bingo_events target
             SET community_game_id = (
                 SELECT MIN(game.id)
                 FROM community_games game

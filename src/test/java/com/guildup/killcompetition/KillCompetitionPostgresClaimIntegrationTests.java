@@ -91,7 +91,7 @@ class KillCompetitionPostgresClaimIntegrationTests {
 
         var work = settlementStore.claimDueFinal(started.id());
         Instant storedClaimTime = jdbcTemplate.queryForObject(
-                "select finalization_started_at from kill_competitions where id = ?",
+                "select finalization_started_at from pubg_kill_competitions where id = ?",
                 (result, row) -> result.getObject(1, OffsetDateTime.class).toInstant(), started.id());
         assertThat(storedClaimTime).isNotEqualTo(work.claimAt());
         assertThat(storedClaimTime.getNano() % 1_000).isZero();

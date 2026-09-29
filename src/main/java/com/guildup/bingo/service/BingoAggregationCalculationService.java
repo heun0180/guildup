@@ -18,7 +18,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.*;
 
-/** 저장된 PUBG fact를 재생해 bingo_progress를 만드는 짧은 DB 쓰기 단계다. */
+/** 저장된 PUBG fact를 재생해 pubg_bingo_progress를 만드는 짧은 DB 쓰기 단계다. */
 @Service
 public class BingoAggregationCalculationService {
     private static final Logger log = LoggerFactory.getLogger(BingoAggregationCalculationService.class);

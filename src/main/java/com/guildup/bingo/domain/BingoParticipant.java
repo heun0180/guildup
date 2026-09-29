@@ -8,8 +8,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 @Entity
-@Table(name = "bingo_participants", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_participant_user", columnNames = {"bingo_event_id", "community_user_id"}))
+@Table(name = "pubg_bingo_participants", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_participant_user", columnNames = {"bingo_event_id", "community_user_id"}))
 public class BingoParticipant {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "bingo_event_id", nullable = false) private BingoEvent event;

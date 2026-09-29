@@ -3,7 +3,7 @@
 -- 진행도나 처리 원장은 건드리지 않는다. 다음 집계의 DB Fact 전체 재계산으로 반영한다.
 BEGIN;
 
-UPDATE bingo_cells
+UPDATE pubg_bingo_cells
 SET options_json = jsonb_set(COALESCE(options_json, '{}'::jsonb), '{distance}', '200'::jsonb, true)
 WHERE id = 224
   AND bingo_event_id = 36

@@ -5,8 +5,8 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
-@Table(name = "bingo_progress", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_progress_participant_cell", columnNames = {"participant_id", "bingo_cell_id"}))
+@Table(name = "pubg_bingo_progress", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_progress_participant_cell", columnNames = {"participant_id", "bingo_cell_id"}))
 public class BingoProgress {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "participant_id", nullable = false) private BingoParticipant participant;

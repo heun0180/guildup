@@ -16,9 +16,9 @@ import java.util.Set;
 import java.util.UUID;
 
 @Entity
-@Table(name = "kill_competitions", indexes = {
-        @Index(name = "idx_kill_competition_community_status", columnList = "community_id, status, ends_at"),
-        @Index(name = "idx_kill_competition_result_publish", columnList = "status, result_publish_at")
+@Table(name = "pubg_kill_competitions", indexes = {
+        @Index(name = "idx_pubg_kill_competition_community_status", columnList = "community_id, status, ends_at"),
+        @Index(name = "idx_pubg_kill_competition_result_publish", columnList = "status, result_publish_at")
 })
 public class KillCompetition {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)

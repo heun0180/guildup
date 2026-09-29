@@ -27,7 +27,7 @@ while true; do
       join pg_stat_activity a on a.pid=l.pid
       left join pg_class c on c.oid=l.relation
       where a.datname='guildup' and (not l.granted or cardinality(pg_blocking_pids(a.pid)) > 0
-            or c.relname in ('communities','bingo_events'))
+            or c.relname in ('communities','pubg_bingo_events'))
       order by a.pid,l.granted,l.mode;"
     psql -d guildup -X -At -F '|' -c "
       select 'BLOCKING', waiter.pid, blocker.pid,

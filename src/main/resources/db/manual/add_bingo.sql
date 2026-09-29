@@ -1,6 +1,6 @@
 ALTER TABLE community_users ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ;
 
-CREATE TABLE IF NOT EXISTS bingo_events (
+CREATE TABLE IF NOT EXISTS pubg_bingo_events (
     id BIGSERIAL PRIMARY KEY,
     community_id BIGINT NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
     created_by_community_user_id BIGINT NOT NULL REFERENCES community_users(id),
@@ -20,13 +20,13 @@ CREATE TABLE IF NOT EXISTS bingo_events (
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT ck_bingo_event_time CHECK (starts_at < ends_at)
+    CONSTRAINT ck_pubg_bingo_event_time CHECK (starts_at < ends_at)
 );
-CREATE INDEX IF NOT EXISTS idx_bingo_event_community_status ON bingo_events(community_id,status,starts_at,ends_at);
+CREATE INDEX IF NOT EXISTS idx_pubg_bingo_event_community_status ON pubg_bingo_events(community_id,status,starts_at,ends_at);
 
-CREATE TABLE IF NOT EXISTS bingo_cells (
+CREATE TABLE IF NOT EXISTS pubg_bingo_cells (
     id BIGSERIAL PRIMARY KEY,
-    bingo_event_id BIGINT NOT NULL REFERENCES bingo_events(id) ON DELETE CASCADE,
+    bingo_event_id BIGINT NOT NULL REFERENCES pubg_bingo_events(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
     mission_type VARCHAR(40) NOT NULL,
     aggregation_type VARCHAR(30) NOT NULL,
@@ -35,12 +35,12 @@ CREATE TABLE IF NOT EXISTS bingo_cells (
     occurrence_target INTEGER,
     options_json JSONB,
     custom_title VARCHAR(120),
-    CONSTRAINT uk_bingo_cell_position UNIQUE(bingo_event_id,position)
+    CONSTRAINT uk_pubg_bingo_cell_position UNIQUE(bingo_event_id,position)
 );
 
-CREATE TABLE IF NOT EXISTS bingo_participants (
+CREATE TABLE IF NOT EXISTS pubg_bingo_participants (
     id BIGSERIAL PRIMARY KEY,
-    bingo_event_id BIGINT NOT NULL REFERENCES bingo_events(id) ON DELETE CASCADE,
+    bingo_event_id BIGINT NOT NULL REFERENCES pubg_bingo_events(id) ON DELETE CASCADE,
     community_user_id BIGINT NOT NULL REFERENCES community_users(id),
     community_member_id BIGINT REFERENCES community_members(id),
     pubg_account_id VARCHAR(255),
@@ -52,13 +52,13 @@ CREATE TABLE IF NOT EXISTS bingo_participants (
     blackout_completed_at TIMESTAMPTZ,
     last_aggregated_at TIMESTAMPTZ,
     version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_bingo_participant_user UNIQUE(bingo_event_id,community_user_id)
+    CONSTRAINT uk_pubg_bingo_participant_user UNIQUE(bingo_event_id,community_user_id)
 );
 
-CREATE TABLE IF NOT EXISTS bingo_progress (
+CREATE TABLE IF NOT EXISTS pubg_bingo_progress (
     id BIGSERIAL PRIMARY KEY,
-    participant_id BIGINT NOT NULL REFERENCES bingo_participants(id) ON DELETE CASCADE,
-    bingo_cell_id BIGINT NOT NULL REFERENCES bingo_cells(id) ON DELETE CASCADE,
+    participant_id BIGINT NOT NULL REFERENCES pubg_bingo_participants(id) ON DELETE CASCADE,
+    bingo_cell_id BIGINT NOT NULL REFERENCES pubg_bingo_cells(id) ON DELETE CASCADE,
     current_value NUMERIC(18,3) NOT NULL DEFAULT 0,
     occurrence_count INTEGER NOT NULL DEFAULT 0,
     completed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -67,26 +67,26 @@ CREATE TABLE IF NOT EXISTS bingo_progress (
     evidence_event_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL,
     version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_bingo_progress_participant_cell UNIQUE(participant_id,bingo_cell_id)
+    CONSTRAINT uk_pubg_bingo_progress_participant_cell UNIQUE(participant_id,bingo_cell_id)
 );
 
-CREATE TABLE IF NOT EXISTS bingo_processed_matches (
+CREATE TABLE IF NOT EXISTS pubg_bingo_processed_matches (
     id BIGSERIAL PRIMARY KEY,
-    bingo_event_id BIGINT NOT NULL REFERENCES bingo_events(id) ON DELETE CASCADE,
-    participant_id BIGINT NOT NULL REFERENCES bingo_participants(id) ON DELETE CASCADE,
+    bingo_event_id BIGINT NOT NULL REFERENCES pubg_bingo_events(id) ON DELETE CASCADE,
+    participant_id BIGINT NOT NULL REFERENCES pubg_bingo_participants(id) ON DELETE CASCADE,
     match_id VARCHAR(255) NOT NULL,
     match_started_at TIMESTAMPTZ NOT NULL,
     processed_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT uk_bingo_processed_event_player_match UNIQUE(bingo_event_id,participant_id,match_id)
+    CONSTRAINT uk_pubg_bingo_processed_event_player_match UNIQUE(bingo_event_id,participant_id,match_id)
 );
 
-CREATE TABLE IF NOT EXISTS bingo_line_completions (
+CREATE TABLE IF NOT EXISTS pubg_bingo_line_completions (
     id BIGSERIAL PRIMARY KEY,
-    participant_id BIGINT NOT NULL REFERENCES bingo_participants(id) ON DELETE CASCADE,
+    participant_id BIGINT NOT NULL REFERENCES pubg_bingo_participants(id) ON DELETE CASCADE,
     line_key VARCHAR(20) NOT NULL,
     completed_at TIMESTAMPTZ NOT NULL,
-    CONSTRAINT uk_bingo_line_participant_key UNIQUE(participant_id,line_key)
+    CONSTRAINT uk_pubg_bingo_line_participant_key UNIQUE(participant_id,line_key)
 );
 
 -- 기존 운영 테이블에도 참가자별 마지막 계산 시각을 추가한다.
-ALTER TABLE bingo_participants ADD COLUMN IF NOT EXISTS last_aggregated_at TIMESTAMPTZ;
+ALTER TABLE pubg_bingo_participants ADD COLUMN IF NOT EXISTS last_aggregated_at TIMESTAMPTZ;

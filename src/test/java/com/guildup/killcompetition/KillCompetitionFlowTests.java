@@ -728,7 +728,7 @@ class KillCompetitionFlowTests {
         assertThat(work.finalizationClaimToken()).isNotNull();
         Instant databasePrecision = Instant.ofEpochSecond(
                 work.claimAt().getEpochSecond(), work.claimAt().getNano() / 1_000 * 1_000L);
-        jdbcTemplate.update("update kill_competitions set finalization_started_at = ? where id = ?",
+        jdbcTemplate.update("update pubg_kill_competitions set finalization_started_at = ? where id = ?",
                 java.sql.Timestamp.from(databasePrecision), started.id());
 
         settlementStore.finishFinal(work.communityId(), work, snapshot(List.of()));
@@ -819,7 +819,7 @@ class KillCompetitionFlowTests {
         clock.set(started.endsAt().plusSeconds(1));
         var pending = settlements.finalizeResult(creator.user().getId(), community.getId(), started.id());
         clock.set(pending.resultPublishAt().plus(Duration.ofMinutes(20)));
-        jdbcTemplate.update("update kill_competitions set finalization_started_at = ?, "
+        jdbcTemplate.update("update pubg_kill_competitions set finalization_started_at = ?, "
                         + "finalization_claim_token = null where id = ?",
                 java.sql.Timestamp.from(clock.instant().minus(Duration.ofMinutes(20))), started.id());
         mockKills(Map.of("account-생성자", 4));

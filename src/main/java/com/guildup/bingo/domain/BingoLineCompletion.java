@@ -5,8 +5,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 @Entity
-@Table(name = "bingo_line_completions", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_line_participant_key", columnNames = {"participant_id", "line_key"}))
+@Table(name = "pubg_bingo_line_completions", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_line_participant_key", columnNames = {"participant_id", "line_key"}))
 public class BingoLineCompletion {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "participant_id", nullable = false) private BingoParticipant participant;

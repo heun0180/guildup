@@ -2,11 +2,11 @@
 -- BingoMissionType을 확장한 운영 DB에서 한 번 실행한다.
 BEGIN;
 
-ALTER TABLE bingo_cells
-    DROP CONSTRAINT IF EXISTS bingo_cells_mission_type_check;
+ALTER TABLE pubg_bingo_cells
+    DROP CONSTRAINT IF EXISTS pubg_bingo_cells_mission_type_check;
 
-ALTER TABLE bingo_cells
-    ADD CONSTRAINT bingo_cells_mission_type_check CHECK (mission_type IN (
+ALTER TABLE pubg_bingo_cells
+    ADD CONSTRAINT pubg_bingo_cells_mission_type_check CHECK (mission_type IN (
         'KILLS', 'DAMAGE_DEALT', 'ASSISTS', 'DBNOS', 'HEADSHOT_KILLS',
         'LONG_DISTANCE_KILL', 'WEAPON_KILLS', 'WEAPON_CATEGORY_KILLS',
         'THROWABLE_KILLS', 'ROAD_KILLS', 'WALL_PENETRATION_KILLS',

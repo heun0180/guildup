@@ -2,17 +2,17 @@
 -- 진행도와 처리 원장은 삭제하지 않는다.
 BEGIN;
 
-UPDATE bingo_cells
+UPDATE pubg_bingo_cells
 SET options_json = COALESCE(options_json, '{}'::jsonb) - 'gameMode' - 'clanPlayRequired'
 WHERE bingo_event_id = 5
   AND mission_type <> 'KILL_BET_WIN';
 
-UPDATE bingo_cells
+UPDATE pubg_bingo_cells
 SET options_json = jsonb_set(COALESCE(options_json, '{}'::jsonb), '{distance}', '200'::jsonb, true)
 WHERE bingo_event_id = 5
   AND mission_type = 'LONG_DISTANCE_KILL';
 
-UPDATE bingo_cells
+UPDATE pubg_bingo_cells
 SET target_value = 5,
     options_json = jsonb_set(COALESCE(options_json, '{}'::jsonb), '{weapon}', '"VSS"'::jsonb, true)
 WHERE bingo_event_id = 5

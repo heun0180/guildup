@@ -6,9 +6,9 @@ import org.hibernate.annotations.OnDeleteAction;
 import java.time.Instant;
 
 @Entity
-@Table(name = "kill_competition_match_results", uniqueConstraints = @UniqueConstraint(
-        name = "uk_kill_competition_match_participant", columnNames = {"competition_id", "match_id", "participant_id"}
-), indexes = @Index(name = "idx_kill_competition_match", columnList = "competition_id, match_id"))
+@Table(name = "pubg_kill_competition_match_results", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_kill_competition_match_participant", columnNames = {"competition_id", "match_id", "participant_id"}
+), indexes = @Index(name = "idx_pubg_kill_competition_match", columnList = "competition_id, match_id"))
 public class KillCompetitionMatchResult {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "competition_id", nullable = false)

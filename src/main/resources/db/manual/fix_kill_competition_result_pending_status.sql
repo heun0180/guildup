@@ -11,7 +11,7 @@ BEGIN
         JOIN pg_class table_info ON table_info.oid = constraint_info.conrelid
         JOIN pg_namespace schema_info ON schema_info.oid = table_info.relnamespace
         WHERE schema_info.nspname = current_schema()
-          AND table_info.relname = 'kill_competitions'
+          AND table_info.relname = 'pubg_kill_competitions'
           AND constraint_info.contype = 'c'
           AND EXISTS (
               SELECT 1
@@ -23,15 +23,15 @@ BEGIN
           )
     LOOP
         EXECUTE format(
-            'ALTER TABLE kill_competitions DROP CONSTRAINT %I',
+            'ALTER TABLE pubg_kill_competitions DROP CONSTRAINT %I',
             status_constraint.conname
         );
     END LOOP;
 END
 $migration$;
 
-ALTER TABLE kill_competitions
-ADD CONSTRAINT ck_kill_competition_status
+ALTER TABLE pubg_kill_competitions
+ADD CONSTRAINT ck_pubg_kill_competition_status
 CHECK (status IN (
     'RECRUITING',
     'READY',

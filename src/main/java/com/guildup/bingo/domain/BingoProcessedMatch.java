@@ -4,8 +4,8 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "bingo_processed_matches", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_processed_event_player_match", columnNames = {"bingo_event_id", "participant_id", "match_id"}))
+@Table(name = "pubg_bingo_processed_matches", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_processed_event_player_match", columnNames = {"bingo_event_id", "participant_id", "match_id"}))
 public class BingoProcessedMatch {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "bingo_event_id", nullable = false) private BingoEvent event;

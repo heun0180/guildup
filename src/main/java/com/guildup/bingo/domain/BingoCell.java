@@ -8,8 +8,8 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 @Entity
-@Table(name = "bingo_cells", uniqueConstraints = @UniqueConstraint(
-        name = "uk_bingo_cell_position", columnNames = {"bingo_event_id", "position"}))
+@Table(name = "pubg_bingo_cells", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_bingo_cell_position", columnNames = {"bingo_event_id", "position"}))
 public class BingoCell {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "bingo_event_id", nullable = false)

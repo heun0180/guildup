@@ -5,8 +5,8 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 @Entity
-@Table(name = "kill_competition_teams", uniqueConstraints = @UniqueConstraint(
-        name = "uk_kill_competition_team_order", columnNames = {"competition_id", "display_order"}
+@Table(name = "pubg_kill_competition_teams", uniqueConstraints = @UniqueConstraint(
+        name = "uk_pubg_kill_competition_team_order", columnNames = {"competition_id", "display_order"}
 ))
 public class KillCompetitionTeam {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
