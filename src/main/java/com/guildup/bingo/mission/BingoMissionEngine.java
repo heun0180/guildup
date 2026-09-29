@@ -2,6 +2,7 @@ package com.guildup.bingo.mission;
 
 import com.guildup.bingo.domain.*;
 import com.guildup.pubg.model.PlayerMatchFacts;
+import com.guildup.pubg.support.PubgAiBotSupport;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -11,16 +12,34 @@ import java.util.*;
 @Component
 public class BingoMissionEngine {
     public Outcome apply(BingoCell cell, BingoProgress progress, PlayerMatchFacts facts) {
+        return apply(cell, progress, facts, false);
+    }
+
+    public Outcome apply(BingoCell cell, BingoProgress progress, PlayerMatchFacts facts, boolean excludeBotCombatStats) {
+        return apply(cell, progress, facts, excludeBotCombatStats, false);
+    }
+
+    public Outcome apply(BingoCell cell, BingoProgress progress, PlayerMatchFacts facts,
+                         boolean excludeBotCombatStats, boolean clanPlayRequired) {
         Outcome current = progress == null ? Outcome.zero()
                 : new Outcome(progress.getCurrentValue(), progress.getOccurrenceCount(), progress.isCompleted());
-        return apply(cell, current, facts);
+        return apply(cell, current, facts, excludeBotCombatStats, clanPlayRequired);
     }
 
     /** 저장 엔티티 없이도 동일한 미션 계산식을 순차 재생할 수 있다. */
     public Outcome apply(BingoCell cell, Outcome current, PlayerMatchFacts facts) {
+        return apply(cell, current, facts, false);
+    }
+
+    public Outcome apply(BingoCell cell, Outcome current, PlayerMatchFacts facts, boolean excludeBotCombatStats) {
+        return apply(cell, current, facts, excludeBotCombatStats, false);
+    }
+
+    public Outcome apply(BingoCell cell, Outcome current, PlayerMatchFacts facts,
+                         boolean excludeBotCombatStats, boolean clanPlayRequired) {
         Map<String, Object> options = cell.getOptions();
-        if (!matchesFilter(options, facts)) return current;
-        BigDecimal matchValue = value(cell.getMissionType(), facts, options);
+        if (!matchesFilter(options, facts, clanPlayRequired)) return current;
+        BigDecimal matchValue = value(cell.getMissionType(), facts, options, excludeBotCombatStats);
         BigDecimal currentValue = current.value();
         int occurrences = current.occurrences();
         return switch (cell.getAggregationType()) {
@@ -40,22 +59,30 @@ public class BingoMissionEngine {
     }
 
     public BigDecimal value(BingoMissionType type, PlayerMatchFacts facts, Map<String, Object> options) {
+        return value(type, facts, options, false);
+    }
+
+    public BigDecimal value(BingoMissionType type, PlayerMatchFacts facts, Map<String, Object> options,
+                            boolean excludeBotCombatStats) {
         return switch (type) {
             case KILLS -> {
                 String weapon = string(options, "weapon"), category = string(options, "weaponCategory");
-                if (weapon != null && !weapon.isBlank()) yield countKills(facts, kill -> BingoWeaponCatalog.same(weapon, kill.weapon()));
-                if (category != null && !category.isBlank()) yield countKills(facts, kill -> Objects.equals(category, kill.weaponCategory()));
-                yield facts.metric(type.name());
+                if (weapon != null && !weapon.isBlank()) yield countKills(facts, excludeBotCombatStats, kill -> BingoWeaponCatalog.same(weapon, kill.weapon()));
+                if (category != null && !category.isBlank()) yield countKills(facts, excludeBotCombatStats, kill -> Objects.equals(category, kill.weaponCategory()));
+                yield facts.metric(excludeBotCombatStats ? "NON_BOT_KILLS" : type.name());
             }
+            case DAMAGE_DEALT -> facts.metric(excludeBotCombatStats ? "NON_BOT_DAMAGE_DEALT" : type.name());
+            case DBNOS -> facts.metric(excludeBotCombatStats ? "NON_BOT_DBNOS" : type.name());
+            case HEADSHOT_KILLS -> facts.metric(excludeBotCombatStats ? "NON_BOT_HEADSHOT_KILLS" : type.name());
             case LONG_DISTANCE_KILL -> {
                 double minimumMeters = number(options, "distance", Double.NaN);
                 if (!Double.isFinite(minimumMeters) || minimumMeters <= 0) yield BigDecimal.ZERO;
-                yield countKills(facts, kill -> kill.distance() >= minimumMeters);
+                yield countKills(facts, excludeBotCombatStats, kill -> kill.distance() >= minimumMeters);
             }
-            case WEAPON_KILLS -> countKills(facts, kill -> BingoWeaponCatalog.same(string(options, "weapon"), kill.weapon()));
-            case WEAPON_CATEGORY_KILLS -> countKills(facts, kill -> Objects.equals(string(options, "weaponCategory"), kill.weaponCategory()));
-            case THROWABLE_KILLS -> countKills(facts, kill -> BingoWeaponCatalog.same(string(options, "throwable"), kill.throwable()));
-            case WALL_PENETRATION_KILLS -> countKills(facts, PlayerMatchFacts.KillFact::wallPenetration);
+            case WEAPON_KILLS -> countKills(facts, excludeBotCombatStats, kill -> BingoWeaponCatalog.same(string(options, "weapon"), kill.weapon()));
+            case WEAPON_CATEGORY_KILLS -> countKills(facts, excludeBotCombatStats, kill -> Objects.equals(string(options, "weaponCategory"), kill.weaponCategory()));
+            case THROWABLE_KILLS -> countKills(facts, excludeBotCombatStats, kill -> BingoWeaponCatalog.same(string(options, "throwable"), kill.throwable()));
+            case WALL_PENETRATION_KILLS -> countKills(facts, excludeBotCombatStats, PlayerMatchFacts.KillFact::wallPenetration);
             case THROWABLE_USED -> BigDecimal.valueOf(facts.throwableUses().entrySet().stream()
                     .filter(e -> BingoWeaponCatalog.same(string(options, "throwable"), e.getKey()))
                     .mapToInt(Map.Entry::getValue).sum());
@@ -77,15 +104,19 @@ public class BingoMissionEngine {
     }
     private boolean blank(String value) { return value == null || value.isBlank(); }
 
-    private BigDecimal countKills(PlayerMatchFacts facts, java.util.function.Predicate<PlayerMatchFacts.KillFact> test) {
-        return BigDecimal.valueOf(facts.kills().stream().filter(test).count());
+    private BigDecimal countKills(PlayerMatchFacts facts, boolean excludeBotCombatStats,
+                                  java.util.function.Predicate<PlayerMatchFacts.KillFact> test) {
+        return BigDecimal.valueOf(facts.kills().stream()
+                .filter(kill -> !excludeBotCombatStats || !PubgAiBotSupport.isAiBot(kill.victimAccountId()))
+                .filter(test).count());
     }
-    private boolean matchesFilter(Map<String, Object> options, PlayerMatchFacts facts) {
+    private boolean matchesFilter(Map<String, Object> options, PlayerMatchFacts facts, boolean clanPlayRequired) {
         String map = string(options, "map");
         String mode = string(options, "gameMode");
         return (map == null || map.isBlank() || map.equalsIgnoreCase(facts.mapName()))
                 && (mode == null || mode.isBlank() || mode.equalsIgnoreCase(facts.gameMode()))
-                && (!Boolean.TRUE.equals(options.get("clanPlayRequired")) || facts.clanMembersInTeam() >= 1);
+                && (!(clanPlayRequired || Boolean.TRUE.equals(options.get("clanPlayRequired")))
+                    || facts.clanMembersInTeam() >= 1);
     }
     private boolean compare(BigDecimal actual, BingoOperator operator, BigDecimal target) {
         int comparison = actual.compareTo(target);

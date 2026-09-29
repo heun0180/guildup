@@ -53,7 +53,7 @@ public class PubgMatchFactWriter {
     @Transactional
     public StoredCounts saveTelemetry(String matchId, Map<String, PlayerMatchFacts> facts) {
         PubgStoredMatch stored = matches.findForUpdateByMatchId(matchId).orElseThrow();
-        if (stored.isTelemetryLoaded()) return new StoredCounts(0, 0);
+        if (!stored.needsTelemetryFactUpgrade()) return new StoredCounts(0, 0);
         Instant now = clock.instant();
         Map<String, PubgStoredMatchPlayer> players = stored.getPlayers().stream().collect(
                 java.util.stream.Collectors.toMap(PubgStoredMatchPlayer::getAccountId, value -> value));
@@ -67,7 +67,7 @@ public class PubgMatchFactWriter {
                     PubgFactCodec.integers(value.destroyedArmor()), value.clanMembersInTeam(), value.latestEvidenceAt(), now);
             value.kills().forEach(kill -> kills.add(new PubgStoredMatchKill(stored, accountId,
                     kill.victimAccountId(), kill.weapon(), kill.weaponCategory(), kill.throwable(), kill.distance(),
-                    kill.wallPenetration(), kill.occurredAt(), now)));
+                    kill.wallPenetration(), kill.headshot(), kill.occurredAt(), now)));
         });
         stored.replaceTelemetry(kills, now);
         matches.flush();

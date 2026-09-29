@@ -56,7 +56,7 @@ public class KillCompetitionPubgAggregator {
                 kills.merge(input.participantId(), player.kills(), Integer::sum);
                 counts.merge(input.participantId(), 1, Integer::sum);
                 rows.add(new KillCompetitionKillSnapshot.MatchKill(
-                        input.participantId(), match.matchId(), match.playedAt(), player.kills()));
+                        input.participantId(), match.matchId(), match.playedAt(), player.kills(), player.winPlace()));
             }
         }
         Map<Long, KillCompetitionKillSnapshot.PlayerTotal> totals = new LinkedHashMap<>();

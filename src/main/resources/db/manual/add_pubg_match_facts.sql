@@ -11,6 +11,7 @@ create table if not exists pubg_matches (
     custom_match boolean null,
     telemetry_url varchar(1000) null,
     telemetry_loaded boolean not null default false,
+    telemetry_fact_version integer not null default 0,
     created_at timestamptz not null,
     updated_at timestamptz not null,
     constraint uk_pubg_matches_match_id unique (match_id)
@@ -63,6 +64,7 @@ create table if not exists pubg_match_kills (
     throwable varchar(150) null,
     distance_meters numeric(12,3) not null,
     wall_penetration boolean not null,
+    headshot boolean not null default false,
     occurred_at timestamptz null,
     created_at timestamptz not null
 );

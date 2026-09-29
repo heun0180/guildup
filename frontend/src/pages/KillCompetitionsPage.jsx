@@ -7,6 +7,16 @@ import { canCancelKillGame, canEndKillGame, canManageKillGame, formatDateTime, r
 import { useCommunity } from "../community/CommunityContext.jsx";
 
 const basePath = (communityId, communityGameId) => `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/kill-competitions`;
+const placementPointFields = [
+  ["1등", "firstPlacePoint"], ["2등", "secondPlacePoint"], ["3등", "thirdPlacePoint"],
+  ["4등", "fourthPlacePoint"], ["5등", "fifthPlacePoint"], ["6등", "sixthPlacePoint"],
+  ["7등", "seventhPlacePoint"], ["8등", "eighthPlacePoint"], ["9등", "ninthPlacePoint"], ["10등", "tenthPlacePoint"],
+];
+const recommendedPlacementPoints = {
+  firstPlacePoint: 5, secondPlacePoint: 4, thirdPlacePoint: 3,
+  fourthPlacePoint: 2, fifthPlacePoint: 2,
+  sixthPlacePoint: 1, seventhPlacePoint: 1, eighthPlacePoint: 1, ninthPlacePoint: 1, tenthPlacePoint: 1,
+};
 
 export default function KillCompetitionsPage() {
   const { community } = useCommunity();
@@ -88,7 +98,11 @@ export default function KillCompetitionsPage() {
     try {
       const created = await api(basePath(communityId, communityGameId), {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: form.get("title"), gameMode: form.get("gameMode"), endsAt: new Date(localEnd).toISOString() }),
+        body: JSON.stringify({
+          title: form.get("title"), gameMode: form.get("gameMode"), endsAt: new Date(localEnd).toISOString(),
+          killPoint: Number(form.get("killPoint")), placementPointEnabled: form.get("placementPointEnabled") === "on",
+          ...Object.fromEntries(placementPointFields.map(([, key]) => [key, Number(form.get(key))])),
+        }),
       });
       setDetail(created);
       setLoading(false);
@@ -132,6 +146,8 @@ export default function KillCompetitionsPage() {
 }
 
 function CompetitionList({ items, loading, showCreate, setShowCreate, createCompetition, busy, message }) {
+  const [placementEnabled, setPlacementEnabled] = useState(false);
+  const [placementPoints, setPlacementPoints] = useState(recommendedPlacementPoints);
   const defaultEnd = useMemo(() => {
     const value = new Date(Date.now() + 2 * 60 * 60 * 1000); value.setSeconds(0, 0);
     const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
@@ -147,6 +163,17 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
       <label><span>제목</span><input name="title" maxLength="100" required placeholder="예: 치즈 주말 킬내기" /></label>
       <label><span>게임 방식</span><select name="gameMode" defaultValue="SQUAD"><option>SOLO</option><option>DUO</option><option>SQUAD</option></select></label>
       <label><span>종료 날짜 및 시각</span><input name="endsAt" type="datetime-local" defaultValue={defaultEnd} required /></label>
+      <fieldset className="kill-score-settings"><legend>점수 설정</legend>
+        <label className="kill-point-row"><span>킬 1회</span><input name="killPoint" type="number" min="0" max="100" step="1" defaultValue="1" required /><span>점</span></label>
+        <label className="kill-checkbox-row"><input name="placementPointEnabled" type="checkbox" checked={placementEnabled} onChange={(event) => setPlacementEnabled(event.target.checked)} /><span>등수 점수 사용</span></label>
+        {placementEnabled && <div className="kill-placement-grid">
+          {placementPointFields.map(([label, key]) =>
+            <label key={key}><span>{label}</span><input name={key} type="number" min="0" max="100" step="1" required value={placementPoints[key]} onChange={(event) => setPlacementPoints((old) => ({ ...old, [key]: event.target.value }))} /></label>)}
+          <span>그 외</span><strong>0점</strong>
+          <button type="button" className="secondary-button" onClick={() => setPlacementPoints(recommendedPlacementPoints)}>추천 점수로 초기화</button>
+        </div>}
+        {!placementEnabled && Object.entries(placementPoints).map(([key, value]) => <input key={key} type="hidden" name={key} value={value} />)}
+      </fieldset>
       <div className="kill-form-actions"><button type="button" className="secondary-button" onClick={() => setShowCreate(false)}>취소</button>
         <button type="submit" disabled={busy}>{busy ? "만드는 중..." : "만들기"}</button></div>
     </form>}
@@ -174,6 +201,7 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
   const pending = detail.participants.filter((participant) => participant.participationStatus === "PENDING");
   const approved = detail.participants.filter((participant) => participant.participationStatus === "APPROVED");
   const canManage = canManageKillGame(detail, communityRole);
+  const canEditScores = canManage && ["RECRUITING", "READY"].includes(detail.status);
   const canInterim = detail.status === "IN_PROGRESS" && canManage;
   const canChangeRoster = ["RECRUITING", "READY", "IN_PROGRESS"].includes(detail.status) && now < new Date(detail.endsAt).getTime();
   const cooldownUntil = detail.lastInterimCalculatedAt ? new Date(detail.lastInterimCalculatedAt).getTime() + 300_000 : 0;
@@ -212,6 +240,8 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
       </div>}
       {detail.lastInterimCalculatedAt && <p className="kill-api-note">마지막 정산: {formatDateTime(detail.lastInterimCalculatedAt)}{detail.lastInterimMatchStartedAt && <> · 현재 반영된 최근 경기: {formatDateTime(detail.lastInterimMatchStartedAt)} 시작</>}</p>}
       {!detail.scoreEligible && <p className="kill-score-warning">참가자 4명 미만의 킬내기는 랭킹 점수가 지급되지 않습니다.</p>}</section>
+
+    <ScoreSettings detail={detail} editable={canEditScores} busy={busy} mutate={mutate} />
 
     {canChangeRoster && <section className="panel kill-actions-panel"><div><h2>참가 신청 {detail.recruitmentOpen ? "받는 중" : "닫힘"}</h2><p>{detail.status === "IN_PROGRESS" ? "진행 중 신청은 킬내기 관리자 승인 후 참가가 확정됩니다." : "생성자도 참가하려면 직접 신청해야 합니다."}</p></div>
       <div className="kill-actions">{detail.myParticipantId
@@ -257,6 +287,42 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
   </>;
 }
 
+function ScoreSettings({ detail, editable, busy, mutate }) {
+  const valuesFromDetail = () => ({
+    killPoint: detail.killPoint, placementPointEnabled: detail.placementPointEnabled,
+    ...Object.fromEntries(placementPointFields.map(([, key]) => [key, detail[key]])),
+  });
+  const [editing, setEditing] = useState(false);
+  const [settings, setSettings] = useState(valuesFromDetail);
+  useEffect(() => { setSettings(valuesFromDetail()); }, [detail.id, detail.killPoint, detail.placementPointEnabled,
+    detail.firstPlacePoint, detail.secondPlacePoint, detail.thirdPlacePoint, detail.fourthPlacePoint,
+    detail.fifthPlacePoint, detail.sixthPlacePoint, detail.seventhPlacePoint, detail.eighthPlacePoint,
+    detail.ninthPlacePoint, detail.tenthPlacePoint]);
+  const update = (key, value) => setSettings((old) => ({ ...old, [key]: value }));
+  const save = async () => {
+    const payload = Object.fromEntries(Object.entries(settings).map(([key, value]) =>
+      [key, key === "placementPointEnabled" ? Boolean(value) : Number(value)]));
+    if (await mutate("/score-settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })) setEditing(false);
+  };
+  return <section className="panel kill-score-panel">
+    <div className="kill-section-heading"><div><h2>점수 설정</h2><p>1킬당 {detail.killPoint}점 · 등수 점수 {detail.placementPointEnabled ? "사용" : "미사용"}</p></div>
+      {editable && !editing && <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(true)}>점수 설정 수정</button>}</div>
+    {!editing ? detail.placementPointEnabled && <div className="kill-score-summary">
+      {placementPointFields.map(([label, key]) => <span key={key}>{label} +{detail[key]}</span>)}<span>그 외 0</span>
+    </div> : <div className="kill-score-editor">
+      <label className="kill-point-row"><span>킬 1회</span><input type="number" min="0" max="100" step="1" required value={settings.killPoint} onChange={(event) => update("killPoint", event.target.value)} /><span>점</span></label>
+      <label className="kill-checkbox-row"><input type="checkbox" checked={settings.placementPointEnabled} onChange={(event) => update("placementPointEnabled", event.target.checked)} /><span>등수 점수 사용</span></label>
+      {settings.placementPointEnabled && <div className="kill-placement-grid">
+        {placementPointFields.map(([label, key]) =>
+          <label key={key}><span>{label}</span><input type="number" min="0" max="100" step="1" required value={settings[key]} onChange={(event) => update(key, event.target.value)} /></label>)}
+        <span>그 외</span><strong>0점</strong>
+        <button type="button" className="secondary-button" onClick={() => setSettings((old) => ({ ...old, ...recommendedPlacementPoints }))}>추천 점수로 초기화</button>
+      </div>}
+      <div className="kill-form-actions"><button type="button" className="secondary-button" onClick={() => { setSettings(valuesFromDetail()); setEditing(false); }}>취소</button><button type="button" disabled={busy} onClick={save}>저장</button></div>
+    </div>}
+  </section>;
+}
+
 function ParticipantManager({ detail, pending, approved, members, busy, mutate }) {
   const [memberId, setMemberId] = useState("");
   const [teamId, setTeamId] = useState("");
@@ -295,20 +361,21 @@ function Roster({ detail }) {
   if (!detail.participantCount) return <section className="panel kill-empty compact"><p>아직 참가자가 없습니다.</p></section>;
   if (detail.gameMode === "SOLO" || !detail.teams.length) return <section className="panel kill-roster"><div className="kill-section-heading"><h2>참가자</h2><span>{detail.participantCount}명</span></div>
     <div className="kill-player-grid">{detail.participants.filter((p) => p.participationStatus === "APPROVED").map((p) => <div key={p.participantId}><span><strong>{p.nickname}</strong><small>{p.pubgNickname}{p.eligibleFrom ? ` · ${formatDateTime(p.eligibleFrom)}부터` : ""}</small></span>
-      {(detail.status === "IN_PROGRESS" || detail.status === "ENDED") && <b>{p.interimKills}킬</b>}{detail.status === "COMPLETED" && <b>{p.finalKills}킬</b>}</div>)}</div></section>;
+      {(detail.status === "IN_PROGRESS" || detail.status === "ENDED") && <b>{p.interimKills}킬 · 등수 +{p.interimPlacementPoints} · {p.interimPoints}점</b>}{detail.status === "COMPLETED" && <b>{p.finalKills}킬 · 등수 +{p.finalPlacementPoints} · {p.finalPoints}점</b>}</div>)}</div></section>;
   return <section className="kill-team-grid">{detail.teams.map((team) => <article className="panel kill-team-card" key={team.teamId}><header><h2>{team.name}</h2>
-    <strong>{detail.status === "COMPLETED" ? `${team.finalKills}킬` : `${team.interimKills}킬`}</strong></header><div>{detail.participants.filter((p) => p.participationStatus === "APPROVED" && p.teamId === team.teamId).map((p) =>
-      <p key={p.participantId}><span><b>{p.nickname}</b><small>{p.pubgNickname}</small></span><strong>{detail.status === "COMPLETED" ? p.finalKills : p.interimKills}킬</strong></p>)}</div></article>)}</section>;
+    <strong>{detail.status === "COMPLETED" ? `${team.finalPoints}점 · ${team.finalKills}킬 · 등수 +${team.finalPlacementPoints}` : `${team.interimPoints}점 · ${team.interimKills}킬 · 등수 +${team.interimPlacementPoints}`}</strong></header><div>{detail.participants.filter((p) => p.participationStatus === "APPROVED" && p.teamId === team.teamId).map((p) =>
+      <p key={p.participantId}><span><b>{p.nickname}</b><small>{p.pubgNickname}</small></span><strong>{detail.status === "COMPLETED" ? `${p.finalPoints}점 · ${p.finalKills}킬` : `${p.interimPoints}점 · ${p.interimKills}킬`}</strong></p>)}</div></article>)}</section>;
 }
 
 function Standings({ title, standings, winners = false }) {
   return <section className="panel kill-standings"><div className="kill-section-heading"><h2>{title}</h2>{winners && <span>우승자 +3점 · 일일 한도 적용</span>}</div>
     <ol>{standings.map((row) => <li key={`${row.participantId || "team"}-${row.teamId || row.name}`} className={row.winner ? "is-winner" : ""}>
-      <span className="kill-rank">{row.rank}위</span><strong>{row.name}</strong>{row.winner && <em>우승</em>}<b>{row.kills}킬</b></li>)}</ol></section>;
+      <span className="kill-rank">{row.rank}위</span><strong>{row.name}</strong>{row.winner && <em>우승</em>}<span>{row.kills}킬 · 등수 +{row.placementPoints}</span><b>{row.points}점</b></li>)}</ol></section>;
 }
 
 function MatchEvidence({ matches }) {
   return <section className="panel kill-match-evidence"><div className="kill-section-heading"><div><h2>최종 반영 경기</h2><p>경기 시작 시각을 기준으로 인정된 결과입니다.</p></div><span>{matches.length}경기</span></div>
     <div>{matches.map((match) => <details key={match.matchId}><summary><span>{formatDateTime(match.startedAt)}</span><code>{match.matchId}</code></summary>
-      <ul>{match.players.map((player) => <li key={player.participantId}><span>{player.nickname}</span><strong>{player.kills}킬</strong></li>)}</ul></details>)}</div></section>;
+      <ul>{match.players.map((player) => <li key={player.participantId}><span><b>{player.nickname}</b><small>{player.placement ? `${player.placement}위` : "등수 기록 없음"}</small></span>
+        <span>{player.kills}킬 · 킬 점수 {player.killPoints} · 등수 점수 +{player.placementPoints}</span><strong>총 {player.totalPoints}점</strong></li>)}</ul></details>)}</div></section>;
 }

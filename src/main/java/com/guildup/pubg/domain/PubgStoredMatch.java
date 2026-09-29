@@ -14,6 +14,7 @@ import java.util.List;
         @Index(name = "idx_pubg_matches_shard_started", columnList = "shard,started_at")
 })
 public class PubgStoredMatch {
+    public static final int CURRENT_TELEMETRY_FACT_VERSION = 2;
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;
     @Column(name = "match_id", nullable = false, length = 100) private String matchId;
     @Column(nullable = false, length = 30) private String shard;
@@ -25,6 +26,7 @@ public class PubgStoredMatch {
     @Column(name = "custom_match") private Boolean customMatch;
     @Column(name = "telemetry_url", length = 1000) private String telemetryUrl;
     @Column(name = "telemetry_loaded", nullable = false) private boolean telemetryLoaded;
+    @Column(name = "telemetry_fact_version", nullable = false) private int telemetryFactVersion;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     @OneToMany(mappedBy = "match", cascade = CascadeType.ALL, orphanRemoval = true)
@@ -46,7 +48,8 @@ public class PubgStoredMatch {
 
     public void addPlayer(PubgStoredMatchPlayer player) { players.add(player); }
     public void replaceTelemetry(List<PubgStoredMatchKill> values, Instant now) {
-        kills.clear(); kills.addAll(values); telemetryLoaded = true; updatedAt = now;
+        kills.clear(); kills.addAll(values); telemetryLoaded = true;
+        telemetryFactVersion = CURRENT_TELEMETRY_FACT_VERSION; updatedAt = now;
     }
     public Long getId() { return id; }
     public String getMatchId() { return matchId; }
@@ -59,6 +62,10 @@ public class PubgStoredMatch {
     public String getTelemetryUrl() { return telemetryUrl; }
     public Integer getDuration() { return duration; }
     public boolean isTelemetryLoaded() { return telemetryLoaded; }
+    public int getTelemetryFactVersion() { return telemetryFactVersion; }
+    public boolean needsTelemetryFactUpgrade() {
+        return !telemetryLoaded || telemetryFactVersion < CURRENT_TELEMETRY_FACT_VERSION;
+    }
     public List<PubgStoredMatchPlayer> getPlayers() { return players; }
     public List<PubgStoredMatchKill> getKills() { return kills; }
 }

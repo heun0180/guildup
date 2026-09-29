@@ -110,7 +110,7 @@ class PubgMatchPersistenceTests {
         PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
         when(telemetry.get(anyString())).thenReturn(JsonMapper.builder().build().readTree("""
                 [
-                  {"_T":"LogPlayerKillV2","_D":"2026-09-25T00:01:00Z","attackId":1,"killer":{"accountId":"account-a","teamId":1},"victim":{"accountId":"v1","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapM24_C","distance":19999}},
+                  {"_T":"LogPlayerKillV2","_D":"2026-09-25T00:01:00Z","attackId":1,"killer":{"accountId":"account-a","teamId":1},"victim":{"accountId":"ai.1001","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapM24_C","damageReason":"HeadShot","distance":19999}},
                   {"_T":"LogPlayerKillV2","_D":"2026-09-25T00:02:00Z","attackId":2,"killer":{"accountId":"account-a","teamId":1},"victim":{"accountId":"v2","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapM24_C","distance":20000}},
                   {"_T":"LogPlayerKillV2","_D":"2026-09-25T00:03:00Z","attackId":3,"killer":{"accountId":"account-a","teamId":1},"victim":{"accountId":"v3","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapM24_C","distance":25000}}
                 ]
@@ -122,8 +122,13 @@ class PubgMatchPersistenceTests {
 
         assertThat(kills.findAll()).extracting(value -> value.getDistanceMeters())
                 .containsExactlyInAnyOrder(new BigDecimal("199.990"), new BigDecimal("200.000"), new BigDecimal("250.000"));
+        assertThat(kills.findAll()).filteredOn(value -> value.getVictimAccountId().startsWith("ai."))
+                .singleElement().satisfies(value -> assertThat(value.isHeadshot()).isTrue());
+        assertThat(matches.findByMatchId(match.matchId()).orElseThrow().getTelemetryFactVersion())
+                .isEqualTo(com.guildup.pubg.domain.PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION);
         PlayerMatchFacts stored = query.findBetween(at.minusSeconds(1), at.plusSeconds(1), Set.of("account-a"))
                 .getFirst().byAccount().get("account-a");
+        assertThat(stored.metric("NON_BOT_KILLS")).isEqualByComparingTo("2");
         assertThat(new BingoMissionEngine().value(BingoMissionType.LONG_DISTANCE_KILL, stored,
                 Map.of("distance", 200))).isEqualByComparingTo("2");
     }

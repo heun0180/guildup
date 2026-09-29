@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS bingo_events (
     target_lines INTEGER NOT NULL CHECK (target_lines > 0),
     blackout_enabled BOOLEAN NOT NULL,
     allow_late_join BOOLEAN NOT NULL,
+    exclude_bot_combat_stats BOOLEAN NOT NULL DEFAULT FALSE,
+    clan_play_required BOOLEAN NOT NULL DEFAULT FALSE,
     starts_at TIMESTAMPTZ NOT NULL,
     ends_at TIMESTAMPTZ NOT NULL,
     status VARCHAR(20) NOT NULL,

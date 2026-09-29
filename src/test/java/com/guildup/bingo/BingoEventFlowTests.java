@@ -86,6 +86,27 @@ class BingoEventFlowTests {
                 .containsEntry("weapon", "M416");
     }
 
+    @Test void storesGlobalMatchFiltersAndClearsCooldownWhenAnActiveBingoChangesThem() {
+        BingoEventRequest base = activeRequest("봇 제외 빙고");
+        BingoEventRequest enabled = new BingoEventRequest(base.title(), base.description(), base.startsAt(), base.endsAt(),
+                base.boardSize(), base.targetLines(), base.blackoutEnabled(), base.allowLateJoin(), true, true,
+                base.status(), base.cells());
+        var created = service.create(owner.getId(), community.getId(), enabled);
+        BingoEvent event = events.findForUpdate(created.id()).orElseThrow();
+        event.aggregated(Instant.now());
+        assertThat(created.excludeBotCombatStats()).isTrue();
+        assertThat(created.clanPlayRequired()).isTrue();
+
+        BingoEventRequest disabled = new BingoEventRequest(base.title(), base.description(), base.startsAt(), base.endsAt(),
+                base.boardSize(), base.targetLines(), base.blackoutEnabled(), base.allowLateJoin(), false,
+                base.status(), base.cells());
+        var updated = service.update(owner.getId(), community.getId(), created.id(), disabled);
+
+        assertThat(updated.excludeBotCombatStats()).isFalse();
+        assertThat(updated.clanPlayRequired()).isFalse();
+        assertThat(events.findById(created.id()).orElseThrow().getLastAggregatedAt()).isNull();
+    }
+
     @Test void createsKillBetWinWithFixedEventTotalAndAutomaticTitle() {
         BingoEventRequest request = killBetRequest(BingoAggregationType.EVENT_TOTAL, Map.of(), BigDecimal.valueOf(2));
 

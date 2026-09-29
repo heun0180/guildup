@@ -7,7 +7,8 @@ import java.util.Map;
 
 public record BingoDetailResponse(
         Long id, String title, String description, int boardSize, int targetLines,
-        boolean blackoutEnabled, boolean allowLateJoin, Instant startsAt, Instant endsAt,
+        boolean blackoutEnabled, boolean allowLateJoin, boolean excludeBotCombatStats, boolean clanPlayRequired,
+        Instant startsAt, Instant endsAt,
         String status, Instant lastAggregatedAt, boolean admin, List<Cell> cells,
         PlayerBoard me, List<Participant> participants
 ) {

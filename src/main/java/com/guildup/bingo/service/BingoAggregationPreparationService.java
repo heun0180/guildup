@@ -78,7 +78,7 @@ public class BingoAggregationPreparationService {
         connected.forEach(value -> communityAccounts.add(value.accountId()));
         return new PreparedAggregation(event.getId(), PubgGameSupport.requireShard(event.getCommunityGame().getGameType()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), event.getStatus(),
-                List.copyOf(connected), Set.copyOf(communityAccounts), participantRows.size());
+                event.isExcludeBotCombatStats(), List.copyOf(connected), Set.copyOf(communityAccounts), participantRows.size());
     }
 
     /** 요청값으로 participantId를 받지 않고 로그인 사용자의 참가자 행만 준비한다. */
@@ -116,7 +116,7 @@ public class BingoAggregationPreparationService {
                 participant.getId(), account.getExternalUserId(), participant.getEligibleFrom());
         return new PreparedAggregation(event.getId(), PubgGameSupport.requireShard(event.getCommunityGame().getGameType()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), effectiveStatus,
-                List.of(preparedParticipant), Set.copyOf(communityAccounts), 1);
+                event.isExcludeBotCombatStats(), List.of(preparedParticipant), Set.copyOf(communityAccounts), 1);
     }
 
     /** 개인 Job key를 만들기 위한 가벼운 조회다. 쓰기 잠금을 사용하지 않는다. */
@@ -179,7 +179,8 @@ public class BingoAggregationPreparationService {
     }
 
     public record PreparedAggregation(Long eventId, String shard, Instant startsAt, Instant endsExclusive,
-                                      BingoStatus status, List<PreparedParticipant> participants,
+                                      BingoStatus status, boolean excludeBotCombatStats,
+                                      List<PreparedParticipant> participants,
                                       Set<String> communityAccounts, int participantCount) {}
     public record PreparedParticipant(Long participantId, String accountId, Instant eligibleFrom) {}
 }

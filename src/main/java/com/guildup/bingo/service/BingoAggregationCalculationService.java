@@ -109,7 +109,8 @@ public class BingoAggregationCalculationService {
                 if (!completeRecalculation && alreadyProcessed.contains(match.matchId())) continue;
                 PlayerMatchFacts fact = match.byAccount().get(participant.getPubgAccountId());
                 boolean wasCompleted = outcome.completed();
-                outcome = missions.apply(row.getCell(), outcome, fact);
+                outcome = missions.apply(row.getCell(), outcome, fact,
+                        event.isExcludeBotCombatStats(), event.isClanPlayRequired());
                 if (!wasCompleted && outcome.completed()) {
                     evidenceMatchId = match.matchId();
                     evidenceAt = fact.latestEvidenceAt() == null ? match.startedAt() : fact.latestEvidenceAt();

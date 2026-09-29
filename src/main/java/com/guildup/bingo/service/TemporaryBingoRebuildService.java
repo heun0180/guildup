@@ -203,7 +203,8 @@ public class TemporaryBingoRebuildService {
                 .map(CommunityMemberAccount::getExternalUserId).filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         communityAccounts.addAll(accounts.values().stream().map(AccountSnapshot::accountId).toList());
-        boolean requireTelemetry = cells.stream().map(BingoCell::getMissionType).anyMatch(TELEMETRY_REQUIRED::contains);
+        boolean requireTelemetry = event.isExcludeBotCombatStats()
+                || cells.stream().map(BingoCell::getMissionType).anyMatch(TELEMETRY_REQUIRED::contains);
 
         Map<Long, Map<Long, Accumulator>> accumulators = new LinkedHashMap<>();
         participantRows.forEach(participant -> {
@@ -250,6 +251,7 @@ public class TemporaryBingoRebuildService {
                 for (BingoCell cell : cells) {
                     if (cell.getMissionType().source() != BingoMissionSource.PUBG_MATCH) continue;
                     advance(accumulators.get(participantId).get(cell.getId()), cell, playerFacts,
+                            event.isExcludeBotCombatStats(), event.isClanPlayRequired(),
                             match.matchId(), playerFacts.latestEvidenceAt() == null ? match.playedAt() : playerFacts.latestEvidenceAt());
                 }
                 countedMatches.add(match.matchId());
@@ -275,7 +277,7 @@ public class TemporaryBingoRebuildService {
                 PlayerMatchFacts contentFact = contentFact(competition);
                 for (BingoCell cell : cells) {
                     if (cell.getMissionType() != BingoMissionType.KILL_BET_WIN) continue;
-                    advance(accumulators.get(participant.getId()).get(cell.getId()), cell, contentFact,
+                    advance(accumulators.get(participant.getId()).get(cell.getId()), cell, contentFact, false, false,
                             null, competition.getEndsAt());
                 }
             }
@@ -302,7 +304,7 @@ public class TemporaryBingoRebuildService {
         }
         PreviewSnapshot snapshot = new PreviewSnapshot(null, event.getId(), communityId,
                 communityGameId, event.getTitle(), calculatedAt, null,
-                event.getLastAggregatedAt(), cellFingerprint(cells), List.copyOf(competitionFingerprint),
+                event.getLastAggregatedAt(), eventFingerprint(event), List.copyOf(competitionFingerprint),
                 snapshots, countedMatches.size(), changed);
         return new BuildResult(snapshot, List.of());
     }
@@ -313,7 +315,7 @@ public class TemporaryBingoRebuildService {
         BingoEvent active = requireOnlyActive(snapshot.communityId(), snapshot.communityGameId());
         if (!active.getId().equals(event.getId())) conflict("활성 빙고가 미리보기 이후 변경되었습니다.");
         if (!Objects.equals(snapshot.lastAggregatedAt(), event.getLastAggregatedAt())
-                || !Objects.equals(snapshot.cellFingerprint(), cellFingerprint(event.getCells())))
+                || !Objects.equals(snapshot.cellFingerprint(), eventFingerprint(event)))
             conflict("미리보기 이후 빙고 또는 일반 집계 데이터가 변경되었습니다. 다시 미리보기를 실행해 주세요.");
 
         Map<Long, CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProvider(
@@ -389,8 +391,10 @@ public class TemporaryBingoRebuildService {
     }
 
     private void advance(Accumulator accumulator, BingoCell cell, PlayerMatchFacts facts,
+                         boolean excludeBotCombatStats, boolean clanPlayRequired,
                          String evidenceMatchId, Instant evidenceAt) {
-        BingoMissionEngine.Outcome calculated = missions.apply(cell, accumulator.outcome, facts);
+        BingoMissionEngine.Outcome calculated = missions.apply(
+                cell, accumulator.outcome, facts, excludeBotCombatStats, clanPlayRequired);
         boolean firstCompletion = !accumulator.outcome.completed() && calculated.completed();
         boolean completed = accumulator.outcome.completed() || calculated.completed();
         accumulator.outcome = new BingoMissionEngine.Outcome(calculated.value(), calculated.occurrences(), completed);
@@ -485,6 +489,11 @@ public class TemporaryBingoRebuildService {
                 cell.getId() + "|" + cell.getMissionType() + "|" + cell.getAggregationType() + "|"
                         + cell.getOperator() + "|" + cell.getTargetValue() + "|" + cell.getOccurrenceTarget()
                         + "|" + new TreeMap<>(cell.getOptions())).collect(Collectors.joining(";"));
+    }
+
+    private String eventFingerprint(BingoEvent event) {
+        return cellFingerprint(event.getCells()) + "|excludeBotCombatStats=" + event.isExcludeBotCombatStats()
+                + "|clanPlayRequired=" + event.isClanPlayRequired();
     }
     private String reason(RuntimeException exception) {
         String message = exception.getMessage();

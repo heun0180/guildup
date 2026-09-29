@@ -68,11 +68,16 @@ public class BingoAggregationService {
                 BingoAggregationPreparationService.PreparedParticipant::accountId)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         PubgMatchSyncService.SyncResult sync = pubgSync.sync(prepared.shard(), accountIds,
-                match -> telemetryRequired(prepared, match), listener);
+                match -> telemetryRequired(prepared, match), prepared.excludeBotCombatStats(), listener);
         listener.stage("SAVE_FACTS", sync.dbMatchesInserted(), sync.newMatchIds(), "PUBG 경기 데이터를 저장했습니다.");
 
-        List<PubgMatchFactQueryService.StoredMatchFacts> facts = pubgFacts.findBetween(
-                prepared.startsAt(), prepared.endsExclusive(), prepared.communityAccounts()).stream()
+        List<PubgMatchFactQueryService.StoredMatchFacts> stored = pubgFacts.findBetween(
+                prepared.startsAt(), prepared.endsExclusive(), prepared.communityAccounts());
+        if (prepared.excludeBotCombatStats() && stored.stream().anyMatch(match -> !match.telemetryLoaded()
+                || match.telemetryFactVersion() < com.guildup.pubg.domain.PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION)) {
+            throw new IllegalStateException("AI 봇 제외용 Telemetry Fact를 모두 준비하지 못했습니다. 잠시 후 다시 집계해 주세요.");
+        }
+        List<PubgMatchFactQueryService.StoredMatchFacts> facts = stored.stream()
                 .filter(PubgMatchFactQueryService.StoredMatchFacts::telemetryLoaded).toList();
         List<String> legacyProcessedIds = participantId == null
                 ? processed.findDistinctMatchIdsByEventId(bingoId)

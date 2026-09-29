@@ -32,8 +32,10 @@ public class KillCompetitionParticipant {
     @Column(name = "eligible_from") private Instant eligibleFrom;
     @Column(name = "interim_kills", nullable = false) private int interimKills;
     @Column(name = "interim_match_count", nullable = false) private int interimMatchCount;
+    @Column(name = "interim_points", nullable = false, columnDefinition = "integer default 0") private int interimPoints;
     @Column(name = "final_kills") private Integer finalKills;
     @Column(name = "final_match_count") private Integer finalMatchCount;
+    @Column(name = "final_points") private Integer finalPoints;
 
     protected KillCompetitionParticipant() {}
     public KillCompetitionParticipant(KillCompetition competition, CommunityMember member,
@@ -58,8 +60,18 @@ public class KillCompetitionParticipant {
     public void initializeEligibleFrom(Instant startedAt) {
         if (eligibleFrom == null) eligibleFrom = startedAt;
     }
-    public void recordInterim(int kills, int matchCount) { interimKills = kills; interimMatchCount = matchCount; }
-    public void recordFinal(int kills, int matchCount) { finalKills = kills; finalMatchCount = matchCount; }
+    public void recordInterim(int kills, int matchCount, int points) {
+        interimKills = kills; interimMatchCount = matchCount; interimPoints = points;
+    }
+    public void recordInterim(int kills, int matchCount) {
+        recordInterim(kills, matchCount, Math.multiplyExact(kills, competition.getKillPoint()));
+    }
+    public void recordFinal(int kills, int matchCount, int points) {
+        finalKills = kills; finalMatchCount = matchCount; finalPoints = points;
+    }
+    public void recordFinal(int kills, int matchCount) {
+        recordFinal(kills, matchCount, Math.multiplyExact(kills, competition.getKillPoint()));
+    }
     public Long getId() { return id; }
     public KillCompetition getCompetition() { return competition; }
     public CommunityMember getCommunityMember() { return communityMember; }
@@ -71,6 +83,14 @@ public class KillCompetitionParticipant {
     public Instant getEligibleFrom() { return eligibleFrom; }
     public int getInterimKills() { return interimKills; }
     public int getInterimMatchCount() { return interimMatchCount; }
+    public int getInterimPoints() {
+        return interimPoints == 0 && interimKills > 0
+                ? Math.multiplyExact(interimKills, competition.getKillPoint()) : interimPoints;
+    }
     public Integer getFinalKills() { return finalKills; }
     public Integer getFinalMatchCount() { return finalMatchCount; }
+    public Integer getFinalPoints() {
+        if (finalPoints != null) return finalPoints;
+        return finalKills == null ? null : Math.multiplyExact(finalKills, competition.getKillPoint());
+    }
 }

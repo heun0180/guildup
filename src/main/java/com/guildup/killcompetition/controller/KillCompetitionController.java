@@ -101,6 +101,14 @@ public class KillCompetitionController {
         return competitions.updateEndTime(CurrentUserSession.requireUserId(session), communityId, communityGameId,
                 competitionId, request == null ? null : request.endsAt());
     }
+    @PutMapping("/{competitionId}/score-settings")
+    public KillCompetitionDetailResponse updateScoreSettings(
+            @PathVariable Long communityId, @PathVariable Long communityGameId,
+            @PathVariable Long competitionId, @RequestBody KillCompetitionScoreSettingsRequest request,
+            HttpSession session) {
+        return competitions.updateScoreSettings(CurrentUserSession.requireUserId(session), communityId,
+                communityGameId, competitionId, request);
+    }
     @PostMapping("/{competitionId}/interim")
     public KillCompetitionDetailResponse interim(@PathVariable Long communityId, @PathVariable Long communityGameId, @PathVariable Long competitionId, HttpSession session) {
         competitions.get(CurrentUserSession.requireUserId(session), communityId, communityGameId, competitionId);

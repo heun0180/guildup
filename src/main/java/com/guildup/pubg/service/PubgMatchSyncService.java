@@ -44,6 +44,12 @@ public class PubgMatchSyncService {
 
     public SyncResult sync(String shard, Collection<String> accountIds,
                            Predicate<PubgMatch> telemetryRequired, ProgressListener progress) {
+        return sync(shard, accountIds, telemetryRequired, false, progress);
+    }
+
+    public SyncResult sync(String shard, Collection<String> accountIds,
+                           Predicate<PubgMatch> telemetryRequired, boolean upgradeTelemetryFacts,
+                           ProgressListener progress) {
         observeTransaction("PLAYER_SYNC");
         List<String> accounts = List.copyOf(new LinkedHashSet<>(accountIds));
         progress.stage("PLAYER_SYNC", 0, accounts.size(), "PUBG 계정의 최신 경기 목록을 확인하고 있습니다.");
@@ -75,6 +81,12 @@ public class PubgMatchSyncService {
         query.findTelemetryMissing(discovered).forEach(match -> missingTelemetry.put(match.matchId(), match));
         query.findTelemetryMissingForAccounts(accounts).forEach(
                 match -> missingTelemetry.putIfAbsent(match.matchId(), match));
+        if (upgradeTelemetryFacts) {
+            query.findTelemetryUpgradeCandidates(discovered).forEach(
+                    match -> missingTelemetry.putIfAbsent(match.matchId(), match));
+            query.findTelemetryUpgradeCandidatesForAccounts(accounts).forEach(
+                    match -> missingTelemetry.putIfAbsent(match.matchId(), match));
+        }
         List<PubgMatch> telemetryMatches = missingTelemetry.values().stream()
                 .filter(telemetryRequired).toList();
         progress.stage("TELEMETRY_FETCH", 0, telemetryMatches.size(),

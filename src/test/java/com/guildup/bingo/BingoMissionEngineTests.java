@@ -83,6 +83,23 @@ class BingoMissionEngineTests {
     }
 
     @Test
+    void globalClanPlayRequirementFiltersEveryPubgMission() {
+        BingoCell cell = cell(BingoMissionType.KILLS, BingoAggregationType.EVENT_TOTAL, 5, null, Map.of());
+        PlayerMatchFacts solo = new PlayerMatchFacts("solo", playedAt, "Erangel_Main", "squad",
+                Map.of("KILLS", bd(5)), List.of(), Map.of(), 0, playedAt);
+        PlayerMatchFacts clanMatch = new PlayerMatchFacts("clan", playedAt, "Erangel_Main", "squad",
+                Map.of("KILLS", bd(5)), List.of(), Map.of(), 1, playedAt);
+
+        BingoMissionEngine.Outcome skipped = engine.apply(
+                cell, BingoMissionEngine.Outcome.zero(), solo, false, true);
+        BingoMissionEngine.Outcome counted = engine.apply(cell, skipped, clanMatch, false, true);
+
+        assertThat(skipped.value()).isZero();
+        assertThat(counted.value()).isEqualByComparingTo("5");
+        assertThat(counted.completed()).isTrue();
+    }
+
+    @Test
     void newMissionsReuseFactsAndMatchOnlyConfiguredItemsAndVehicleClanCount() {
         PlayerMatchFacts facts = new PlayerMatchFacts("m", playedAt, "Tiger_Main", "squad",
                 Map.of("VEHICLE_DESTROY_COUNT",bd(2),"VEHICLE_DAMAGE",bd(600),"ARMOR_DESTROY_COUNT",bd(1),

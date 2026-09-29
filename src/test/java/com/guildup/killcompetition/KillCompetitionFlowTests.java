@@ -224,6 +224,160 @@ class KillCompetitionFlowTests {
     }
 
     @Test
+    void scoreSettingsDefaultToLegacyRulesAndCannotChangeAfterStart() {
+        var created = create(KillCompetitionGameMode.SOLO);
+        assertThat(created.killPoint()).isEqualTo(1);
+        assertThat(created.placementPointEnabled()).isFalse();
+        assertBadRequest(() -> competitions.updateScoreSettings(creator.user().getId(), community.getId(), created.id(),
+                new KillCompetitionScoreSettingsRequest(101, true, 5, 4, 3, 2, 1)));
+        var configured = competitions.updateScoreSettings(creator.user().getId(), community.getId(), created.id(),
+                new KillCompetitionScoreSettingsRequest(2, true, 5, 4, 3,
+                        10, 9, 8, 7, 6, 5, 4, null, null));
+        assertThat(configured.killPoint()).isEqualTo(2);
+        assertThat(configured.placementPointEnabled()).isTrue();
+        assertThat(List.of(configured.firstPlacePoint(), configured.secondPlacePoint(), configured.thirdPlacePoint(),
+                configured.fourthPlacePoint(), configured.fifthPlacePoint(), configured.sixthPlacePoint(),
+                configured.seventhPlacePoint(), configured.eighthPlacePoint(), configured.ninthPlacePoint(),
+                configured.tenthPlacePoint())).containsExactly(5, 4, 3, 10, 9, 8, 7, 6, 5, 4);
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+
+        assertConflict(() -> competitions.updateScoreSettings(creator.user().getId(), community.getId(), created.id(),
+                new KillCompetitionScoreSettingsRequest(1, false, 5, 4, 3, 2, 1)));
+        Long participantId = started.participants().getFirst().participantId();
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(snapshot(List.of(
+                new KillCompetitionKillSnapshot.MatchKill(
+                        participantId, "individual-place", started.startedAt().plusSeconds(1), 0, 4))));
+        clock.set(started.startedAt().plusSeconds(2));
+        assertThat(settlements.calculateInterim(creator.user().getId(), community.getId(), started.id())
+                .interimStandings()).singleElement().extracting(KillCompetitionDetailResponse.Standing::points)
+                .isEqualTo(10);
+    }
+
+    @Test
+    void repeatedInterimSettlementDoesNotDuplicatePlacementPointsForTheSameMatch() {
+        var created = competitions.create(creator.user().getId(), community.getId(), new KillCompetitionCreateRequest(
+                "중복 방지", KillCompetitionGameMode.SOLO, clock.instant().plus(Duration.ofMinutes(30)),
+                1, true, 5, 4, 3, 2, 1));
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        Long participantId = started.participants().getFirst().participantId();
+        var sameMatch = new KillCompetitionKillSnapshot.MatchKill(
+                participantId, "same-match", started.startedAt().plusSeconds(1), 5, 1);
+        when(aggregator.aggregate(anyString(), any(), any(), anyList()))
+                .thenReturn(snapshot(List.of(sameMatch)));
+        clock.set(started.startedAt().plusSeconds(2));
+
+        assertThat(settlements.calculateInterim(creator.user().getId(), community.getId(), started.id())
+                .interimStandings()).singleElement().extracting(KillCompetitionDetailResponse.Standing::points)
+                .isEqualTo(10);
+        clock.set(clock.instant().plus(Duration.ofMinutes(5)));
+        assertThat(settlements.calculateInterim(creator.user().getId(), community.getId(), started.id())
+                .interimStandings()).singleElement().extracting(KillCompetitionDetailResponse.Standing::points)
+                .isEqualTo(10);
+        assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(started.id()))
+                .singleElement().extracting(result -> result.getTotalPoints()).isEqualTo(10);
+    }
+
+    @Test
+    void placementBandsAndMultipleMatchesArePersistedAsAuditablePoints() {
+        var created = competitions.create(creator.user().getId(), community.getId(), new KillCompetitionCreateRequest(
+                "등수 점수", KillCompetitionGameMode.SOLO, clock.instant().plus(Duration.ofMinutes(30)),
+                1, true, 5, 4, 3, 2, 1));
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        Long participantId = started.participants().getFirst().participantId();
+        List<Integer> placements = List.of(1, 2, 3, 4, 8, 20);
+        List<KillCompetitionKillSnapshot.MatchKill> rows = new ArrayList<>();
+        for (int index = 0; index < placements.size(); index++) {
+            rows.add(new KillCompetitionKillSnapshot.MatchKill(participantId, "score-" + index,
+                    started.startedAt().plusSeconds(index + 1), 5, placements.get(index)));
+        }
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(snapshot(rows));
+        clock.set(started.endsAt().plusSeconds(1));
+
+        var completed = finalizeAndPublish(started.id());
+
+        assertThat(completed.finalStandings()).singleElement().satisfies(standing -> {
+            assertThat(standing.kills()).isEqualTo(30);
+            assertThat(standing.placementPoints()).isEqualTo(15);
+            assertThat(standing.points()).isEqualTo(45);
+        });
+        assertThat(completed.finalMatches()).flatExtracting(KillCompetitionDetailResponse.Match::players)
+                .extracting(KillCompetitionDetailResponse.MatchPlayer::totalPoints)
+                .containsExactly(10, 9, 8, 7, 6, 5);
+        assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(started.id()))
+                .extracting(result -> result.getPlacement(), result -> result.getKillPoints(),
+                        result -> result.getPlacementPoints(), result -> result.getTotalPoints())
+                .containsExactly(
+                        tuple(1, 5, 5, 10), tuple(2, 5, 4, 9), tuple(3, 5, 3, 8),
+                        tuple(4, 5, 2, 7), tuple(8, 5, 1, 6), tuple(20, 5, 0, 5));
+    }
+
+    @Test
+    void killPointAndPlacementPointsDetermineSoloRanking() {
+        Person second = person("둘", CommunityUserRole.MEMBER, true);
+        var created = competitions.create(creator.user().getId(), community.getId(), new KillCompetitionCreateRequest(
+                "점수 개인전", KillCompetitionGameMode.SOLO, clock.instant().plus(Duration.ofMinutes(30)),
+                2, true, 5, 4, 3, 2, 1));
+        participation.join(creator.user().getId(), community.getId(), created.id());
+        participation.join(second.user().getId(), community.getId(), created.id());
+        competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        Map<String, Long> ids = started.participants().stream().collect(java.util.stream.Collectors.toMap(
+                KillCompetitionDetailResponse.Participant::nickname, KillCompetitionDetailResponse.Participant::participantId));
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(snapshot(List.of(
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("생성자"), "rank", started.startedAt().plusSeconds(1), 5, 1),
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("둘"), "rank", started.startedAt().plusSeconds(1), 7, 20))));
+        clock.set(started.endsAt().plusSeconds(1));
+
+        var completed = finalizeAndPublish(started.id());
+
+        assertThat(completed.finalStandings()).extracting(KillCompetitionDetailResponse.Standing::name,
+                        KillCompetitionDetailResponse.Standing::points, KillCompetitionDetailResponse.Standing::rank)
+                .containsExactly(tuple("생성자", 15, 1), tuple("둘", 14, 2));
+    }
+
+    @Test
+    void duoRankingSumsEachMembersTotalPoints() {
+        Person second = person("둘", CommunityUserRole.MEMBER, true);
+        Person third = person("셋", CommunityUserRole.MEMBER, true);
+        Person fourth = person("넷", CommunityUserRole.MEMBER, true);
+        var created = competitions.create(creator.user().getId(), community.getId(), new KillCompetitionCreateRequest(
+                "점수 듀오", KillCompetitionGameMode.DUO, clock.instant().plus(Duration.ofMinutes(30)),
+                1, true, 5, 4, 3, 2, 1));
+        for (Person person : List.of(creator, second, third, fourth)) {
+            participation.join(person.user().getId(), community.getId(), created.id());
+        }
+        var ready = competitions.closeRecruitment(creator.user().getId(), community.getId(), created.id());
+        List<Long> participantIds = ready.participants().stream()
+                .map(KillCompetitionDetailResponse.Participant::participantId).toList();
+        competitions.configureTeams(creator.user().getId(), community.getId(), created.id(),
+                teamRequest(participantIds, 1, 1, 2, 2));
+        var started = competitions.start(creator.user().getId(), community.getId(), created.id());
+        Map<String, Long> ids = started.participants().stream().collect(java.util.stream.Collectors.toMap(
+                KillCompetitionDetailResponse.Participant::nickname, KillCompetitionDetailResponse.Participant::participantId));
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(snapshot(List.of(
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("생성자"), "team-rank", started.startedAt().plusSeconds(1), 5, 1),
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("둘"), "team-rank", started.startedAt().plusSeconds(1), 5, 1),
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("셋"), "team-rank", started.startedAt().plusSeconds(1), 8, 20),
+                new KillCompetitionKillSnapshot.MatchKill(ids.get("넷"), "team-rank", started.startedAt().plusSeconds(1), 8, 20))));
+        clock.set(started.endsAt().plusSeconds(1));
+
+        var completed = finalizeAndPublish(started.id());
+
+        assertThat(completed.finalStandings()).extracting(KillCompetitionDetailResponse.Standing::name,
+                        KillCompetitionDetailResponse.Standing::kills,
+                        KillCompetitionDetailResponse.Standing::placementPoints,
+                        KillCompetitionDetailResponse.Standing::points,
+                        KillCompetitionDetailResponse.Standing::rank)
+                .containsExactly(tuple("TEAM 1", 10, 10, 20, 1), tuple("TEAM 2", 16, 0, 16, 2));
+    }
+
+    @Test
     void interimRequiresManagerAndClaimIsSharedByTheCompetition() {
         Person second = person("둘", CommunityUserRole.MEMBER, true);
         Person admin = person("관리자", CommunityUserRole.ADMIN, true);
@@ -280,8 +434,10 @@ class KillCompetitionFlowTests {
         var secondResult = settlements.calculateInterim(creator.user().getId(), community.getId(), started.id());
         assertThat(secondResult.interimStandings()).extracting(
                 KillCompetitionDetailResponse.Standing::name,
-                KillCompetitionDetailResponse.Standing::kills)
-                .containsExactlyInAnyOrder(tuple("생성자", 9), tuple("둘", 9), tuple("셋", 4), tuple("넷", 6));
+                KillCompetitionDetailResponse.Standing::kills,
+                KillCompetitionDetailResponse.Standing::points)
+                .containsExactlyInAnyOrder(tuple("생성자", 9, 9), tuple("둘", 9, 9),
+                        tuple("셋", 4, 4), tuple("넷", 6, 6));
         assertThat(matchResults.findByCompetitionIdOrderByMatchStartedAtAscMatchIdAscParticipantIdAsc(started.id()))
                 .hasSize(7);
     }

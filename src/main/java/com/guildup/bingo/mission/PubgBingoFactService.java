@@ -4,6 +4,7 @@ import tools.jackson.databind.JsonNode;
 import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.PubgTelemetryClient;
 import com.guildup.pubg.service.PubgMatchFactProvider;
+import com.guildup.pubg.support.PubgAiBotSupport;
 import com.guildup.bingo.service.BingoAggregationMetrics;
 import org.springframework.stereotype.Service;
 
@@ -84,6 +85,8 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         switch (type) {
             case "LogPlayerKill" -> acceptKill(event, facts, at, false);
             case "LogPlayerKillV2" -> { acceptKill(event, facts, at, true); acceptGameResult(event.path("victimGameResult"), facts); }
+            case "LogPlayerTakeDamage" -> acceptDamage(event, facts, at);
+            case "LogPlayerMakeGroggy" -> acceptGroggy(event, facts, at);
             case "LogPlayerRevive" -> increment(facts, account(event, "reviver"), "REVIVES", 1, at);
             case "LogCharacterCarry" -> {
                 String state = text(event, "carryState");
@@ -128,15 +131,41 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         String weapon = Optional.ofNullable(BingoWeaponCatalog.canonicalName(rawWeapon)).orElse(rawWeapon);
         double distanceMeters = Math.max(0, info.path("distance").asDouble()) / 100.0d;
         boolean wall = info.path("isThroughPenetrableWall").asBoolean(false);
+        boolean headshot = "HeadShot".equalsIgnoreCase(text(info, "damageReason"));
         String throwable = isThrowable(rawWeapon) ? rawWeapon : null;
         MutableFacts f = facts.get(killerAccount);
         if (f == null) return;
         String identity = killIdentity(event, killerAccount, victimAccount, at);
         if (f.killKeys.add(identity)) {
             f.kills.add(new PlayerMatchFacts.KillFact(
-                    victimAccount, weapon, BingoWeaponCatalog.category(rawWeapon), throwable, distanceMeters, wall, at));
+                    victimAccount, weapon, BingoWeaponCatalog.category(rawWeapon), throwable, distanceMeters, wall, headshot, at));
+            if (!PubgAiBotSupport.isAiBot(victimAccount)) {
+                f.add("NON_BOT_KILLS", 1);
+                if (headshot) f.add("NON_BOT_HEADSHOT_KILLS", 1);
+            }
             f.evidence(at);
         }
+    }
+
+    private void acceptDamage(JsonNode event, Map<String, MutableFacts> facts, Instant at) {
+        JsonNode attacker = event.path("attacker"), victim = event.path("victim");
+        String attackerAccount = account(attacker), victimAccount = account(victim);
+        MutableFacts f = facts.get(attackerAccount);
+        if (f == null || victimAccount == null || Objects.equals(attackerAccount, victimAccount)
+                || sameKnownTeam(attacker, victim) || PubgAiBotSupport.isAiBot(victimAccount)) return;
+        double damage = event.path("damage").asDouble();
+        if (Double.isFinite(damage) && damage > 0) {
+            f.add("NON_BOT_DAMAGE_DEALT", damage);
+            f.evidence(at);
+        }
+    }
+
+    private void acceptGroggy(JsonNode event, Map<String, MutableFacts> facts, Instant at) {
+        JsonNode attacker = event.path("attacker"), victim = event.path("victim");
+        String attackerAccount = account(attacker), victimAccount = account(victim);
+        if (attackerAccount == null || victimAccount == null || Objects.equals(attackerAccount, victimAccount)
+                || sameKnownTeam(attacker, victim) || PubgAiBotSupport.isAiBot(victimAccount)) return;
+        increment(facts, attackerAccount, "NON_BOT_DBNOS", 1, at);
     }
 
     /** 같은 사용자가 직접 마무리했다면 최종 피해 무기를, 아니면 PUBG kill credit의 무기를 사용한다. */
@@ -268,6 +297,8 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
             this.match = match; this.communityAccounts = Set.copyOf(communityAccounts);
             put("KILLS", p.kills()); put("DAMAGE_DEALT", p.damageDealt()); put("ASSISTS", p.assists());
             put("DBNOS", p.dbnos()); put("HEADSHOT_KILLS", p.headshotKills()); put("ROAD_KILLS", p.roadKills());
+            put("NON_BOT_KILLS", 0); put("NON_BOT_DAMAGE_DEALT", 0); put("NON_BOT_DBNOS", 0);
+            put("NON_BOT_HEADSHOT_KILLS", 0);
             put("WINS", p.winPlace() == 1 ? 1 : 0); put("TOP10", p.winPlace() > 0 && p.winPlace() <= 10 ? 1 : 0);
             put("SURVIVAL_TIME", p.survivalTime()); put("MATCHES_PLAYED", 1); put("HEALS", p.heals());
             put("BOOSTS", p.boosts()); put("WALK_DISTANCE", p.walkDistance()); put("RIDE_DISTANCE", p.rideDistance());

@@ -21,16 +21,18 @@ public class PubgStoredMatchKill {
     @Column(length = 150) private String throwable;
     @Column(name = "distance_meters", nullable = false, precision = 12, scale = 3) private BigDecimal distanceMeters;
     @Column(name = "wall_penetration", nullable = false) private boolean wallPenetration;
+    @Column(nullable = false) private boolean headshot;
     @Column(name = "occurred_at") private Instant occurredAt;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
 
     protected PubgStoredMatchKill() {}
     public PubgStoredMatchKill(PubgStoredMatch match, String killerAccountId, String victimAccountId,
                                String weapon, String weaponCategory, String throwable, double distanceMeters,
-                               boolean wallPenetration, Instant occurredAt, Instant createdAt) {
+                               boolean wallPenetration, boolean headshot, Instant occurredAt, Instant createdAt) {
         this.match = match; this.killerAccountId = killerAccountId; this.victimAccountId = victimAccountId;
         this.weapon = weapon; this.weaponCategory = weaponCategory; this.throwable = throwable;
         this.distanceMeters = BigDecimal.valueOf(distanceMeters); this.wallPenetration = wallPenetration;
+        this.headshot = headshot;
         this.occurredAt = occurredAt; this.createdAt = createdAt;
     }
     public String getKillerAccountId() { return killerAccountId; }
@@ -41,5 +43,6 @@ public class PubgStoredMatchKill {
     public String getThrowable() { return throwable; }
     public BigDecimal getDistanceMeters() { return distanceMeters; }
     public boolean isWallPenetration() { return wallPenetration; }
+    public boolean isHeadshot() { return headshot; }
     public Instant getOccurredAt() { return occurredAt; }
 }

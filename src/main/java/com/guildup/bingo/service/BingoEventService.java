@@ -49,6 +49,7 @@ public class BingoEventService {
         requireAvailableStatus(existing, status, null);
         BingoEvent event = new BingoEvent(community, game, admin, request.title().trim(), clean(request.description()),
                 request.boardSize(), request.targetLines(), request.blackoutEnabled(), request.allowLateJoin(),
+                request.excludeBotCombatStats(), request.clanPlayRequired(),
                 request.startsAt(), request.endsAt(), status, now);
         addCells(event, request.cells()); events.save(event);
         if (status == BingoStatus.ACTIVE) enrollment.enrollEligible(event, now);
@@ -123,14 +124,17 @@ public class BingoEventService {
         if (event.getStatus() == BingoStatus.ACTIVE) {
             if (request.endsAt() == null || !request.endsAt().isAfter(now) || request.endsAt().isBefore(event.getEndsAt()))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "진행 중인 빙고의 종료 시간은 현재 종료 시간보다 뒤로만 연장할 수 있습니다.");
-            event.updateActive(clean(request.description()), request.endsAt(), now);
+            event.updateActive(clean(request.description()), request.endsAt(), request.excludeBotCombatStats(),
+                    request.clanPlayRequired(), now);
         } else {
             validate(request);
             BingoStatus status = request.status() == BingoStatus.DRAFT ? BingoStatus.DRAFT
                     : request.startsAt().isAfter(now) ? BingoStatus.SCHEDULED : BingoStatus.ACTIVE;
             requireAvailableStatus(existing, status, event.getId());
             event.updateDraft(request.title().trim(), clean(request.description()), request.boardSize(), request.targetLines(),
-                    request.blackoutEnabled(), request.allowLateJoin(), request.startsAt(), request.endsAt(), status, now);
+                    request.blackoutEnabled(), request.allowLateJoin(), request.excludeBotCombatStats(),
+                    request.clanPlayRequired(),
+                    request.startsAt(), request.endsAt(), status, now);
             event.replaceCells(new ArrayList<>()); addCells(event, request.cells());
             if (status == BingoStatus.ACTIVE) enrollment.enrollEligible(event, now);
         }
@@ -241,7 +245,9 @@ public class BingoEventService {
                     p.getLastAggregatedAt());
         }).toList() : List.of();
         return new BingoDetailResponse(event.getId(), event.getTitle(), event.getDescription(), event.getBoardSize(),
-                event.getTargetLines(), event.isBlackoutEnabled(), event.isAllowLateJoin(), event.getStartsAt(), event.getEndsAt(),
+                event.getTargetLines(), event.isBlackoutEnabled(), event.isAllowLateJoin(),
+                event.isExcludeBotCombatStats(), event.isClanPlayRequired(),
+                event.getStartsAt(), event.getEndsAt(),
                 event.getStatus().name(), event.getLastAggregatedAt(), isAdmin(membership), cells,
                 me == null ? null : board(me, byParticipant.get(me.getId())), summaries);
     }

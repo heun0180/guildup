@@ -50,6 +50,27 @@ public class KillCompetition {
 
     @Column(name = "ends_at", nullable = false)
     private Instant endsAt;
+    @Column(name = "kill_point", nullable = false, columnDefinition = "integer default 1")
+    private int killPoint = 1;
+    @Column(name = "placement_point_enabled", nullable = false, columnDefinition = "boolean default false")
+    private boolean placementPointEnabled;
+    @Column(name = "first_place_point", nullable = false, columnDefinition = "integer default 5")
+    private int firstPlacePoint = 5;
+    @Column(name = "second_place_point", nullable = false, columnDefinition = "integer default 4")
+    private int secondPlacePoint = 4;
+    @Column(name = "third_place_point", nullable = false, columnDefinition = "integer default 3")
+    private int thirdPlacePoint = 3;
+    @Column(name = "fourth_fifth_place_point", nullable = false, columnDefinition = "integer default 2")
+    private int fourthFifthPlacePoint = 2;
+    @Column(name = "sixth_tenth_place_point", nullable = false, columnDefinition = "integer default 1")
+    private int sixthTenthPlacePoint = 1;
+    @Column(name = "fourth_place_point") private Integer fourthPlacePoint;
+    @Column(name = "fifth_place_point") private Integer fifthPlacePoint;
+    @Column(name = "sixth_place_point") private Integer sixthPlacePoint;
+    @Column(name = "seventh_place_point") private Integer seventhPlacePoint;
+    @Column(name = "eighth_place_point") private Integer eighthPlacePoint;
+    @Column(name = "ninth_place_point") private Integer ninthPlacePoint;
+    @Column(name = "tenth_place_point") private Integer tenthPlacePoint;
     @Column(name = "started_at") private Instant startedAt;
     @Column(name = "recruitment_open", nullable = false, columnDefinition = "boolean default true") private boolean recruitmentOpen = true;
     @Column(name = "recruitment_closed_at") private Instant recruitmentClosedAt;
@@ -79,15 +100,86 @@ public class KillCompetition {
 
     public KillCompetition(Community community, CommunityGame communityGame, CommunityMember createdBy, String title,
                            KillCompetitionGameMode gameMode, Instant endsAt, Instant now) {
+        this(community, communityGame, createdBy, title, gameMode, endsAt, now,
+                1, false, 5, 4, 3, 2, 1);
+    }
+
+    public KillCompetition(Community community, CommunityGame communityGame, CommunityMember createdBy, String title,
+                           KillCompetitionGameMode gameMode, Instant endsAt, Instant now,
+                           int killPoint, boolean placementPointEnabled,
+                           int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                           int fourthFifthPlacePoint, int sixthTenthPlacePoint) {
+        this(community, communityGame, createdBy, title, gameMode, endsAt, now, killPoint, placementPointEnabled,
+                firstPlacePoint, secondPlacePoint, thirdPlacePoint,
+                fourthFifthPlacePoint, fourthFifthPlacePoint,
+                sixthTenthPlacePoint, sixthTenthPlacePoint, sixthTenthPlacePoint,
+                sixthTenthPlacePoint, sixthTenthPlacePoint);
+    }
+
+    public KillCompetition(Community community, CommunityGame communityGame, CommunityMember createdBy, String title,
+                           KillCompetitionGameMode gameMode, Instant endsAt, Instant now,
+                           int killPoint, boolean placementPointEnabled,
+                           int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                           int fourthPlacePoint, int fifthPlacePoint, int sixthPlacePoint,
+                           int seventhPlacePoint, int eighthPlacePoint, int ninthPlacePoint, int tenthPlacePoint) {
         this.community = community;
         this.communityGame = communityGame;
         this.createdBy = createdBy;
         this.title = title;
         this.gameMode = gameMode;
         this.endsAt = endsAt;
+        updateScoreSettings(killPoint, placementPointEnabled, firstPlacePoint, secondPlacePoint, thirdPlacePoint,
+                fourthPlacePoint, fifthPlacePoint, sixthPlacePoint, seventhPlacePoint, eighthPlacePoint,
+                ninthPlacePoint, tenthPlacePoint, now);
         this.status = KillCompetitionStatus.RECRUITING;
         this.createdAt = now;
         this.updatedAt = now;
+    }
+
+    public void updateScoreSettings(int killPoint, boolean placementPointEnabled,
+                                    int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                                    int fourthFifthPlacePoint, int sixthTenthPlacePoint, Instant now) {
+        updateScoreSettings(killPoint, placementPointEnabled, firstPlacePoint, secondPlacePoint, thirdPlacePoint,
+                fourthFifthPlacePoint, fourthFifthPlacePoint,
+                sixthTenthPlacePoint, sixthTenthPlacePoint, sixthTenthPlacePoint,
+                sixthTenthPlacePoint, sixthTenthPlacePoint, now);
+    }
+
+    public void updateScoreSettings(int killPoint, boolean placementPointEnabled,
+                                    int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                                    int fourthPlacePoint, int fifthPlacePoint, int sixthPlacePoint,
+                                    int seventhPlacePoint, int eighthPlacePoint, int ninthPlacePoint,
+                                    int tenthPlacePoint, Instant now) {
+        this.killPoint = killPoint;
+        this.placementPointEnabled = placementPointEnabled;
+        this.firstPlacePoint = firstPlacePoint;
+        this.secondPlacePoint = secondPlacePoint;
+        this.thirdPlacePoint = thirdPlacePoint;
+        this.fourthPlacePoint = fourthPlacePoint;
+        this.fifthPlacePoint = fifthPlacePoint;
+        this.sixthPlacePoint = sixthPlacePoint;
+        this.seventhPlacePoint = seventhPlacePoint;
+        this.eighthPlacePoint = eighthPlacePoint;
+        this.ninthPlacePoint = ninthPlacePoint;
+        this.tenthPlacePoint = tenthPlacePoint;
+        this.updatedAt = now;
+    }
+
+    public int placementPointFor(int placement) {
+        if (!placementPointEnabled) return 0;
+        return switch (placement) {
+            case 1 -> firstPlacePoint;
+            case 2 -> secondPlacePoint;
+            case 3 -> thirdPlacePoint;
+            case 4 -> getFourthPlacePoint();
+            case 5 -> getFifthPlacePoint();
+            case 6 -> getSixthPlacePoint();
+            case 7 -> getSeventhPlacePoint();
+            case 8 -> getEighthPlacePoint();
+            case 9 -> getNinthPlacePoint();
+            case 10 -> getTenthPlacePoint();
+            default -> 0;
+        };
     }
 
     public void closeRecruitment(Instant now) {
@@ -185,6 +277,20 @@ public class KillCompetition {
     public KillCompetitionStatus getStatus() { return status; }
     public Instant getEndsAt() { return endsAt; }
     public Instant getStartedAt() { return startedAt; }
+    public int getKillPoint() { return killPoint; }
+    public boolean isPlacementPointEnabled() { return placementPointEnabled; }
+    public int getFirstPlacePoint() { return firstPlacePoint; }
+    public int getSecondPlacePoint() { return secondPlacePoint; }
+    public int getThirdPlacePoint() { return thirdPlacePoint; }
+    public int getFourthFifthPlacePoint() { return fourthFifthPlacePoint; }
+    public int getSixthTenthPlacePoint() { return sixthTenthPlacePoint; }
+    public int getFourthPlacePoint() { return fourthPlacePoint == null ? fourthFifthPlacePoint : fourthPlacePoint; }
+    public int getFifthPlacePoint() { return fifthPlacePoint == null ? fourthFifthPlacePoint : fifthPlacePoint; }
+    public int getSixthPlacePoint() { return sixthPlacePoint == null ? sixthTenthPlacePoint : sixthPlacePoint; }
+    public int getSeventhPlacePoint() { return seventhPlacePoint == null ? sixthTenthPlacePoint : seventhPlacePoint; }
+    public int getEighthPlacePoint() { return eighthPlacePoint == null ? sixthTenthPlacePoint : eighthPlacePoint; }
+    public int getNinthPlacePoint() { return ninthPlacePoint == null ? sixthTenthPlacePoint : ninthPlacePoint; }
+    public int getTenthPlacePoint() { return tenthPlacePoint == null ? sixthTenthPlacePoint : tenthPlacePoint; }
     public boolean isRecruitmentOpen() { return recruitmentOpen; }
     public Instant getRecruitmentClosedAt() { return recruitmentClosedAt; }
     public Instant getLastInterimCalculatedAt() { return lastInterimCalculatedAt; }

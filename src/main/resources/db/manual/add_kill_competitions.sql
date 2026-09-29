@@ -8,6 +8,20 @@ CREATE TABLE IF NOT EXISTS kill_competitions (
     title VARCHAR(100) NOT NULL,
     game_mode VARCHAR(16) NOT NULL,
     status VARCHAR(20) NOT NULL,
+    kill_point INTEGER NOT NULL DEFAULT 1,
+    placement_point_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    first_place_point INTEGER NOT NULL DEFAULT 5,
+    second_place_point INTEGER NOT NULL DEFAULT 4,
+    third_place_point INTEGER NOT NULL DEFAULT 3,
+    fourth_fifth_place_point INTEGER NOT NULL DEFAULT 2,
+    sixth_tenth_place_point INTEGER NOT NULL DEFAULT 1,
+    fourth_place_point INTEGER,
+    fifth_place_point INTEGER,
+    sixth_place_point INTEGER,
+    seventh_place_point INTEGER,
+    eighth_place_point INTEGER,
+    ninth_place_point INTEGER,
+    tenth_place_point INTEGER,
     ends_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
     recruitment_open BOOLEAN NOT NULL DEFAULT TRUE,
@@ -50,8 +64,10 @@ CREATE TABLE IF NOT EXISTS kill_competition_participants (
     eligible_from TIMESTAMPTZ,
     interim_kills INTEGER NOT NULL DEFAULT 0,
     interim_match_count INTEGER NOT NULL DEFAULT 0,
+    interim_points INTEGER NOT NULL DEFAULT 0,
     final_kills INTEGER,
     final_match_count INTEGER,
+    final_points INTEGER,
     CONSTRAINT uk_kill_competition_participant UNIQUE (competition_id, community_member_id)
 );
 
@@ -62,6 +78,10 @@ CREATE TABLE IF NOT EXISTS kill_competition_match_results (
     match_id VARCHAR(255) NOT NULL,
     match_started_at TIMESTAMPTZ NOT NULL,
     kills INTEGER NOT NULL,
+    placement INTEGER,
+    kill_points INTEGER NOT NULL DEFAULT 0,
+    placement_points INTEGER NOT NULL DEFAULT 0,
+    total_points INTEGER NOT NULL DEFAULT 0,
     CONSTRAINT uk_kill_competition_match_participant UNIQUE (competition_id, match_id, participant_id)
 );
 

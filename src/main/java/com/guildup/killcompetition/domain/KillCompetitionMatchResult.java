@@ -18,18 +18,35 @@ public class KillCompetitionMatchResult {
     @Column(name = "match_id", nullable = false) private String matchId;
     @Column(name = "match_started_at", nullable = false) private Instant matchStartedAt;
     @Column(nullable = false) private int kills;
+    @Column private Integer placement;
+    @Column(name = "kill_points", nullable = false, columnDefinition = "integer default 0") private int killPoints;
+    @Column(name = "placement_points", nullable = false, columnDefinition = "integer default 0") private int placementPoints;
+    @Column(name = "total_points", nullable = false, columnDefinition = "integer default 0") private int totalPoints;
     protected KillCompetitionMatchResult() {}
     public KillCompetitionMatchResult(KillCompetition competition, KillCompetitionParticipant participant,
-                                      String matchId, Instant matchStartedAt, int kills) {
+                                      String matchId, Instant matchStartedAt, int kills, int placement,
+                                      int killPoints, int placementPoints, int totalPoints) {
         this.competition = competition; this.participant = participant; this.matchId = matchId;
-        this.matchStartedAt = matchStartedAt; this.kills = kills;
+        refresh(matchStartedAt, kills, placement, killPoints, placementPoints, totalPoints);
     }
-    public void refresh(Instant matchStartedAt, int kills) {
+    public void refresh(Instant matchStartedAt, int kills, int placement,
+                        int killPoints, int placementPoints, int totalPoints) {
         this.matchStartedAt = matchStartedAt;
         this.kills = kills;
+        this.placement = placement > 0 ? placement : null;
+        this.killPoints = killPoints;
+        this.placementPoints = placementPoints;
+        this.totalPoints = totalPoints;
     }
     public String getMatchId() { return matchId; }
     public Instant getMatchStartedAt() { return matchStartedAt; }
     public KillCompetitionParticipant getParticipant() { return participant; }
     public int getKills() { return kills; }
+    public Integer getPlacement() { return placement; }
+    public int getKillPoints() { return legacyScoreRow() ? kills : killPoints; }
+    public int getPlacementPoints() { return placementPoints; }
+    public int getTotalPoints() { return legacyScoreRow() ? kills : totalPoints; }
+    private boolean legacyScoreRow() {
+        return placement == null && kills > 0 && killPoints == 0 && placementPoints == 0 && totalPoints == 0;
+    }
 }

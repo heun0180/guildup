@@ -174,12 +174,17 @@ public class KillCompetitionSettlementStore {
                     || !row.startedAt().isBefore(rangeEnd)) continue;
             MatchKey key = new MatchKey(row.participantId(), row.matchId());
             KillCompetitionMatchResult existing = byKey.get(key);
+            int killPoints = Math.multiplyExact(row.kills(), competition.getKillPoint());
+            int placementPoints = competition.placementPointFor(row.placement());
+            int totalPoints = Math.addExact(killPoints, placementPoints);
             if (existing != null) {
-                existing.refresh(row.startedAt(), row.kills());
+                existing.refresh(row.startedAt(), row.kills(), row.placement(),
+                        killPoints, placementPoints, totalPoints);
                 continue;
             }
             KillCompetitionMatchResult result = new KillCompetitionMatchResult(
-                    competition, participant, row.matchId(), row.startedAt(), row.kills());
+                    competition, participant, row.matchId(), row.startedAt(), row.kills(), row.placement(),
+                    killPoints, placementPoints, totalPoints);
             byKey.put(key, result);
             discovered.add(result);
             accumulated.add(result);
@@ -190,20 +195,20 @@ public class KillCompetitionSettlementStore {
 
     private void applyTotals(KillCompetition competition, List<KillCompetitionMatchResult> accumulated,
                              boolean finalResult) {
-        Map<Long, KillCompetitionKillSnapshot.PlayerTotal> totals = new HashMap<>();
+        record PlayerScore(int kills, int matchCount, int points) {}
+        Map<Long, PlayerScore> totals = new HashMap<>();
         for (KillCompetitionMatchResult row : accumulated) {
             Long participantId = row.getParticipant().getId();
-            KillCompetitionKillSnapshot.PlayerTotal old = totals.getOrDefault(
-                    participantId, new KillCompetitionKillSnapshot.PlayerTotal(0, 0));
-            totals.put(participantId, new KillCompetitionKillSnapshot.PlayerTotal(
-                    Math.addExact(old.kills(), row.getKills()), Math.addExact(old.matchCount(), 1)));
+            PlayerScore old = totals.getOrDefault(participantId, new PlayerScore(0, 0, 0));
+            totals.put(participantId, new PlayerScore(
+                    Math.addExact(old.kills(), row.getKills()), Math.addExact(old.matchCount(), 1),
+                    Math.addExact(old.points(), row.getTotalPoints())));
         }
         for (KillCompetitionParticipant participant : competition.getParticipants().stream()
                 .filter(KillCompetitionParticipant::isApproved).toList()) {
-            var total = totals.getOrDefault(participant.getId(),
-                    new KillCompetitionKillSnapshot.PlayerTotal(0, 0));
-            if (finalResult) participant.recordFinal(total.kills(), total.matchCount());
-            else participant.recordInterim(total.kills(), total.matchCount());
+            var total = totals.getOrDefault(participant.getId(), new PlayerScore(0, 0, 0));
+            if (finalResult) participant.recordFinal(total.kills(), total.matchCount(), total.points());
+            else participant.recordInterim(total.kills(), total.matchCount(), total.points());
         }
     }
 

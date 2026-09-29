@@ -1,11 +1,8 @@
 package com.guildup.killcompetition.dto;
 
-import com.guildup.killcompetition.domain.KillCompetitionGameMode;
 import tools.jackson.databind.annotation.JsonDeserialize;
-import java.time.Instant;
 
-public record KillCompetitionCreateRequest(
-        String title, KillCompetitionGameMode gameMode, Instant endsAt,
+public record KillCompetitionScoreSettingsRequest(
         @JsonDeserialize(using = StrictScoreIntegerDeserializer.class) Integer killPoint,
         Boolean placementPointEnabled,
         @JsonDeserialize(using = StrictScoreIntegerDeserializer.class) Integer firstPlacePoint,
@@ -21,16 +18,11 @@ public record KillCompetitionCreateRequest(
         @JsonDeserialize(using = StrictScoreIntegerDeserializer.class) Integer fourthFifthPlacePoint,
         @JsonDeserialize(using = StrictScoreIntegerDeserializer.class) Integer sixthTenthPlacePoint
 ) {
-    public KillCompetitionCreateRequest(String title, KillCompetitionGameMode gameMode, Instant endsAt) {
-        this(title, gameMode, endsAt, null, null, null, null, null,
-                null, null, null, null, null, null, null, null, null);
-    }
-    public KillCompetitionCreateRequest(String title, KillCompetitionGameMode gameMode, Instant endsAt,
-                                        Integer killPoint, Boolean placementPointEnabled,
-                                        Integer firstPlacePoint, Integer secondPlacePoint, Integer thirdPlacePoint,
-                                        Integer fourthFifthPlacePoint, Integer sixthTenthPlacePoint) {
-        this(title, gameMode, endsAt, killPoint, placementPointEnabled,
-                firstPlacePoint, secondPlacePoint, thirdPlacePoint,
+    public KillCompetitionScoreSettingsRequest(Integer killPoint, Boolean placementPointEnabled,
+                                                Integer firstPlacePoint, Integer secondPlacePoint,
+                                                Integer thirdPlacePoint, Integer fourthFifthPlacePoint,
+                                                Integer sixthTenthPlacePoint) {
+        this(killPoint, placementPointEnabled, firstPlacePoint, secondPlacePoint, thirdPlacePoint,
                 null, null, null, null, null, null, null,
                 fourthFifthPlacePoint, sixthTenthPlacePoint);
     }

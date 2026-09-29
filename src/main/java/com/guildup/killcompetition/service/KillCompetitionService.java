@@ -95,8 +95,24 @@ public class KillCompetitionService {
         if (request.gameMode() == null) bad("게임 방식을 선택해 주세요.");
         Instant now = clock.instant();
         if (request.endsAt() == null || !request.endsAt().isAfter(now)) bad("종료 시각은 현재보다 이후여야 합니다.");
+        ScoreSettings scoreSettings = scoreSettings(
+                defaultValue(request.killPoint(), 1), Boolean.TRUE.equals(request.placementPointEnabled()),
+                defaultValue(request.firstPlacePoint(), 5), defaultValue(request.secondPlacePoint(), 4),
+                defaultValue(request.thirdPlacePoint(), 3),
+                placementValue(request.fourthPlacePoint(), request.fourthFifthPlacePoint(), 2),
+                placementValue(request.fifthPlacePoint(), request.fourthFifthPlacePoint(), 2),
+                placementValue(request.sixthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.seventhPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.eighthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.ninthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.tenthPlacePoint(), request.sixthTenthPlacePoint(), 1));
         KillCompetition saved = competitions.save(new KillCompetition(
-                creator.getCommunity(), game, creator, request.title().trim(), request.gameMode(), request.endsAt(), now));
+                creator.getCommunity(), game, creator, request.title().trim(), request.gameMode(), request.endsAt(), now,
+                scoreSettings.killPoint(), scoreSettings.placementPointEnabled(), scoreSettings.firstPlacePoint(),
+                scoreSettings.secondPlacePoint(), scoreSettings.thirdPlacePoint(),
+                scoreSettings.fourthPlacePoint(), scoreSettings.fifthPlacePoint(), scoreSettings.sixthPlacePoint(),
+                scoreSettings.seventhPlacePoint(), scoreSettings.eighthPlacePoint(), scoreSettings.ninthPlacePoint(),
+                scoreSettings.tenthPlacePoint()));
         CommunityUser membership = access.requireCommunityMember(userId, communityId);
         return KillCompetitionDetailResponse.from(saved, creator.getId(),
                 managementAccess.isCommunityAdministrator(membership), true,
@@ -311,6 +327,49 @@ public class KillCompetitionService {
     }
 
     @Transactional
+    public KillCompetitionDetailResponse updateScoreSettings(Long userId, Long communityId, Long communityGameId,
+                                                              Long competitionId,
+                                                              KillCompetitionScoreSettingsRequest request) {
+        KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
+        managementAccess.requireCanManage(userId, communityId, competition);
+        if (!Set.of(KillCompetitionStatus.RECRUITING, KillCompetitionStatus.READY).contains(competition.getStatus())) {
+            conflict("점수 설정은 킬내기 시작 전까지만 변경할 수 있습니다.");
+        }
+        if (request == null || request.killPoint() == null || request.placementPointEnabled() == null
+                || request.firstPlacePoint() == null || request.secondPlacePoint() == null
+                || request.thirdPlacePoint() == null
+                || missingPlacement(request.fourthPlacePoint(), request.fourthFifthPlacePoint())
+                || missingPlacement(request.fifthPlacePoint(), request.fourthFifthPlacePoint())
+                || missingPlacement(request.sixthPlacePoint(), request.sixthTenthPlacePoint())
+                || missingPlacement(request.seventhPlacePoint(), request.sixthTenthPlacePoint())
+                || missingPlacement(request.eighthPlacePoint(), request.sixthTenthPlacePoint())
+                || missingPlacement(request.ninthPlacePoint(), request.sixthTenthPlacePoint())
+                || missingPlacement(request.tenthPlacePoint(), request.sixthTenthPlacePoint())) {
+            bad("모든 점수 설정을 입력해 주세요.");
+        }
+        ScoreSettings settings = scoreSettings(request.killPoint(), request.placementPointEnabled(),
+                request.firstPlacePoint(), request.secondPlacePoint(), request.thirdPlacePoint(),
+                placementValue(request.fourthPlacePoint(), request.fourthFifthPlacePoint(), 2),
+                placementValue(request.fifthPlacePoint(), request.fourthFifthPlacePoint(), 2),
+                placementValue(request.sixthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.seventhPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.eighthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.ninthPlacePoint(), request.sixthTenthPlacePoint(), 1),
+                placementValue(request.tenthPlacePoint(), request.sixthTenthPlacePoint(), 1));
+        competition.updateScoreSettings(settings.killPoint(), settings.placementPointEnabled(),
+                settings.firstPlacePoint(), settings.secondPlacePoint(), settings.thirdPlacePoint(),
+                settings.fourthPlacePoint(), settings.fifthPlacePoint(), settings.sixthPlacePoint(),
+                settings.seventhPlacePoint(), settings.eighthPlacePoint(), settings.ninthPlacePoint(),
+                settings.tenthPlacePoint(), clock.instant());
+        return detailForMutation(competition, userId);
+    }
+    @Transactional
+    public KillCompetitionDetailResponse updateScoreSettings(Long userId, Long communityId, Long competitionId,
+                                                              KillCompetitionScoreSettingsRequest request) {
+        return updateScoreSettings(userId, communityId, gameId(communityId, competitionId), competitionId, request);
+    }
+
+    @Transactional
     public void delete(Long userId, Long communityId, Long communityGameId, Long competitionId) {
         KillCompetition competition = requireForUpdate(communityId, communityGameId, competitionId);
         managementAccess.requireCanManage(userId, communityId, competition);
@@ -379,6 +438,33 @@ public class KillCompetitionService {
     private boolean hasUsablePubgAccount(CommunityMember member, CommunityGame game) {
         return pubgIdentities.find(member, game).isPresent();
     }
+    private ScoreSettings scoreSettings(int killPoint, boolean placementPointEnabled,
+                                        int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                                        int fourthPlacePoint, int fifthPlacePoint, int sixthPlacePoint,
+                                        int seventhPlacePoint, int eighthPlacePoint, int ninthPlacePoint,
+                                        int tenthPlacePoint) {
+        int[] values = {killPoint, firstPlacePoint, secondPlacePoint, thirdPlacePoint,
+                fourthPlacePoint, fifthPlacePoint, sixthPlacePoint, seventhPlacePoint,
+                eighthPlacePoint, ninthPlacePoint, tenthPlacePoint};
+        if (Arrays.stream(values).anyMatch(value -> value < 0 || value > 100)) {
+            bad("점수는 0~100 사이의 정수로 입력해 주세요.");
+        }
+        return new ScoreSettings(killPoint, placementPointEnabled, firstPlacePoint, secondPlacePoint,
+                thirdPlacePoint, fourthPlacePoint, fifthPlacePoint, sixthPlacePoint,
+                seventhPlacePoint, eighthPlacePoint, ninthPlacePoint, tenthPlacePoint);
+    }
+    private int placementValue(Integer value, Integer legacyValue, int defaultValue) {
+        return value != null ? value : defaultValue(legacyValue, defaultValue);
+    }
+    private boolean missingPlacement(Integer value, Integer legacyValue) {
+        return value == null && legacyValue == null;
+    }
+    private int defaultValue(Integer value, int defaultValue) { return value == null ? defaultValue : value; }
+    private record ScoreSettings(int killPoint, boolean placementPointEnabled,
+                                 int firstPlacePoint, int secondPlacePoint, int thirdPlacePoint,
+                                 int fourthPlacePoint, int fifthPlacePoint, int sixthPlacePoint,
+                                 int seventhPlacePoint, int eighthPlacePoint, int ninthPlacePoint,
+                                 int tenthPlacePoint) {}
     private void bad(String message) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message); }
     private void conflict(String message) { throw new ResponseStatusException(HttpStatus.CONFLICT, message); }
 }

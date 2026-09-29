@@ -36,6 +36,8 @@ public class BingoEvent {
     @Column(name = "target_lines", nullable = false) private int targetLines;
     @Column(name = "blackout_enabled", nullable = false) private boolean blackoutEnabled;
     @Column(name = "allow_late_join", nullable = false) private boolean allowLateJoin;
+    @Column(name = "exclude_bot_combat_stats", nullable = false) private boolean excludeBotCombatStats;
+    @Column(name = "clan_play_required", nullable = false) private boolean clanPlayRequired;
     @Column(name = "starts_at", nullable = false) private Instant startsAt;
     @Column(name = "ends_at", nullable = false) private Instant endsAt;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20) private BingoStatus status;
@@ -51,10 +53,13 @@ public class BingoEvent {
 
     public BingoEvent(Community community, CommunityGame communityGame, CommunityUser createdBy, String title, String description,
                       int boardSize, int targetLines, boolean blackoutEnabled, boolean allowLateJoin,
+                      boolean excludeBotCombatStats, boolean clanPlayRequired,
                       Instant startsAt, Instant endsAt, BingoStatus status, Instant now) {
         this.community = community; this.communityGame = communityGame; this.createdBy = createdBy; this.title = title;
         this.description = description; this.boardSize = boardSize; this.targetLines = targetLines;
         this.blackoutEnabled = blackoutEnabled; this.allowLateJoin = allowLateJoin;
+        this.excludeBotCombatStats = excludeBotCombatStats;
+        this.clanPlayRequired = clanPlayRequired;
         this.startsAt = startsAt; this.endsAt = endsAt; this.status = status;
         this.createdAt = now; this.updatedAt = now;
     }
@@ -66,15 +71,23 @@ public class BingoEvent {
         if (status == BingoStatus.ACTIVE && !now.isBefore(getMatchStartUpperBoundExclusive())) status = BingoStatus.SETTLING;
     }
     public void updateDraft(String title, String description, int boardSize, int targetLines,
-                            boolean blackoutEnabled, boolean allowLateJoin, Instant startsAt,
+                            boolean blackoutEnabled, boolean allowLateJoin, boolean excludeBotCombatStats,
+                            boolean clanPlayRequired, Instant startsAt,
                             Instant endsAt, BingoStatus status, Instant now) {
         this.title = title; this.description = description; this.boardSize = boardSize;
         this.targetLines = targetLines; this.blackoutEnabled = blackoutEnabled;
-        this.allowLateJoin = allowLateJoin; this.startsAt = startsAt; this.endsAt = endsAt;
+        this.allowLateJoin = allowLateJoin; this.excludeBotCombatStats = excludeBotCombatStats;
+        this.clanPlayRequired = clanPlayRequired;
+        this.startsAt = startsAt; this.endsAt = endsAt;
         this.status = status; this.updatedAt = now;
     }
-    public void updateActive(String description, Instant endsAt, Instant now) {
-        this.description = description; this.endsAt = endsAt; this.updatedAt = now;
+    public void updateActive(String description, Instant endsAt, boolean excludeBotCombatStats,
+                             boolean clanPlayRequired, Instant now) {
+        this.description = description; this.endsAt = endsAt;
+        if (this.excludeBotCombatStats != excludeBotCombatStats || this.clanPlayRequired != clanPlayRequired)
+            lastAggregatedAt = null;
+        this.excludeBotCombatStats = excludeBotCombatStats; this.clanPlayRequired = clanPlayRequired;
+        this.updatedAt = now;
     }
     public void aggregated(Instant now) { lastAggregatedAt = now; updatedAt = now; }
     public void complete(Instant now) { status = BingoStatus.COMPLETED; completedAt = now; updatedAt = now; }
@@ -90,6 +103,8 @@ public class BingoEvent {
     public int getTargetLines() { return targetLines; }
     public boolean isBlackoutEnabled() { return blackoutEnabled; }
     public boolean isAllowLateJoin() { return allowLateJoin; }
+    public boolean isExcludeBotCombatStats() { return excludeBotCombatStats; }
+    public boolean isClanPlayRequired() { return clanPlayRequired; }
     public Instant getStartsAt() { return startsAt; }
     public Instant getEndsAt() { return endsAt; }
     /** UI 종료 입력은 분 단위이므로 해당 분 전체를 포함하는 exclusive upper bound다. */

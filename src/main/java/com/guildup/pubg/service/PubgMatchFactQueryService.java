@@ -70,6 +70,32 @@ public class PubgMatchFactQueryService {
         return List.copyOf(result.values());
     }
 
+    @Transactional(readOnly = true)
+    public List<PubgMatch> findTelemetryUpgradeCandidates(Collection<String> matchIds) {
+        if (matchIds.isEmpty()) return List.of();
+        List<PubgMatch> result = new ArrayList<>();
+        List<String> ids = List.copyOf(matchIds);
+        for (int start = 0; start < ids.size(); start += 500) {
+            matches.findTelemetryUpgradeCandidates(ids.subList(start, Math.min(start + 500, ids.size())),
+                            PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION)
+                    .forEach(match -> result.add(toMatch(match)));
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<PubgMatch> findTelemetryUpgradeCandidatesForAccounts(Collection<String> accountIds) {
+        if (accountIds.isEmpty()) return List.of();
+        Map<String, PubgMatch> result = new LinkedHashMap<>();
+        List<String> ids = List.copyOf(accountIds);
+        for (int start = 0; start < ids.size(); start += 500) {
+            matches.findTelemetryUpgradeCandidatesForAccounts(ids.subList(start, Math.min(start + 500, ids.size())),
+                            PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION)
+                    .forEach(match -> result.putIfAbsent(match.getMatchId(), toMatch(match)));
+        }
+        return List.copyOf(result.values());
+    }
+
     private StoredMatchFacts toFacts(PubgStoredMatch match, Set<String> communityAccounts,
                                      List<com.guildup.pubg.domain.PubgStoredMatchKill> storedKills) {
         Map<Integer, Set<String>> accountsByTeam = match.getPlayers().stream().collect(Collectors.groupingBy(
@@ -83,7 +109,7 @@ public class PubgMatchFactQueryService {
                     .filter(kill -> player.getAccountId().equals(kill.getKillerAccountId()))
                     .map(kill -> new PlayerMatchFacts.KillFact(kill.getVictimAccountId(), kill.getWeapon(),
                             kill.getWeaponCategory(), kill.getThrowable(), kill.getDistanceMeters().doubleValue(),
-                            kill.isWallPenetration(), kill.getOccurredAt())).toList();
+                            kill.isWallPenetration(), kill.isHeadshot(), kill.getOccurredAt())).toList();
             Map<String, java.math.BigDecimal> metrics = PubgCommunityMetricSupport.forCommunity(
                     PubgFactCodec.decimals(player.getMetricsJson()), communityAccounts);
             facts.put(player.getAccountId(), new PlayerMatchFacts(match.getMatchId(), match.getStartedAt(),
@@ -93,7 +119,8 @@ public class PubgMatchFactQueryService {
                     PubgFactCodec.integers(player.getDestroyedArmorJson()), clanMembers, player.getLatestEvidenceAt()));
         }
         return new StoredMatchFacts(match.getMatchId(), match.getStartedAt(), match.getGameMode(), match.getMapName(),
-                match.getMatchType(), match.getCustomMatch(), match.isTelemetryLoaded(), Map.copyOf(facts));
+                match.getMatchType(), match.getCustomMatch(), match.isTelemetryLoaded(),
+                match.getTelemetryFactVersion(), Map.copyOf(facts));
     }
 
     private PubgMatch toMatch(PubgStoredMatch match) {
@@ -111,5 +138,13 @@ public class PubgMatchFactQueryService {
 
     public record StoredMatchFacts(String matchId, Instant startedAt, String gameMode, String mapName,
                                    String matchType, Boolean customMatch, boolean telemetryLoaded,
-                                   Map<String, PlayerMatchFacts> byAccount) {}
+                                   int telemetryFactVersion,
+                                   Map<String, PlayerMatchFacts> byAccount) {
+        public StoredMatchFacts(String matchId, Instant startedAt, String gameMode, String mapName,
+                                String matchType, Boolean customMatch, boolean telemetryLoaded,
+                                Map<String, PlayerMatchFacts> byAccount) {
+            this(matchId, startedAt, gameMode, mapName, matchType, customMatch, telemetryLoaded,
+                    PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION, byAccount);
+        }
+    }
 }

@@ -27,10 +27,14 @@ public record PlayerMatchFacts(
     }
     public BigDecimal metric(String key) { return metrics.getOrDefault(key, BigDecimal.ZERO); }
     public record KillFact(String victimAccountId, String weapon, String weaponCategory, String throwable,
-                           double distance, boolean wallPenetration, Instant occurredAt) {
+                           double distance, boolean wallPenetration, boolean headshot, Instant occurredAt) {
+        public KillFact(String victimAccountId, String weapon, String weaponCategory, String throwable,
+                        double distance, boolean wallPenetration, Instant occurredAt) {
+            this(victimAccountId, weapon, weaponCategory, throwable, distance, wallPenetration, false, occurredAt);
+        }
         public KillFact(String weapon, String weaponCategory, String throwable,
                         double distance, boolean wallPenetration, Instant occurredAt) {
-            this(null, weapon, weaponCategory, throwable, distance, wallPenetration, occurredAt);
+            this(null, weapon, weaponCategory, throwable, distance, wallPenetration, false, occurredAt);
         }
     }
 }

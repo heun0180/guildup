@@ -9,5 +9,9 @@ public record KillCompetitionKillSnapshot(
         List<MatchKill> matchKills
 ) {
     public record PlayerTotal(int kills, int matchCount) {}
-    public record MatchKill(Long participantId, String matchId, Instant startedAt, int kills) {}
+    public record MatchKill(Long participantId, String matchId, Instant startedAt, int kills, int placement) {
+        public MatchKill(Long participantId, String matchId, Instant startedAt, int kills) {
+            this(participantId, matchId, startedAt, kills, 0);
+        }
+    }
 }

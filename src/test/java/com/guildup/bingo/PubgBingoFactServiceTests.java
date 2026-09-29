@@ -14,6 +14,48 @@ import static org.mockito.Mockito.*;
 
 class PubgBingoFactServiceTests {
     @Test
+    void excludesAiVictimsOnlyWhenTheBingoOptionIsEnabled() throws Exception {
+        PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
+        when(telemetry.get(anyString())).thenReturn(JsonMapper.builder().build().readTree("""
+                [
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:01:00Z","attackId":1,"killer":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h1","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","damageReason":"HeadShot","distance":22000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:02:00Z","attackId":2,"killer":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h2","teamId":2},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","damageReason":"TorsoShot","distance":10000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:03:00Z","attackId":3,"killer":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1001","teamId":3},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","damageReason":"HeadShot","distance":25000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:04:00Z","attackId":4,"killer":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1002","teamId":4},"killerDamageInfo":{"damageCauserName":"WeapVSS_C","damageReason":"HeadShot","distance":26000}},
+                 {"_T":"LogPlayerKillV2","_D":"2026-09-22T12:05:00Z","attackId":5,"killer":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1003","teamId":5},"killerDamageInfo":{"damageCauserName":"WeapHK416_C","damageReason":"HeadShot","distance":10000}},
+                 {"_T":"LogPlayerTakeDamage","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h1","teamId":2},"damage":200},
+                 {"_T":"LogPlayerTakeDamage","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h2","teamId":2},"damage":300},
+                 {"_T":"LogPlayerTakeDamage","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1001","teamId":3},"damage":100},
+                 {"_T":"LogPlayerTakeDamage","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1002","teamId":4},"damage":200},
+                 {"_T":"LogPlayerMakeGroggy","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h1","teamId":2}},
+                 {"_T":"LogPlayerMakeGroggy","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"account.h2","teamId":2}},
+                 {"_T":"LogPlayerMakeGroggy","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1001","teamId":3}},
+                 {"_T":"LogPlayerMakeGroggy","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1002","teamId":4}},
+                 {"_T":"LogPlayerMakeGroggy","attacker":{"accountId":"account.a","teamId":1},"victim":{"accountId":"ai.1003","teamId":5}}
+                ]"""));
+        PubgParticipant participant = new PubgParticipant("account.a", "Apple", 5, 800, 0, 5, 4,
+                0, 0, 0, 0, 1, 0, 0, 0, 0, 0);
+        PubgMatch match = new PubgMatch("bot-filter", Instant.parse("2026-09-22T12:00:00Z"),
+                "squad", "Erangel_Main", "official", false,
+                "https://telemetry-cdn.pubg.com/bot-filter.json",
+                List.of(new PubgTeam(List.of(participant))));
+        PlayerMatchFacts facts = new PubgBingoFactService(telemetry, Clock.systemUTC())
+                .facts(match, Set.of("account.a")).get("account.a");
+        BingoMissionEngine engine = new BingoMissionEngine();
+
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.KILLS, facts, Map.of(), false)).isEqualByComparingTo("5");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.DAMAGE_DEALT, facts, Map.of(), false)).isEqualByComparingTo("800");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.KILLS, facts, Map.of(), true)).isEqualByComparingTo("2");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.DAMAGE_DEALT, facts, Map.of(), true)).isEqualByComparingTo("500");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.DBNOS, facts, Map.of(), true)).isEqualByComparingTo("2");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.HEADSHOT_KILLS, facts, Map.of(), true)).isEqualByComparingTo("1");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.LONG_DISTANCE_KILL,
+                facts, Map.of("distance", 200), true)).isEqualByComparingTo("1");
+        assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.WEAPON_KILLS,
+                facts, Map.of("weapon", "VSS"), true)).isEqualByComparingTo("2");
+    }
+
+    @Test
     void convertsOfficialTelemetryEventsToReusableFactsAndCachesPerMatch() throws Exception {
         PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
         String json = """
