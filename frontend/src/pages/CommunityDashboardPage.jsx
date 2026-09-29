@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import HelpLink from "../components/HelpLink.jsx";
 import CommunityNewsSummary from "../components/CommunityNewsSummary.jsx";
 import { canManageCommunity } from "../communityAccess.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
@@ -113,7 +114,7 @@ export default function CommunityDashboardPage() {
               <div className="attendance-copy">
                 <span className="attendance-icon"><Icon name={attendance.attended ? "check" : "calendar"} size={23} /></span>
                 <div>
-                  <h2>{attendance.attended ? "오늘 출석 완료" : "오늘 출석 체크"}</h2>
+                  <div className="inline-help-heading"><h2>{attendance.attended ? "오늘 출석 완료" : "오늘 출석 체크"}</h2><HelpLink href="/help/attendance" /></div>
                   <p>{attendance.unavailable
                     ? "로그인한 Discord 계정과 클랜원 정보가 연결되면 출석할 수 있습니다."
                     : attendance.attended

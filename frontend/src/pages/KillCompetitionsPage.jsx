@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import HelpLink from "../components/HelpLink.jsx";
 import { canCancelKillGame, canEndKillGame, canManageKillGame, formatDateTime, remainingLabel, statusLabel, statusMessage, toDateTimeLocal } from "../killCompetitionView.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
@@ -155,7 +156,8 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
   }, []);
   return <>
     <div className="page-heading is-compact kill-heading"><div><p className="eyebrow">Clan Challenge</p><h1>킬내기</h1></div>
-      <button type="button" onClick={() => setShowCreate((value) => !value)}><Icon name="plus" size={18} />킬내기 만들기</button>
+      <div className="page-heading-actions"><HelpLink href="/help/pubg/kill-competition" />
+        <button type="button" onClick={() => setShowCreate((value) => !value)}><Icon name="plus" size={18} />킬내기 만들기</button></div>
     </div>
     {message && <p className="message" role="alert">{message}</p>}
     {showCreate && <form className="panel kill-create-form" onSubmit={createCompetition}>
@@ -224,7 +226,7 @@ function CompetitionDetail({ detail, loading, message, busy, now, communityId, c
   return <>
     <a className="activity-back-link" href={`/kill-competitions.html?communityId=${encodeURIComponent(communityId)}&communityGameId=${encodeURIComponent(communityGameId)}`}>← 킬내기 목록</a>
     <div className="page-heading kill-detail-heading"><div><p className="eyebrow">{detail.gameMode} Competition</p><h1>{detail.title}</h1>
-      <p>생성자 {detail.creator.nickname} · 참가자 {detail.participantCount}명</p></div><span className={`kill-status status-${detail.status.toLowerCase()}`}>{statusLabel(detail.status)}</span></div>
+      <p>생성자 {detail.creator.nickname} · 참가자 {detail.participantCount}명</p></div><div className="page-heading-actions"><HelpLink href="/help/pubg/kill-competition" /><span className={`kill-status status-${detail.status.toLowerCase()}`}>{statusLabel(detail.status)}</span></div></div>
     {message && <p className="message" role="alert">{message}</p>}
     <section className={`panel kill-state-banner status-${detail.status.toLowerCase()}`}><div><strong>{statusLabel(detail.status)}</strong><p>{statusMessage(detail.status)}</p>
       {detail.status === "RESULT_PENDING" && detail.resultLastError && <p>결과 발표 처리 중 오류가 발생했습니다. 잠시 후 다시 시도합니다.</p>}</div>

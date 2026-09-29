@@ -24,6 +24,8 @@ import BingoPage from "./pages/BingoPage.jsx";
 import AboutPage from "./pages/AboutPage.jsx";
 import TermsPage from "./pages/TermsPage.jsx";
 import PrivacyPage from "./pages/PrivacyPage.jsx";
+import { AttendanceHelpPage, BingoHelpPage, GeneralHelpPage, HelpIndexPage,
+  KillCompetitionHelpPage, PubgHelpPage, RankingHelpPage } from "./pages/HelpPages.jsx";
 import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
 import DashboardLayout from "./components/DashboardLayout.jsx";
 import AppLink from "./components/AppLink.jsx";
@@ -98,6 +100,13 @@ export default function App() {
       <Route path="/about" element={<AboutPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/help" element={<HelpIndexPage />} />
+      <Route path="/help/general" element={<GeneralHelpPage />} />
+      <Route path="/help/pubg" element={<PubgHelpPage />} />
+      <Route path="/help/pubg/kill-competition" element={<KillCompetitionHelpPage />} />
+      <Route path="/help/pubg/bingo" element={<BingoHelpPage />} />
+      <Route path="/help/attendance" element={<AttendanceHelpPage />} />
+      <Route path="/help/ranking" element={<RankingHelpPage />} />
       <Route path="/communities.html" element={<CommunitiesPage />} />
       <Route element={<CommunityRoutes />}>
         <Route path="/community-dashboard.html" element={<CommunityDashboardPage />} />

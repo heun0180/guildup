@@ -10,6 +10,7 @@
 .header-avatar { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; background: var(--color-primary-soft); color: var(--color-primary); font-size: 0.75rem; font-weight: 800; }
 .header-link, .text-button { min-height: 38px; border-radius: 9px; padding: 0 12px; background: transparent; color: var(--color-text-secondary); font-size: 0.875rem; font-weight: 650; text-decoration: none; }
 .header-link { display: inline-flex; align-items: center; }
+.header-help-link { gap: 7px; }
 .header-link:hover, .text-button:hover { background: var(--color-surface-soft); color: var(--color-text); }
 
 .dashboard-shell { display: grid; min-height: calc(100vh - var(--header-height)); grid-template-columns: 252px minmax(0, 1fr); }
@@ -45,6 +46,14 @@
 .page-heading { margin-bottom: 30px; }
 .page-heading.is-compact { margin-bottom: 22px; }
 .page-heading > p:last-child { margin-top: 9px; font-size: 0.95rem; }
+.feature-page-heading, .page-heading-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.page-heading-actions { justify-content: flex-end; }
+.help-icon-link { display: inline-grid; width: 42px; height: 42px; flex: 0 0 auto; place-items: center; border: 1px solid var(--color-border-strong); border-radius: 50%; background: var(--color-surface); color: var(--color-text-secondary); text-decoration: none; transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease; }
+.help-icon-link:hover { border-color: #bcc2e6; background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.inline-help-heading { display: flex; align-items: center; gap: 7px; }
+.inline-help-heading .help-icon-link { width: 28px; height: 28px; border: 0; background: transparent; }
+.inline-help-heading .help-icon-link:hover { background: var(--color-primary-soft); }
+.inline-help-heading .help-icon-link svg { width: 17px; height: 17px; }
 .page-context-badge { display: inline-flex; min-height: 26px; align-items: center; margin-top: 10px; border-radius: 999px; padding: 0 10px; background: var(--color-surface-soft); color: var(--color-text-secondary); font-size: 0.75rem; font-weight: 700; }
 
 @media (max-width: 1024px) {
@@ -79,6 +88,8 @@
   .user-summary { margin-right: 0; padding-right: 10px; }
   .user-summary > span:last-child { display: none; }
   .header-link { display: none; }
+  .header-help-link { display: inline-flex; width: 38px; padding: 0; justify-content: center; }
+  .header-help-link span { display: none; }
   .text-button { padding: 0 8px; }
   .dashboard-main { padding-right: 16px; padding-left: 16px; }
 }

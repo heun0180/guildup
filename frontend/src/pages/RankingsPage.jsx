@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import HelpLink from "../components/HelpLink.jsx";
 
 export default function RankingsPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -80,9 +81,9 @@ export default function RankingsPage() {
   return (
     <DashboardLayout active="rankings" communityId={communityId} onError={setMessage}>
       <div className="dashboard-content ranking-content">
-        <div className="page-heading is-compact">
-          <p className="eyebrow">Activity Ranking</p>
-          <h1>활동 랭킹</h1>
+        <div className="page-heading is-compact feature-page-heading">
+          <div><p className="eyebrow">Activity Ranking</p><h1>활동 랭킹</h1></div>
+          <HelpLink href="/help/ranking" />
         </div>
 
         {message && <p className="message" role="alert">{message}</p>}
@@ -105,7 +106,7 @@ export default function RankingsPage() {
             <div className="attendance-copy">
               <span className="attendance-icon" aria-hidden="true"><Icon name={attendance.attended ? "check" : "calendar"} size={23} /></span>
               <div>
-                <h2>{attendance.attended ? "오늘 출석 완료" : "오늘의 출석"}</h2>
+                <div className="inline-help-heading"><h2>{attendance.attended ? "오늘 출석 완료" : "오늘의 출석"}</h2><HelpLink href="/help/attendance" /></div>
                 <p>{attendance.attended
                   ? justAttended ? "오늘 +1점을 받았습니다." : "오늘의 활동 점수를 이미 받았습니다."
                   : "오늘 출석하고 활동 점수를 받아보세요."}</p>

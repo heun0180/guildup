@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import HelpLink from "../components/HelpLink.jsx";
 import TemporaryBingoRebuildPanel from "../components/TemporaryBingoRebuildPanel.jsx";
 import { useCommunity } from "../community/CommunityContext.jsx";
 import { canManageCommunity } from "../communityAccess.js";
@@ -202,7 +203,7 @@ export default function BingoPage() {
 
   return <DashboardLayout active="bingos" communityId={communityId}>
     <div className="dashboard-content bingo-content">
-      <div className="page-heading bingo-heading"><div><p className="eyebrow">PUBG Bingo</p><h1>{managing?"빙고 관리":"빙고"}</h1></div>{admin&&!editing&&(managing?<div className="bingo-heading-actions"><button className="secondary-button" onClick={()=>moveTo(null)}>내 빙고판</button><button onClick={startCreate}><Icon name="plus"/>빙고 생성</button></div>:<button onClick={()=>moveTo("manage")}>빙고 관리</button>)}</div>
+      <div className="page-heading bingo-heading"><div><p className="eyebrow">PUBG Bingo</p><h1>{managing?"빙고 관리":"빙고"}</h1></div><div className="page-heading-actions"><HelpLink href="/help/pubg/bingo" />{admin&&!editing&&(managing?<div className="bingo-heading-actions"><button className="secondary-button" onClick={()=>moveTo(null)}>내 빙고판</button><button onClick={startCreate}><Icon name="plus"/>빙고 생성</button></div>:<button onClick={()=>moveTo("manage")}>빙고 관리</button>)}</div></div>
       {message&&<p className="message" role="alert">{message}</p>}
       {loading?<section className="panel page-state">빙고를 불러오는 중입니다.</section>:editing?<BingoEditor form={form} setForm={setForm} resize={resize} save={save} cancel={()=>setEditing(false)} editCell={setCellModal}/>:!managing&&currentScreen==="SCHEDULED"&&selected?<ScheduledBingo bingo={selected} showCell={showCell}/>:selected?<><BingoDetail bingo={selected} viewedBoard={viewedBoard} admin={admin&&managing} aggregate={aggregate} aggregationJob={aggregationJob} aggregateMe={aggregateMe} personalAggregationJob={personalAggregationJob} remove={remove} edit={startEdit} back={managing?()=>setSelected(null):null} showCell={showCell} viewParticipant={viewParticipant}/>{admin&&managing&&selected.status==="ACTIVE"&&<TemporaryBingoRebuildPanel bingoApi={bingoApi} onApplied={()=>open(selected.id)}/>}</>:managing?<>
         <BingoSection title="현재 진행 중인 빙고" empty="진행 중인 빙고가 없습니다." items={groups.active} open={open}/>
