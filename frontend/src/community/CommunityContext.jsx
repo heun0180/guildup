@@ -80,9 +80,19 @@ export function CommunityProvider({ children }) {
     return result;
   }, [communityId, validId]);
 
+  const clearCommunity = useCallback(() => {
+    if (validId) {
+      communityCache.delete(communityId);
+      communityRequests.delete(communityId);
+    }
+    setCommunityState(null);
+    setLoading(false);
+    setError("");
+  }, [communityId, validId]);
+
   const value = useMemo(() => ({
-    communityId, validId, community, loading, error, setCommunity, refreshCommunity,
-  }), [communityId, validId, community, loading, error, setCommunity, refreshCommunity]);
+    communityId, validId, community, loading, error, setCommunity, refreshCommunity, clearCommunity,
+  }), [communityId, validId, community, loading, error, setCommunity, refreshCommunity, clearCommunity]);
 
   return <CommunityContext.Provider value={value}>{children}</CommunityContext.Provider>;
 }

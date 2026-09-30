@@ -22,6 +22,10 @@ public class CommunityAccessInterceptor implements HandlerInterceptor {
         Map<String, String> variables = (Map<String, String>) request.getAttribute(
                 HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);
         if (variables != null && variables.containsKey("communityId")) {
+            // 커뮤니티 삭제는 서비스가 존재 여부(404)를 먼저 확인한 뒤 OWNER(403)를 검증한다.
+            if (isCommunityDelete(request, variables.get("communityId"))) {
+                return true;
+            }
             try {
                 access.requireAccess(userId, Long.valueOf(variables.get("communityId")));
             } catch (NumberFormatException exception) {
@@ -33,5 +37,12 @@ public class CommunityAccessInterceptor implements HandlerInterceptor {
             access.requireGuildManagementAccess(userId, variables.get("guildId"));
         }
         return true;
+    }
+
+    private boolean isCommunityDelete(HttpServletRequest request, String communityId) {
+        return "DELETE".equals(request.getMethod())
+                && request.getRequestURI().equals(
+                        request.getContextPath() + "/api/communities/" + communityId
+                );
     }
 }

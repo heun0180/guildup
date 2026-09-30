@@ -6,6 +6,8 @@ import com.guildup.community.repository.CommunityUserRepository;
 import com.guildup.community.repository.DiscordCommunityConnectionRepository;
 import com.guildup.community.repository.CommunityGameRepository;
 import com.guildup.community.repository.CommunityGameActivityRuleRepository;
+import com.guildup.community.repository.CommunityDeletionStore;
+import com.guildup.community.exception.CommunityNotFoundException;
 import com.guildup.community.domain.CommunityUser;
 import com.guildup.community.domain.CommunityUserRole;
 import com.guildup.community.domain.CommunityGame;
@@ -37,13 +39,15 @@ public class CommunityService {
     private final DiscordCommunityConnectionRepository connections;
     private final CommunityGameRepository communityGames;
     private final CommunityGameActivityRuleRepository activityRules;
+    private final CommunityDeletionStore deletionStore;
 
     public CommunityService(
             CommunityRepository communityRepository,
             CommunityUserRepository memberships, UserRepository users,
             CommunityAccessService access, DiscordCommunityConnectionRepository connections,
             CommunityGameRepository communityGames,
-            CommunityGameActivityRuleRepository activityRules
+            CommunityGameActivityRuleRepository activityRules,
+            CommunityDeletionStore deletionStore
     ) {
         this.communityRepository = communityRepository;
         this.memberships = memberships;
@@ -52,6 +56,7 @@ public class CommunityService {
         this.connections = connections;
         this.communityGames = communityGames;
         this.activityRules = activityRules;
+        this.deletionStore = deletionStore;
     }
 
     /** Community, 게임과 생성자의 OWNER 관계를 함께 커밋하거나 함께 롤백한다. */
@@ -111,5 +116,20 @@ public class CommunityService {
                 connection == null ? null : connection.getDiscordGuildName(),
                 connection == null ? null : connection.getLastMemberSyncedAt(), gameType,
                 gameType == null ? null : gameType.getDisplayName(), games);
+    }
+
+    /** 존재 여부와 OWNER 권한을 순서대로 확인한 뒤 커뮤니티 전용 데이터를 한 트랜잭션으로 삭제한다. */
+    @Transactional
+    public void deleteCommunity(Long userId, Long communityId) {
+        communityRepository.findForUpdate(communityId)
+                .orElseThrow(() -> new CommunityNotFoundException(communityId));
+        CommunityUser membership = memberships.findByCommunityIdAndUserId(communityId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Community owner access denied"));
+        if (membership.getRole() != CommunityUserRole.OWNER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Community owner access denied");
+        }
+        deletionStore.deleteCommunityData(communityId);
     }
 }

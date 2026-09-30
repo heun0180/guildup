@@ -7,6 +7,7 @@ import com.guildup.community.service.CommunityService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -50,5 +51,11 @@ public class CommunityController {
     @GetMapping("/{communityId}")
     public CommunityDashboardResponse getDashboard(@PathVariable Long communityId, HttpSession session) {
         return communityService.getDashboard(CurrentUserSession.requireUserId(session), communityId);
+    }
+
+    @DeleteMapping("/{communityId}")
+    public ResponseEntity<Void> deleteCommunity(@PathVariable Long communityId, HttpSession session) {
+        communityService.deleteCommunity(CurrentUserSession.requireUserId(session), communityId);
+        return ResponseEntity.noContent().build();
     }
 }

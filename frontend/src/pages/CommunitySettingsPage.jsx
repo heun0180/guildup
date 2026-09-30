@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
+import { canDeleteCommunity, matchesCommunityName } from "../communityDeletion.js";
 
 const UNKNOWN_STATUS = { state: "error", title: "상태를 확인하지 못했습니다.", description: "잠시 후 다시 시도해 주세요." };
 
@@ -26,7 +28,8 @@ function SettingsCard({ icon, tone, title, description, status, href, buttonLabe
 }
 
 export default function CommunitySettingsPage() {
-  const { community } = useCommunity();
+  const { community, clearCommunity } = useCommunity();
+  const navigate = useNavigate();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
   const encodedId = encodeURIComponent(communityId || "");
@@ -40,6 +43,10 @@ export default function CommunitySettingsPage() {
   const [nicknameStatus, setNicknameStatus] = useState(null);
   const [activityRule, setActivityRule] = useState(null);
   const [communityUsers, setCommunityUsers] = useState(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     if (!validId || !community) {
@@ -79,6 +86,49 @@ export default function CommunitySettingsPage() {
     return () => { cancelled = true; };
   }, [community, encodedId, validId, nicknameApi, activityApi]);
 
+  useEffect(() => {
+    if (!deleteModalOpen) return undefined;
+    function closeOnEscape(event) {
+      if (event.key === "Escape" && !deleting) {
+        setDeleteModalOpen(false);
+        setDeleteConfirmation("");
+        setDeleteError("");
+      }
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deleteModalOpen, deleting]);
+
+  function openDeleteModal() {
+    setDeleteConfirmation("");
+    setDeleteError("");
+    setDeleteModalOpen(true);
+  }
+
+  function closeDeleteModal() {
+    if (deleting) return;
+    setDeleteModalOpen(false);
+    setDeleteConfirmation("");
+    setDeleteError("");
+  }
+
+  async function deleteCommunity(event) {
+    event.preventDefault();
+    if (deleting || !matchesCommunityName(deleteConfirmation, community?.name)) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await api(`/api/communities/${encodedId}`, { method: "DELETE" });
+      clearCommunity();
+      navigate("/communities.html", { replace: true });
+    } catch (error) {
+      if (!redirectToLogin(error)) {
+        setDeleteError(error.message || "커뮤니티를 삭제하지 못했습니다.");
+      }
+      setDeleting(false);
+    }
+  }
+
   const settingsUrl = (path) => `${path}?communityId=${encodedId}`;
   const gameSettingsUrl = (path, game) => `${path}?communityId=${encodedId}&communityGameId=${encodeURIComponent(game?.communityGameId || "")}`;
   const discordStatus = !community?.discordConnected
@@ -116,13 +166,58 @@ export default function CommunitySettingsPage() {
         </div>
         {loading && <p className="panel page-state" role="status">설정 상태를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
-        {!loading && community && <section className="settings-menu-grid" aria-label="커뮤니티 설정 목록">
-          <SettingsCard icon="discord" tone="discord" title="Discord 클랜원 역할 설정" description="어떤 Discord 역할을 GuildUp 클랜원으로 인식할지 선택합니다." status={discordStatus} href={community.discordConnected ? settingsUrl("/discord-member-role-settings.html") : settingsUrl("/discord-connect.html")} buttonLabel={community.discordConnected ? "역할 설정으로 이동" : "Discord 연결하기"} />
-          {nicknameGame && <SettingsCard icon="game" tone="activity" title={`${nicknameGame.gameName} 인게임 닉네임 설정`} description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={gameSettingsUrl("/game-nickname-settings.html", nicknameGame)} buttonLabel="닉네임 설정으로 이동" />}
-          {activityGame && <SettingsCard icon="activity" tone="activity" title={`${activityGame.gameName} 클랜 활동 규칙`} description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={gameSettingsUrl("/activity-rule-settings.html", activityGame)} buttonLabel="활동 규칙으로 이동" />}
-          <SettingsCard icon="users" tone="members" title="GuildUp 커뮤니티 권한" description="커뮤니티 사용자와 GuildUp 관리자 역할을 관리합니다." status={permissionStatus} href={settingsUrl("/community-role-settings.html")} buttonLabel="권한 설정으로 이동" />
-        </section>}
+        {!loading && community && <>
+          <section className="settings-menu-grid" aria-label="커뮤니티 설정 목록">
+            <SettingsCard icon="discord" tone="discord" title="Discord 클랜원 역할 설정" description="어떤 Discord 역할을 GuildUp 클랜원으로 인식할지 선택합니다." status={discordStatus} href={community.discordConnected ? settingsUrl("/discord-member-role-settings.html") : settingsUrl("/discord-connect.html")} buttonLabel={community.discordConnected ? "역할 설정으로 이동" : "Discord 연결하기"} />
+            {nicknameGame && <SettingsCard icon="game" tone="activity" title={`${nicknameGame.gameName} 인게임 닉네임 설정`} description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={gameSettingsUrl("/game-nickname-settings.html", nicknameGame)} buttonLabel="닉네임 설정으로 이동" />}
+            {activityGame && <SettingsCard icon="activity" tone="activity" title={`${activityGame.gameName} 클랜 활동 규칙`} description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={gameSettingsUrl("/activity-rule-settings.html", activityGame)} buttonLabel="활동 규칙으로 이동" />}
+            <SettingsCard icon="users" tone="members" title="GuildUp 커뮤니티 권한" description="커뮤니티 사용자와 GuildUp 관리자 역할을 관리합니다." status={permissionStatus} href={settingsUrl("/community-role-settings.html")} buttonLabel="권한 설정으로 이동" />
+          </section>
+          {canDeleteCommunity(community.role) && <section className="community-danger-zone" aria-labelledby="danger-zone-title">
+            <div>
+              <p className="eyebrow danger-zone-label">위험 구역</p>
+              <h2 id="danger-zone-title">커뮤니티 삭제</h2>
+              <p>커뮤니티와 관련된 모든 데이터를 삭제합니다.</p>
+              <strong>삭제한 커뮤니티는 복구할 수 없습니다.</strong>
+            </div>
+            <button type="button" className="permanent-delete-button" onClick={openDeleteModal}>커뮤니티 삭제</button>
+          </section>}
+        </>}
       </div>
+      {deleteModalOpen && <div className="modal-backdrop community-delete-backdrop" role="presentation" onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeDeleteModal();
+      }}>
+        <form className="community-delete-modal" role="dialog" aria-modal="true" aria-labelledby="community-delete-title" onSubmit={deleteCommunity}>
+          <h2 id="community-delete-title">커뮤니티 삭제</h2>
+          <p>정말 이 커뮤니티를 삭제하시겠습니까?</p>
+          <p>커뮤니티를 삭제하면 아래 데이터가 함께 삭제됩니다.</p>
+          <ul>
+            <li>커뮤니티 멤버 정보</li>
+            <li>커뮤니티 게임 연결 정보</li>
+            <li>Discord 연결 정보</li>
+            <li>PUBG 관련 커뮤니티 데이터</li>
+            <li>빙고 이벤트 및 진행 데이터</li>
+            <li>킬내기 데이터</li>
+            <li>커뮤니티에 속한 기타 설정 및 콘텐츠</li>
+          </ul>
+          <p className="community-delete-warning">삭제된 데이터는 복구할 수 없습니다.</p>
+          <label className="community-delete-confirmation">
+            <span>계속하려면 아래에 커뮤니티 이름을 입력해주세요.</span>
+            <strong>{community.name}</strong>
+            <input autoFocus value={deleteConfirmation} disabled={deleting}
+              onChange={(event) => setDeleteConfirmation(event.target.value)}
+              placeholder="커뮤니티 이름 입력" autoComplete="off" />
+          </label>
+          {deleteError && <p className="message" role="alert">{deleteError}</p>}
+          <div className="community-delete-actions">
+            <button type="button" className="secondary-button" disabled={deleting} onClick={closeDeleteModal}>취소</button>
+            <button type="submit" className="permanent-delete-button"
+              disabled={deleting || !matchesCommunityName(deleteConfirmation, community.name)}>
+              {deleting ? "삭제 중..." : "영구 삭제"}
+            </button>
+          </div>
+        </form>
+      </div>}
     </DashboardLayout>
   );
 }

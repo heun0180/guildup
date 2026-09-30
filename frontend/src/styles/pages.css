@@ -581,6 +581,25 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .settings-menu-card-copy strong { margin-top: 20px; color: var(--color-text); font-size: 0.84rem; }
 .settings-menu-card-copy > span { margin-top: 4px; color: var(--color-text-secondary); font-size: 0.76rem; line-height: 1.5; }
 .settings-menu-card .secondary-button { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 8px; margin-top: auto; }
+.community-danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-top: 42px; border: 1px solid #edc7ca; border-radius: var(--radius-card); padding: 24px; background: #fffafa; }
+.community-danger-zone > div { min-width: 0; }
+.community-danger-zone .danger-zone-label { color: var(--color-error); }
+.community-danger-zone h2 { margin-top: 4px; font-size: 1.05rem; }
+.community-danger-zone p:not(.eyebrow) { margin-top: 6px; font-size: 0.82rem; }
+.community-danger-zone strong { display: block; margin-top: 4px; color: var(--color-error); font-size: 0.78rem; }
+.permanent-delete-button { flex: 0 0 auto; border: 1px solid #b93f49; background: #c84b55; color: #fff; }
+.permanent-delete-button:hover:not(:disabled) { border-color: #a5323c; background: #ad3943; color: #fff; }
+.permanent-delete-button:disabled { border-color: #e1b8bb; background: #d9a6aa; color: #fff; cursor: not-allowed; }
+.community-delete-modal { width: min(100%, 540px); max-height: calc(100vh - 40px); overflow-y: auto; border-radius: var(--radius-card); padding: 28px; background: var(--color-surface); box-shadow: var(--shadow-elevated); }
+.community-delete-modal > p { margin-top: 10px; font-size: 0.83rem; }
+.community-delete-modal ul { display: grid; gap: 6px; margin: 14px 0 0; padding-left: 21px; color: var(--color-text-secondary); font-size: 0.8rem; line-height: 1.45; }
+.community-delete-modal .community-delete-warning { color: var(--color-error); font-weight: 800; }
+.community-delete-confirmation { display: grid; gap: 8px; margin-top: 22px; color: var(--color-text-secondary); font-size: 0.8rem; }
+.community-delete-confirmation strong { color: var(--color-text); font-size: 0.86rem; overflow-wrap: anywhere; }
+.community-delete-confirmation input { width: 100%; }
+.community-delete-modal .message { margin: 14px 0 0; }
+.community-delete-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 24px; }
+.community-delete-actions .secondary-button { margin-top: 0; }
 .settings-page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .settings-page-heading > div { min-width: 0; }
 .settings-page-heading .secondary-button { flex: 0 0 auto; margin-top: 4px; }
@@ -762,6 +781,9 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .ranking-score { min-width: 62px; text-align: right; white-space: nowrap; }
 
 @media (max-width: 560px) {
+  .community-danger-zone { align-items: stretch; flex-direction: column; }
+  .community-danger-zone .permanent-delete-button { width: 100%; }
+  .community-delete-modal { padding: 22px; }
   .ranking-summary-card { padding: 18px; }
   .attendance-card { align-items: stretch; flex-direction: column; gap: 18px; padding: 20px; }
   .attendance-card button { width: 100%; }
