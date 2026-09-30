@@ -1,4 +1,5 @@
 HELP.md
+/logs/
 target/
 !**/src/main/**/target/
 !**/src/test/**/target/

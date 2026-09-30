@@ -4,6 +4,10 @@ import com.guildup.pubg.model.PlayerMatchFacts;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.exception.PubgApiException;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -11,6 +15,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientResponseException;
+import org.springframework.web.client.ResourceAccessException;
 import jakarta.annotation.PreDestroy;
 
 import java.time.Instant;
@@ -31,6 +36,10 @@ public class PubgMatchSyncService {
     private final Semaphore telemetryPermits;
     private final ExecutorService telemetryExecutor;
     private final ConcurrentMap<String, CompletableFuture<Void>> telemetryInFlight = new ConcurrentHashMap<>();
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     public PubgMatchSyncService(PubgPlayerService players, PubgMatchService matches, PubgMatchFactProvider facts,
                                 PubgMatchFactQueryService query, PubgMatchFactWriter writer,
@@ -190,6 +199,46 @@ public class PubgMatchSyncService {
         log.warn("PUBG telemetry fetch failed - matchId={} exceptionClass={} rootCause={} httpStatus={} " +
                         "reason={} attempt=1 timestamp={}", matchId, exception.getClass().getName(),
                 root.getClass().getName(), httpStatus(exception), safeReason(root), Instant.now());
+        if (monitoring == null) return;
+        Integer status = responseStatus(exception);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("endpoint", "TELEMETRY");
+        metadata.put("matchId", matchId);
+        if (status != null) metadata.put("status", status);
+        metadata.put("exceptionClass", root.getClass().getSimpleName());
+        if (status != null && status == 429) {
+            monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_RATE_LIMIT,
+                    "PUBG Telemetry rate limit reached", null, null, "matchId=" + matchId, metadata);
+        } else if (causedBy(exception, ResourceAccessException.class)) {
+            monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_TIMEOUT,
+                    "PUBG Telemetry request timed out", null, null, "matchId=" + matchId, metadata);
+        } else if (status != null && status >= 500) {
+            monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_SERVER_ERROR,
+                    "PUBG Telemetry server error", null, null, "matchId=" + matchId, metadata);
+        } else if (status != null && status >= 400) {
+            monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_CLIENT_ERROR,
+                    "PUBG Telemetry client error", null, null, "matchId=" + matchId, metadata);
+        }
+        monitoring.recordError(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_FAILED,
+                "PUBG Telemetry request failed", null, null, "matchId=" + matchId, metadata);
+    }
+
+    private Integer responseStatus(Throwable value) {
+        Throwable current = value;
+        while (current != null) {
+            if (current instanceof PubgApiException pubg && pubg.getUpstreamStatus() != null)
+                return pubg.getUpstreamStatus();
+            if (current instanceof RestClientResponseException response)
+                return response.getStatusCode().value();
+            current = current.getCause();
+        }
+        return null;
+    }
+
+    private boolean causedBy(Throwable value, Class<? extends Throwable> type) {
+        for (Throwable current = value; current != null; current = current.getCause())
+            if (type.isInstance(current)) return true;
+        return false;
     }
 
     private Throwable rootCause(Throwable value) {

@@ -12,6 +12,9 @@ import com.guildup.discord.service.DiscordDirectMessageClient;
 import com.guildup.discord.service.DiscordGuildService;
 import com.guildup.discord.service.DiscordMemberService;
 import com.guildup.discord.service.DiscordRoleService;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import org.slf4j.Logger;
@@ -52,6 +55,10 @@ public class CommunityDiscordDmService {
     private final Duration duplicateWindow;
     private final Clock clock;
     private final ConcurrentHashMap<String, Instant> recentRequests = new ConcurrentHashMap<>();
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     @Autowired
     public CommunityDiscordDmService(
@@ -132,6 +139,13 @@ public class CommunityDiscordDmService {
                 results.add(DiscordDmResult.failure(discordUserId, displayName, reason));
                 log.warn("Discord DM delivery failed - communityId: {}, guildId: {}, userId: {}, reason: {}",
                         communityId, connection.getDiscordGuildId(), discordUserId, reason);
+                if (reason == DiscordDmFailureReason.DISCORD_API_ERROR && monitoring != null)
+                    monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_API_FAILED,
+                            "Discord DM delivery failed", communityId, userId,
+                            "discordGuildId=" + connection.getDiscordGuildId(), Map.of(
+                                    "discordGuildId", connection.getDiscordGuildId(),
+                                    "discordUserId", discordUserId,
+                                    "exceptionClass", exception.getClass().getSimpleName()));
             }
         }
 

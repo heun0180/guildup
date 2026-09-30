@@ -10,10 +10,15 @@ import com.guildup.discord.oauth.store.DiscordBotInstallSession;
 import com.guildup.discord.oauth.store.DiscordBotInstallStore;
 import com.guildup.discord.oauth.store.DiscordOAuthSessionStore;
 import com.guildup.discord.service.DiscordGuildService;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import net.dv8tion.jda.api.entities.Guild;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.Map;
 
 /**
  * OAuth로 검증된 Discord 서버에 GuildUp 봇을 초대하고 커뮤니티 연결을 확정한다.
@@ -34,6 +39,10 @@ public class DiscordBotInstallService {
     private final DiscordCommunityConnectionService connectionService;
     private final int guildCheckAttempts;
     private final long guildCheckDelayMillis;
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     /** 운영 시 기본 재시도 횟수와 대기 시간을 사용하는 Spring 생성자다. */
     @Autowired
@@ -99,7 +108,7 @@ public class DiscordBotInstallService {
     /** 설치 토큰을 검증하고 JDA에서 봇 참여를 확인한 뒤 실제 연결 정보를 저장한다. */
     public DiscordBotInstallConfirmResponse confirmInstallation(String installToken) {
         DiscordBotInstallSession installSession = botInstallStore.getInstallSession(installToken);
-        Guild guild = awaitGuild(installSession.guildId());
+        Guild guild = awaitGuild(installSession.communityId(), installSession.guildId());
         connectionService.connect(
                 installSession.communityId(),
                 installSession.guildId(),
@@ -149,7 +158,7 @@ public class DiscordBotInstallService {
     /**
      * 봇 설치 직후 발생할 수 있는 JDA 캐시 반영 지연을 고려해 서버 존재 여부를 재확인한다.
      */
-    private Guild awaitGuild(String guildId) {
+    private Guild awaitGuild(Long communityId, String guildId) {
         for (int attempt = 1; attempt <= guildCheckAttempts; attempt++) {
             Guild guild = discordGuildService.findGuildById(guildId).orElse(null);
             if (guild != null) {
@@ -159,6 +168,11 @@ public class DiscordBotInstallService {
                 waitBeforeRetry(guildId);
             }
         }
+        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
+                MonitoringEventCode.DISCORD_GUILD_CONNECTION_FAILED,
+                "Discord guild was not visible to JDA after installation retries", communityId, null,
+                "discordGuildId=" + guildId, Map.of("discordGuildId", guildId,
+                        "retryCount", Math.max(0, guildCheckAttempts - 1)));
         throw new DiscordBotNotInstalledException(guildId);
     }
 

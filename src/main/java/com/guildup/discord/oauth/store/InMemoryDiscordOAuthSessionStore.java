@@ -5,6 +5,10 @@ import com.guildup.discord.oauth.dto.DiscordManageableGuildResponse;
 import com.guildup.discord.oauth.exception.DiscordOAuthResultNotFoundException;
 import com.guildup.discord.oauth.exception.InvalidDiscordGuildSelectionException;
 import com.guildup.discord.oauth.exception.InvalidDiscordOAuthStateException;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
@@ -29,6 +33,10 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
     private final SecureRandom secureRandom = new SecureRandom();
     private final Map<String, PendingState> states = new ConcurrentHashMap<>();
     private final Map<String, PendingResult> results = new ConcurrentHashMap<>();
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     @Override
     public String createState(Long communityId) {
@@ -44,6 +52,9 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
         // 조회와 동시에 제거하여 같은 state를 이용한 콜백 재사용을 막는다.
         PendingState pendingState = state == null ? null : states.remove(state);
         if (pendingState == null || pendingState.expiresAt().isBefore(Instant.now())) {
+            if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
+                    MonitoringEventCode.DISCORD_OAUTH_FAILED, "Discord OAuth state validation failed",
+                    null, null, "oauthState", Map.of("reason", "INVALID_OR_EXPIRED_STATE"));
             throw new InvalidDiscordOAuthStateException();
         }
         return pendingState.communityId();
@@ -79,7 +90,14 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
         return pendingResult.result().guilds().stream()
                 .filter(guild -> guild.id().equals(guildId))
                 .findFirst()
-                .orElseThrow(InvalidDiscordGuildSelectionException::new);
+                .orElseThrow(() -> {
+                    if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
+                            MonitoringEventCode.DISCORD_GUILD_MISMATCH,
+                            "Selected Discord guild was not present in the verified OAuth result",
+                            communityId, null, "discordGuildId=" + guildId,
+                            Map.of("discordGuildId", guildId));
+                    return new InvalidDiscordGuildSelectionException();
+                });
     }
 
     @Override
@@ -104,6 +122,9 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
         if (pendingResult == null
                 || !pendingResult.communityId().equals(communityId)
                 || pendingResult.expiresAt().isBefore(Instant.now())) {
+            if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
+                    MonitoringEventCode.DISCORD_OAUTH_FAILED, "Discord OAuth result validation failed",
+                    communityId, null, "oauthResult", Map.of("reason", "INVALID_OR_EXPIRED_RESULT"));
             throw new DiscordOAuthResultNotFoundException();
         }
         return pendingResult;

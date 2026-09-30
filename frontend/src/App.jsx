@@ -33,6 +33,7 @@ import { CommunityProvider, useCommunity } from "./community/CommunityContext.js
 import DeveloperLayout from "./developer/DeveloperLayout.jsx";
 import { DeveloperBingoDetailPage, DeveloperCommunitiesPage, DeveloperCommunityDetailPage,
   DeveloperDashboardPage, DeveloperKillCompetitionDetailPage } from "./developer/DeveloperPages.jsx";
+import MonitoringPage from "./developer/MonitoringPage.jsx";
 
 const activeByPath = {
   "/community-dashboard.html": "dashboard",
@@ -113,6 +114,7 @@ export default function App() {
       <Route path="/communities.html" element={<CommunitiesPage />} />
       <Route element={<DeveloperLayout />}>
         <Route path="/developer" element={<DeveloperDashboardPage />} />
+        <Route path="/developer/monitoring" element={<MonitoringPage />} />
         <Route path="/developer/communities" element={<DeveloperCommunitiesPage />} />
         <Route path="/developer/communities/:communityId" element={<DeveloperCommunityDetailPage />} />
         <Route path="/developer/communities/:communityId/bingos/:bingoId" element={<DeveloperBingoDetailPage />} />

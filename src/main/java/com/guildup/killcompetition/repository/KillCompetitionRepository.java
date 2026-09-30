@@ -39,4 +39,14 @@ public interface KillCompetitionRepository extends JpaRepository<KillCompetition
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select competition from KillCompetition competition where competition.id = :id")
     Optional<KillCompetition> findByIdForUpdate(@Param("id") Long id);
+
+    @EntityGraph(attributePaths = "community")
+    @Query("""
+            select competition from KillCompetition competition
+            where competition.status = com.guildup.killcompetition.domain.KillCompetitionStatus.RESULT_PENDING
+              and competition.resultRequestedAt < :before
+            order by competition.resultRequestedAt, competition.id
+            """)
+    List<KillCompetition> findStaleResultPending(@Param("before") Instant before,
+                                                  org.springframework.data.domain.Pageable pageable);
 }

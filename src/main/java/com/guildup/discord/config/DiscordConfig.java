@@ -2,6 +2,9 @@ package com.guildup.discord.config;
 
 import com.guildup.discord.bot.DiscordMemberEventListener;
 import com.guildup.discord.bot.DiscordVoiceEventListener;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -11,6 +14,8 @@ import net.dv8tion.jda.api.utils.cache.CacheFlag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Map;
 
 /** Discord 봇 토큰으로 JDA 클라이언트를 구성한다. */
 @Configuration
@@ -23,15 +28,29 @@ public class DiscordConfig {
     public JDA jda(
             @Value("${DISCORD_BOT_TOKEN}") String token,
             DiscordVoiceEventListener voiceEventListener,
-            DiscordMemberEventListener memberEventListener
+            DiscordMemberEventListener memberEventListener,
+            MonitoringEventService monitoring
     ) throws InterruptedException {
-        return JDABuilder.createLight(token)
-                .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_VOICE_STATES)
-                .enableCache(CacheFlag.VOICE_STATE)
-                .setMemberCachePolicy(MemberCachePolicy.VOICE)
-                .setChunkingFilter(ChunkingFilter.NONE)
-                .addEventListeners(voiceEventListener, memberEventListener)
-                .build()
-                .awaitReady();
+        try {
+            return JDABuilder.createLight(token)
+                    .enableIntents(GatewayIntent.GUILD_MEMBERS, GatewayIntent.GUILD_VOICE_STATES)
+                    .enableCache(CacheFlag.VOICE_STATE)
+                    .setMemberCachePolicy(MemberCachePolicy.VOICE)
+                    .setChunkingFilter(ChunkingFilter.NONE)
+                    .addEventListeners(voiceEventListener, memberEventListener)
+                    .build()
+                    .awaitReady();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.JDA_CONNECTION_FAILED,
+                    "JDA startup was interrupted", null, null, "jdaStartup",
+                    Map.of("exceptionClass", exception.getClass().getSimpleName()));
+            throw exception;
+        } catch (RuntimeException exception) {
+            monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.JDA_CONNECTION_FAILED,
+                    "JDA failed to connect", null, null, "jdaStartup",
+                    Map.of("exceptionClass", exception.getClass().getSimpleName()));
+            throw exception;
+        }
     }
 }

@@ -14,6 +14,9 @@ import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.model.PubgTeam;
 import com.guildup.pubg.model.PubgSeason;
 import com.guildup.pubg.model.PubgSeasonStats;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,15 +61,17 @@ public class PubgApiClient {
     private final PubgApiRequestGovernor requestGovernor;
     private final RetrySleeper retrySleeper;
     private final LongSupplier jitterMillis;
+    private final MonitoringEventService monitoring;
 
     @Autowired
     public PubgApiClient(
             @Qualifier("pubgRestClient") RestClient restClient,
             PubgApiProperties properties,
-            PubgApiRequestGovernor requestGovernor
+            PubgApiRequestGovernor requestGovernor,
+            MonitoringEventService monitoring
     ) {
         this(restClient, properties, Clock.systemUTC(), requestGovernor, Thread::sleep,
-                () -> ThreadLocalRandom.current().nextLong(251));
+                () -> ThreadLocalRandom.current().nextLong(251), monitoring);
     }
 
     PubgApiClient(RestClient restClient, PubgApiProperties properties) {
@@ -79,7 +84,7 @@ public class PubgApiClient {
             Clock clock,
             RetrySleeper retrySleeper
     ) {
-        this(restClient, properties, clock, PubgApiRequestGovernor.noOp(), retrySleeper, () -> 0);
+        this(restClient, properties, clock, PubgApiRequestGovernor.noOp(), retrySleeper, () -> 0, null);
     }
 
     PubgApiClient(
@@ -90,12 +95,25 @@ public class PubgApiClient {
             RetrySleeper retrySleeper,
             LongSupplier jitterMillis
     ) {
+        this(restClient, properties, clock, requestGovernor, retrySleeper, jitterMillis, null);
+    }
+
+    private PubgApiClient(
+            RestClient restClient,
+            PubgApiProperties properties,
+            Clock clock,
+            PubgApiRequestGovernor requestGovernor,
+            RetrySleeper retrySleeper,
+            LongSupplier jitterMillis,
+            MonitoringEventService monitoring
+    ) {
         this.restClient = restClient;
         this.properties = properties;
         this.clock = clock;
         this.requestGovernor = requestGovernor;
         this.retrySleeper = retrySleeper;
         this.jitterMillis = jitterMillis;
+        this.monitoring = monitoring;
     }
 
     public List<PubgPlayer> getPlayersByNames(String shard, List<String> playerNames) {
@@ -282,6 +300,8 @@ public class PubgApiClient {
                 return response.getBody();
             } catch (HttpClientErrorException.TooManyRequests exception) {
                 HttpHeaders headers = exception.getResponseHeaders();
+                recordWarn(MonitoringEventCode.PUBG_API_RATE_LIMIT, "PUBG API rate limit reached",
+                        endpoint, 429, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
                     log.error(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempts={}, "
@@ -290,6 +310,7 @@ public class PubgApiClient {
                             header(headers, "X-RateLimit-Remaining"), header(headers, "X-RateLimit-Reset"),
                             header(headers, HttpHeaders.RETRY_AFTER)
                     );
+                    recordFailure(endpoint, "RATE_LIMIT", 429, attempt);
                     throw rateLimitException(exception);
                 }
                 long waitMillis = retryWaitMillis(headers, attempt);
@@ -301,14 +322,23 @@ public class PubgApiClient {
                         header(headers, "X-RateLimit-Limit"), header(headers, "X-RateLimit-Remaining"),
                         header(headers, "X-RateLimit-Reset"), header(headers, HttpHeaders.RETRY_AFTER)
                 );
+                recordRetry(endpoint, "RATE_LIMIT", 429, attempt + 1, waitMillis);
                 waitBeforeRetry(waitMillis);
             } catch (RestClientResponseException exception) {
-                if (!isTransientStatus(exception.getStatusCode())) throw exception;
+                int status = exception.getStatusCode().value();
+                if (!isTransientStatus(exception.getStatusCode())) {
+                    if (status != 404) recordWarn(MonitoringEventCode.PUBG_API_CLIENT_ERROR,
+                            "PUBG API client error", endpoint, status, attempt, null);
+                    throw exception;
+                }
+                recordWarn(MonitoringEventCode.PUBG_API_SERVER_ERROR, "PUBG API server error",
+                        endpoint, status, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
                     log.error(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempts={}",
                             endpoint, exception.getStatusCode().value(), attempt
                     );
+                    recordFailure(endpoint, "HTTP_5XX", status, attempt);
                     throw new PubgApiException(
                             PubgApiErrorCode.PUBG_UNAVAILABLE,
                             "PUBG API가 일시적으로 응답하지 않습니다.", exception,
@@ -320,13 +350,17 @@ public class PubgApiClient {
                         "PUBG API retry - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempt={}/{}, waitMs={}",
                         endpoint, exception.getStatusCode().value(), attempt + 1, MAX_ATTEMPTS, waitMillis
                 );
+                recordRetry(endpoint, "HTTP_5XX", status, attempt + 1, waitMillis);
                 waitBeforeRetry(waitMillis);
             } catch (ResourceAccessException exception) {
+                recordWarn(MonitoringEventCode.PUBG_API_TIMEOUT, "PUBG API request timed out",
+                        endpoint, null, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
                     log.error(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempts={}",
                             endpoint, attempt
                     );
+                    recordFailure(endpoint, "TIMEOUT", null, attempt);
                     throw new PubgApiException(
                             PubgApiErrorCode.PUBG_TIMEOUT,
                             "PUBG API 응답 시간이 초과되었습니다.", exception, null, false
@@ -337,10 +371,46 @@ public class PubgApiClient {
                         "PUBG API retry - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempt={}/{}, waitMs={}",
                         endpoint, attempt + 1, MAX_ATTEMPTS, waitMillis
                 );
+                recordRetry(endpoint, "TIMEOUT", null, attempt + 1, waitMillis);
                 waitBeforeRetry(waitMillis);
             }
         }
         throw new IllegalStateException("unreachable");
+    }
+
+    private void recordRetry(String endpoint, String reason, Integer status, int retryCount, long waitMillis) {
+        if (monitoring == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("endpoint", endpoint);
+        metadata.put("reason", reason);
+        if (status != null) metadata.put("status", status);
+        metadata.put("retryCount", retryCount);
+        metadata.put("waitMs", waitMillis);
+        monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_RETRY,
+                "PUBG API request will be retried", null, null, endpoint, metadata);
+    }
+
+    private void recordWarn(MonitoringEventCode code, String message, String endpoint,
+                            Integer status, int retryCount, Long elapsedMs) {
+        if (monitoring == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("endpoint", endpoint);
+        if (status != null) metadata.put("status", status);
+        metadata.put("retryCount", retryCount);
+        if (elapsedMs != null) metadata.put("elapsedMs", elapsedMs);
+        monitoring.recordWarn(MonitoringCategory.PUBG_API, code, message,
+                null, null, endpoint, metadata);
+    }
+
+    private void recordFailure(String endpoint, String reason, Integer status, int attempts) {
+        if (monitoring == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("endpoint", endpoint);
+        metadata.put("failureType", reason);
+        if (status != null) metadata.put("status", status);
+        metadata.put("retryCount", attempts - 1);
+        monitoring.recordError(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_FAILED,
+                "PUBG API request failed after retries", null, null, endpoint, metadata);
     }
 
     private long retryWaitMillis(HttpHeaders headers, int attempt) {
