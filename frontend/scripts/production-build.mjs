@@ -10,13 +10,22 @@ export function htmlRoutes(appSource) {
     .filter((route) => route.endsWith(".html"));
 }
 
+export function extensionlessRoutes(appSource) {
+  return [...appSource.matchAll(ROUTE_PATTERN)]
+    .map((match) => match[1])
+    .filter((route) => route !== "/" && !route.includes(":") && !path.extname(route));
+}
+
 export function scriptSources(html) {
   return [...html.matchAll(SCRIPT_PATTERN)].map((match) => match[1]);
 }
 
 export async function productionBuildContext(frontendDirectory) {
   const source = await readFile(path.join(frontendDirectory, "src", "App.jsx"), "utf8");
-  const routes = [...new Set(htmlRoutes(source))].sort();
+  const routes = [...new Set([
+    ...htmlRoutes(source),
+    ...extensionlessRoutes(source).map((route) => `${route}/index.html`),
+  ])].sort();
   return { distDirectory: path.join(frontendDirectory, "dist"), routes };
 }
 

@@ -45,6 +45,7 @@ export default function AppHeader({ actions = false, communityId, onError }) {
                 <span>{user.nickname}</span>
               </span>
             )}
+            {user?.systemAdmin && <AppLink className="header-link" href="/developer">개발자</AppLink>}
             <AppLink className="header-link" href="/communities.html">내 커뮤니티</AppLink>
             <button className="text-button" type="button" onClick={logout}>로그아웃</button>
           </>}

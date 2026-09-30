@@ -4,13 +4,15 @@ import com.guildup.user.domain.User;
 
 public record LoginUserResponse(
         Long id,
-        String nickname
+        String nickname,
+        boolean systemAdmin
 ) {
 
     public static LoginUserResponse from(User user) {
         return new LoginUserResponse(
                 user.getId(),
-                user.getNickname()
+                user.getNickname(),
+                user.isSystemAdmin()
         );
     }
 }

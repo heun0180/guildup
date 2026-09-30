@@ -1,4 +1,4 @@
-import { copyFile, readFile, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productionBuildContext, verifyProductionBuild } from "./production-build.mjs";
@@ -16,6 +16,7 @@ for (const route of routes) {
   if (output === fallback) continue;
   const existing = await stat(output).catch(() => null);
   if (existing?.isFile()) continue;
+  await mkdir(path.dirname(output), { recursive: true });
   await copyFile(fallback, output);
 }
 

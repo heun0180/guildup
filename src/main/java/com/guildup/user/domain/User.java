@@ -5,6 +5,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -22,6 +24,10 @@ public class User {
 
     @Column(nullable = false)
     private String nickname;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "system_role", nullable = false, length = 20)
+    private SystemRole systemRole = SystemRole.USER;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -44,6 +50,14 @@ public class User {
         return nickname;
     }
 
+    public SystemRole getSystemRole() {
+        return systemRole;
+    }
+
+    public boolean isSystemAdmin() {
+        return systemRole == SystemRole.SYSTEM_ADMIN;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
@@ -55,6 +69,9 @@ public class User {
     @PrePersist
     void initializeTimestamps() {
         Instant now = Instant.now();
+        if (systemRole == null) {
+            systemRole = SystemRole.USER;
+        }
         if (createdAt == null) {
             createdAt = now;
         }

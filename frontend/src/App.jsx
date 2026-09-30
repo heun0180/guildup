@@ -30,6 +30,9 @@ import CommunityRouteGuard from "./components/CommunityRouteGuard.jsx";
 import DashboardLayout from "./components/DashboardLayout.jsx";
 import AppLink from "./components/AppLink.jsx";
 import { CommunityProvider, useCommunity } from "./community/CommunityContext.jsx";
+import DeveloperLayout from "./developer/DeveloperLayout.jsx";
+import { DeveloperBingoDetailPage, DeveloperCommunitiesPage, DeveloperCommunityDetailPage,
+  DeveloperDashboardPage, DeveloperKillCompetitionDetailPage } from "./developer/DeveloperPages.jsx";
 
 const activeByPath = {
   "/community-dashboard.html": "dashboard",
@@ -108,6 +111,13 @@ export default function App() {
       <Route path="/help/attendance" element={<AttendanceHelpPage />} />
       <Route path="/help/ranking" element={<RankingHelpPage />} />
       <Route path="/communities.html" element={<CommunitiesPage />} />
+      <Route element={<DeveloperLayout />}>
+        <Route path="/developer" element={<DeveloperDashboardPage />} />
+        <Route path="/developer/communities" element={<DeveloperCommunitiesPage />} />
+        <Route path="/developer/communities/:communityId" element={<DeveloperCommunityDetailPage />} />
+        <Route path="/developer/communities/:communityId/bingos/:bingoId" element={<DeveloperBingoDetailPage />} />
+        <Route path="/developer/communities/:communityId/kill-competitions/:competitionId" element={<DeveloperKillCompetitionDetailPage />} />
+      </Route>
       <Route element={<CommunityRoutes />}>
         <Route path="/community-dashboard.html" element={<CommunityDashboardPage />} />
         <Route path="/community-news.html" element={<CommunityNewsPage />} />

@@ -161,7 +161,8 @@ class DiscordLoginControllerTests {
                 )
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(10))
-                .andExpect(jsonPath("$.nickname").value("애플"));
+                .andExpect(jsonPath("$.nickname").value("애플"))
+                .andExpect(jsonPath("$.systemAdmin").value(false));
 
         verify(discordLoginService).findUserById(10L);
     }
