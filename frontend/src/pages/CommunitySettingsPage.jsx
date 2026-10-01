@@ -43,6 +43,9 @@ export default function CommunitySettingsPage() {
   const [nicknameStatus, setNicknameStatus] = useState(null);
   const [activityRule, setActivityRule] = useState(null);
   const [communityUsers, setCommunityUsers] = useState(null);
+  const [rankingPeriod, setRankingPeriod] = useState(null);
+  const [savingRanking, setSavingRanking] = useState(false);
+  const [rankingNotice, setRankingNotice] = useState("");
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -69,10 +72,12 @@ export default function CommunitySettingsPage() {
           : Promise.resolve({ configured: false }),
         activityApi ? api(activityApi) : Promise.resolve(null),
         api(`/api/communities/${encodedId}/users`),
+        api(`/api/communities/${encodedId}/ranking-settings`),
       ]);
       if (cancelled) return;
       const unauthorized = requests.find((result) => result.status === "rejected" && result.reason?.status === 401);
       if (unauthorized && redirectToLogin(unauthorized.reason)) return;
+      setRankingPeriod(requests[4].status === "fulfilled" ? requests[4].value.periodType : null);
       setRoleSettings(requests[0].status === "fulfilled" ? requests[0].value : UNKNOWN_STATUS);
       setNicknameStatus(requests[1].status === "fulfilled" ? requests[1].value : UNKNOWN_STATUS);
       setActivityRule(requests[2].status === "fulfilled" ? requests[2].value : UNKNOWN_STATUS);
@@ -98,6 +103,22 @@ export default function CommunitySettingsPage() {
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [deleteModalOpen, deleting]);
+
+  async function saveRanking(event) {
+    event.preventDefault();
+    if (savingRanking || !rankingPeriod) return;
+    setSavingRanking(true);
+    setRankingNotice("");
+    try {
+      const result = await api(`/api/communities/${encodedId}/ranking-settings`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ periodType: rankingPeriod }),
+      });
+      setRankingPeriod(result.periodType);
+      setRankingNotice("랭킹 설정을 저장했습니다.");
+    } catch (error) {
+      if (!redirectToLogin(error)) setRankingNotice(error.message || "랭킹 설정을 저장하지 못했습니다.");
+    } finally { setSavingRanking(false); }
+  }
 
   function openDeleteModal() {
     setDeleteConfirmation("");
@@ -162,7 +183,7 @@ export default function CommunitySettingsPage() {
         <div className="page-heading">
           <p className="eyebrow">Settings</p>
           <h1>커뮤니티 설정</h1>
-          <p>변경할 설정을 선택하세요. 각 설정은 별도 화면에서 저장됩니다.</p>
+          <p>변경할 설정을 선택하세요. 각 설정에서 변경 내용을 저장할 수 있습니다.</p>
         </div>
         {loading && <p className="panel page-state" role="status">설정 상태를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
@@ -173,6 +194,17 @@ export default function CommunitySettingsPage() {
             {activityGame && <SettingsCard icon="activity" tone="activity" title={`${activityGame.gameName} 클랜 활동 규칙`} description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={gameSettingsUrl("/activity-rule-settings.html", activityGame)} buttonLabel="활동 규칙으로 이동" />}
             <SettingsCard icon="users" tone="members" title="GuildUp 커뮤니티 권한" description="커뮤니티 사용자와 GuildUp 관리자 역할을 관리합니다." status={permissionStatus} href={settingsUrl("/community-role-settings.html")} buttonLabel="권한 설정으로 이동" />
           </section>
+          <form className="panel ranking-settings" onSubmit={saveRanking}>
+            <h2>랭킹 설정</h2>
+            <fieldset disabled={savingRanking || rankingPeriod == null || !["OWNER", "ADMIN"].includes(community.role)}>
+              <legend>집계 주기</legend>
+              {[["MONTHLY", "월간"], ["QUARTERLY", "분기"], ["ALL_TIME", "전체 누적"]].map(([value, label]) =>
+                <label key={value}><input type="radio" name="rankingPeriod" value={value} checked={rankingPeriod === value} onChange={() => setRankingPeriod(value)} />{label}</label>)}
+            </fieldset>
+            <p>선택한 기간의 출석과 킬내기 점수를 합산합니다. 기존 점수는 보존됩니다.</p>
+            {["OWNER", "ADMIN"].includes(community.role) && <button type="submit" disabled={savingRanking || rankingPeriod == null}>{savingRanking ? "저장 중..." : "랭킹 설정 저장"}</button>}
+            {rankingNotice && <p role="status">{rankingNotice}</p>}
+          </form>
           {canDeleteCommunity(community.role) && <section className="community-danger-zone" aria-labelledby="danger-zone-title">
             <div>
               <p className="eyebrow danger-zone-label">위험 구역</p>

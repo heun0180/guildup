@@ -12,7 +12,7 @@ class CommunityDomainTests {
     void communityDoesNotContainExternalServiceFields() {
         assertThat(Arrays.stream(Community.class.getDeclaredFields())
                 .map(field -> field.getName()))
-                .containsExactlyInAnyOrder("id", "name", "createdAt")
+                .containsExactlyInAnyOrder("id", "name", "createdAt", "rankingPeriodType")
                 .doesNotContain("discordGuildId", "discordMemberRoleId");
     }
 

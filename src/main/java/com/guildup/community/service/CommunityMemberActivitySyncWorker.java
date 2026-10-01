@@ -174,11 +174,13 @@ public class CommunityMemberActivitySyncWorker {
                     elapsedMillis(startedAtNanos)
             );
         } catch (RuntimeException exception) {
-            log.error(
+            boolean clientRejection = exception instanceof ResponseStatusException response
+                    && !(exception instanceof PubgApiException) && response.getStatusCode().is4xxClientError();
+            (clientRejection ? log.atWarn() : log.atError()).log(
                     "PUBG activity sync failed - communityId={}, communityGameId={}, stage={}, status={}, "
-                            + "exception={}, message={}, durationMs={}",
+                            + "exception={}, durationMs={}",
                     communityId, communityGameId, stage, status(exception),
-                    exception.getClass().getSimpleName(), safeMessage(exception),
+                    exception.getClass().getSimpleName(),
                     elapsedMillis(startedAtNanos)
             );
             throw exception;
@@ -228,14 +230,6 @@ public class CommunityMemberActivitySyncWorker {
             return response.getStatusCode().value();
         }
         return "N/A";
-    }
-
-    private String safeMessage(RuntimeException exception) {
-        String message = exception instanceof ResponseStatusException response
-                ? response.getReason() : exception.getMessage();
-        if (message == null) return null;
-        String singleLine = message.replaceAll("[\\r\\n\\t]", " ");
-        return singleLine.length() <= 500 ? singleLine : singleLine.substring(0, 500);
     }
 
     private enum SyncStage {

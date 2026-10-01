@@ -1263,3 +1263,14 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
   .team-participant-list { padding-right: 18px; padding-left: 18px; }
   .balance-summary-grid { grid-template-columns: 1fr; }
 }
+
+.ranking-period { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; padding: 20px; margin-bottom: 16px; }
+.ranking-period p, .ranking-breakdown { color: var(--color-text-secondary); font-size: .76rem; }
+.ranking-period nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.ranking-breakdown { display: block; margin-top: 5px; font-weight: 400; white-space: normal; }
+.ranking-settings { padding: var(--space-card); margin-top: 20px; }
+.ranking-settings fieldset { display: flex; flex-wrap: wrap; gap: 18px; border: 0; padding: 12px 0; }
+.ranking-settings legend { padding-top: 12px; font-weight: 700; }
+.ranking-settings label { display: flex; align-items: center; gap: 7px; }
+.ranking-settings input { width: auto; }
+.ranking-settings p { color: var(--color-text-secondary); margin-bottom: 14px; }

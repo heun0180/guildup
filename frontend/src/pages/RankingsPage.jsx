@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
+import { shiftedRankingQuery } from "../rankingView.js";
 import HelpLink from "../components/HelpLink.jsx";
 
 export default function RankingsPage() {
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
+  const [selection, setSelection] = useState("");
+  const rankingUrl = `/api/communities/${encodeURIComponent(communityId)}/rankings${selection ? `?${selection}` : ""}`;
   const [attendance, setAttendance] = useState(null);
   const [rankingData, setRankingData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -33,7 +36,7 @@ export default function RankingsPage() {
     try {
       const [attendanceResult, rankingsResult] = await Promise.allSettled([
         api(`/api/communities/${encodeURIComponent(communityId)}/attendance/me`),
-        api(`/api/communities/${encodeURIComponent(communityId)}/rankings`),
+        api(rankingUrl),
       ]);
       if (rankingsResult.status === "rejected") throw rankingsResult.reason;
       setRankingData(rankingsResult.value);
@@ -50,7 +53,7 @@ export default function RankingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [communityId, handleError, validId]);
+  }, [communityId, handleError, validId, rankingUrl]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -68,7 +71,7 @@ export default function RankingsPage() {
         currentScore: result.currentScore,
       });
       setJustAttended(result.scoreAdded === 1);
-      setRankingData(await api(`/api/communities/${encodeURIComponent(communityId)}/rankings`));
+      setRankingData(await api(rankingUrl));
     } catch (error) {
       handleError(error, "출석 체크에 실패했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -77,6 +80,11 @@ export default function RankingsPage() {
   }
 
   const myRanking = rankingData?.myRanking;
+  const period = rankingData?.period;
+
+  function movePeriod(direction) {
+    setSelection(shiftedRankingQuery(period, direction));
+  }
 
   return (
     <DashboardLayout active="rankings" communityId={communityId} onError={setMessage}>
@@ -90,6 +98,14 @@ export default function RankingsPage() {
         {loading && <section className="panel ranking-loading" aria-live="polite">랭킹을 불러오는 중입니다.</section>}
 
         {!loading && rankingData && <>
+          {period && <section className="panel ranking-period" aria-label="랭킹 집계 기간">
+            <div><h2>{period.title}</h2>{period.startDate && <p>{period.startDate.replaceAll("-", ".")} ~ {period.endDate.replaceAll("-", ".")} · Asia/Seoul</p>}</div>
+            {period.periodType !== "ALL_TIME" && <nav aria-label="과거 랭킹 조회">
+              <button type="button" className="secondary-button" disabled={checking || period.year === 1 && (period.month === 1 || period.quarter === 1)} onClick={() => movePeriod(-1)}>이전</button>
+              <button type="button" className="secondary-button" disabled={period.current || checking} onClick={() => movePeriod(1)}>다음</button>
+              {!period.current && <button type="button" className="secondary-button" disabled={checking} onClick={() => setSelection("")}>현재 기간</button>}
+            </nav>}
+          </section>}
           <section className="ranking-summary-grid" aria-label="내 활동 점수">
             <div className="panel ranking-summary-card">
               <span>내 순위</span>
@@ -97,7 +113,7 @@ export default function RankingsPage() {
             </div>
             <div className="panel ranking-summary-card">
               <span>내 점수</span>
-              <strong>{attendance?.currentScore ?? myRanking?.score ?? 0}점</strong>
+              <strong>{myRanking?.score ?? 0}점</strong>
             </div>
           </section>
 
@@ -113,7 +129,7 @@ export default function RankingsPage() {
               </div>
             </div>
             {attendance.attended
-              ? <strong className="attendance-score">현재 점수 {attendance.currentScore}점</strong>
+              ? <strong className="attendance-score">누적 점수 {attendance.currentScore}점</strong>
               : <button type="button" onClick={checkAttendance} disabled={checking}>
                   <Icon name="check" size={18} />{checking ? "요청 중..." : "출석 체크 +1점"}
                 </button>}
@@ -121,8 +137,8 @@ export default function RankingsPage() {
 
           <section className="panel ranking-panel" aria-labelledby="ranking-list-title">
             <div className="ranking-panel-heading">
-              <div><h2 id="ranking-list-title">전체 랭킹</h2><p>ACTIVE 클랜원 {rankingData.rankings.length}명</p></div>
-              <span>Asia/Seoul 오늘 기준</span>
+              <div><h2 id="ranking-list-title">{period?.title ?? "전체 랭킹"}</h2><p>ACTIVE 클랜원 {rankingData.rankings.length}명</p></div>
+              <span>Asia/Seoul 기준</span>
             </div>
             {rankingData.rankings.length === 0
               ? <p className="empty-state">등록된 활성 클랜원이 없습니다.</p>
@@ -133,8 +149,10 @@ export default function RankingsPage() {
                         {entry.rank <= 3 && <span aria-hidden="true">{["🥇", "🥈", "🥉"][entry.rank - 1]}</span>}
                         <b>{entry.rank}</b>
                       </span>
-                      <span className="ranking-name" title={entry.nickname}>{entry.nickname}</span>
-                      {entry.me && <span className="ranking-me-badge">나</span>}
+                      <span className="ranking-name" title={entry.nickname}>{entry.nickname}
+                        <span className="ranking-breakdown">출석 {entry.attendanceScore}점 · 킬내기 {entry.killCompetitionScore}점</span>
+                      </span>
+                      <span>{entry.me && <span className="ranking-me-badge">나</span>}</span>
                       <strong className="ranking-score">{entry.score}점</strong>
                     </li>
                   ))}

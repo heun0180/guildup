@@ -7,6 +7,9 @@ import jakarta.persistence.PersistenceException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.guildup.monitoring.service.SafeMonitoringDataSanitizer;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.dao.DataAccessException;
@@ -23,6 +26,8 @@ import java.util.regex.Pattern;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class HttpServerErrorMonitoringFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(HttpServerErrorMonitoringFilter.class);
+    private static final SafeMonitoringDataSanitizer LOG_SANITIZER = new SafeMonitoringDataSanitizer();
     private static final Pattern COMMUNITY_PATH = Pattern.compile("/(?:api/)?communities/(\\d+)(?:/|$)");
     private final MonitoringEventService monitoring;
 
@@ -50,6 +55,9 @@ public class HttpServerErrorMonitoringFilter extends OncePerRequestFilter {
         HttpSession session = request.getSession(false);
         if (session != null && session.getAttribute(CurrentUserSession.USER_ID) instanceof Long id) userId = id;
         Long communityId = communityId(request.getRequestURI());
+        log.error("HTTP request failed - method={} endpoint={} status={} communityId={} userId={} elapsedMs={}",
+                request.getMethod(), LOG_SANITIZER.sanitizeText(request.getRequestURI()),
+                status, communityId, userId, elapsedMs);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("method", request.getMethod());
         metadata.put("uri", request.getRequestURI());

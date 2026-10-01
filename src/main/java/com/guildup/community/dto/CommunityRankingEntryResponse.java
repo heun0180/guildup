@@ -5,5 +5,7 @@ public record CommunityRankingEntryResponse(
         Long memberId,
         String nickname,
         int score,
-        boolean me
+        boolean me,
+        int attendanceScore,
+        int killCompetitionScore
 ) {}

@@ -4,5 +4,6 @@ import java.util.List;
 
 public record CommunityRankingsResponse(
         MyCommunityRankingResponse myRanking,
-        List<CommunityRankingEntryResponse> rankings
+        List<CommunityRankingEntryResponse> rankings,
+        RankingPeriodResponse period
 ) {}

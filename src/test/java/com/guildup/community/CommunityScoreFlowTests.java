@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @SpringBootTest(properties = {
@@ -261,6 +262,112 @@ class CommunityScoreFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"attendance-button\"")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("id=\"ranking-list\"")));
+    }
+
+    @Test
+    void monthlyAndQuarterlyAggregateHistoryAtSeoulBoundariesWithoutResetting() throws Exception {
+        Fixture mine = communityWithMember("기간 랭킹", user, "discord-apple", "애플");
+        Fixture other = communityWithMember("다른 커뮤니티", user, "discord-apple", "애플");
+        Long communityId = mine.community().getId();
+        for (String instant : List.of("2026-06-30T15:00:00Z", "2026-08-01T03:00:00Z",
+                "2026-08-31T15:00:00Z", "2026-09-30T14:59:59Z", "2026-09-30T15:00:00Z")) {
+            clock.set(Instant.parse(instant));
+            attendanceService.attend(user.getId(), communityId);
+        }
+        assertThat(scoreService.addKillCompetitionWinIfEligible(mine.member(), 900L,
+                Instant.parse("2026-09-30T14:59:59Z"))).isTrue();
+        assertThat(scoreService.addKillCompetitionWinIfEligible(mine.member(), 900L,
+                Instant.parse("2026-09-30T15:00:00Z"))).isFalse();
+        assertThat(scoreService.addKillCompetitionWinIfEligible(mine.member(), 901L,
+                Instant.parse("2026-09-30T15:00:00Z"))).isTrue();
+        scoreService.addScore(other.member(), CommunityScoreType.ATTENDANCE, 100, "다른 커뮤니티",
+                CommunityScoreReferenceType.ATTENDANCE, 800L, Instant.parse("2026-09-15T03:00:00Z"));
+        long historyCount = histories.count();
+        assertThat(rankingService.getSettings(user.getId(), communityId).periodType()).isEqualTo(RankingPeriodType.ALL_TIME);
+        assertThat(rankingService.getRankings(user.getId(), communityId).myRanking().score()).isEqualTo(11);
+
+        rankingService.updateSettings(user.getId(), communityId, RankingPeriodType.MONTHLY);
+        var september = rankingService.getRankings(user.getId(), communityId, 2026, 9, null);
+        assertThat(september.rankings()).singleElement().satisfies(entry -> {
+            assertThat(entry.score()).isEqualTo(5);
+            assertThat(entry.attendanceScore()).isEqualTo(2);
+            assertThat(entry.killCompetitionScore()).isEqualTo(3);
+        });
+        assertThat(september.period().startDate()).isEqualTo(LocalDate.of(2026, 9, 1));
+        assertThat(september.period().endDate()).isEqualTo(LocalDate.of(2026, 9, 30));
+        assertThat(september.period().current()).isFalse();
+        assertThat(rankingService.getRankings(user.getId(), communityId).myRanking().score()).isEqualTo(4);
+        mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026").param("month", "8"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.myRanking.score").value(1));
+
+        rankingService.updateSettings(user.getId(), communityId, RankingPeriodType.QUARTERLY);
+        var thirdQuarter = rankingService.getRankings(user.getId(), communityId, 2026, null, 3);
+        assertThat(thirdQuarter.myRanking().score()).isEqualTo(7);
+        assertThat(thirdQuarter.rankings().getFirst().attendanceScore()).isEqualTo(4);
+        mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026").param("quarter", "3"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.period.title").value("2026년 3분기 랭킹"));
+        assertThat(rankingService.getRankings(user.getId(), communityId).myRanking().score()).isEqualTo(4);
+        rankingService.updateSettings(user.getId(), communityId, RankingPeriodType.ALL_TIME);
+        assertThat(rankingService.getRankings(user.getId(), communityId).myRanking().score()).isEqualTo(11);
+        assertThat(histories.count()).isEqualTo(historyCount);
+        assertThat(scores.findByCommunityMemberId(mine.member().getId()).orElseThrow().getTotalScore()).isEqualTo(11);
+    }
+
+    @Test
+    void attendanceUsesRecognizedDateEvenIfHistoryTimestampIsOnAnotherDay() {
+        Fixture mine = communityWithMember("인정일 기준", user, "discord-apple", "애플");
+        var attendance = attendances.saveAndFlush(new CommunityAttendance(mine.member(), LocalDate.of(2026, 9, 30),
+                Instant.parse("2026-09-30T15:00:00Z")));
+        scoreService.addScore(mine.member(), CommunityScoreType.ATTENDANCE, 1, "출석",
+                CommunityScoreReferenceType.ATTENDANCE, attendance.getId(), Instant.parse("2026-09-30T15:00:00Z"));
+        clock.set(Instant.parse("2026-10-01T03:00:00Z"));
+        rankingService.updateSettings(user.getId(), mine.community().getId(), RankingPeriodType.MONTHLY);
+        assertThat(rankingService.getRankings(user.getId(), mine.community().getId(), 2026, 9, null).myRanking().score()).isEqualTo(1);
+        assertThat(rankingService.getRankings(user.getId(), mine.community().getId()).myRanking().score()).isZero();
+    }
+
+    @Test
+    void ownerAndAdminCanChangeSettingsButMemberAndOutsiderCannot() throws Exception {
+        Fixture mine = communityWithMember("설정 권한", user, "discord-apple", "애플");
+        mvc.perform(put(path(mine.community(), "/ranking-settings")).session(session)
+                        .contentType("application/json").content("{\"periodType\":\"MONTHLY\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.periodType").value("MONTHLY"));
+        User admin = users.save(new User("관리자"));
+        User member = users.save(new User("일반 사용자"));
+        User outsider = users.save(new User("외부 사용자"));
+        communityUsers.save(new CommunityUser(mine.community(), admin, CommunityUserRole.ADMIN));
+        communityUsers.save(new CommunityUser(mine.community(), member, CommunityUserRole.MEMBER));
+        for (User candidate : List.of(admin, member, outsider)) {
+            var candidateSession = new MockHttpSession();
+            candidateSession.setAttribute(CurrentUserSession.USER_ID, candidate.getId());
+            mvc.perform(put(path(mine.community(), "/ranking-settings")).session(candidateSession)
+                            .contentType("application/json").content("{\"periodType\":\"QUARTERLY\"}"))
+                    .andExpect(status().is(candidate == admin ? 200 : 403));
+        }
+        assertThat(rankingService.getSettings(user.getId(), mine.community().getId()).periodType()).isEqualTo(RankingPeriodType.QUARTERLY);
+    }
+
+    @Test
+    void invalidAndFuturePeriodsAreRejectedAndAllTimePreservesUndatedTotal() throws Exception {
+        Fixture mine = communityWithMember("기존 누적값", user, "discord-apple", "애플");
+        var summary = new CommunityMemberScore(mine.member(), clock.instant());
+        summary.add(30, clock.instant());
+        scores.save(summary);
+        assertThat(rankingService.getRankings(user.getId(), mine.community().getId()).myRanking().score()).isEqualTo(30);
+        mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026").param("month", "9"))
+                .andExpect(status().isBadRequest());
+        rankingService.updateSettings(user.getId(), mine.community().getId(), RankingPeriodType.MONTHLY);
+        for (String month : List.of("0", "13", "10")) {
+            mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026").param("month", month))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get(path(mine.community(), "/rankings")).session(session).param("year", "2026").param("quarter", "3"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(put(path(mine.community(), "/ranking-settings")).session(session)
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     private Fixture communityWithMember(String name, User owner, String discordId, String displayName) {

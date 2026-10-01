@@ -14,10 +14,10 @@ import java.time.Instant;
                 name = "uk_community_score_history_reference",
                 columnNames = {"community_member_id", "score_type", "reference_type", "reference_id"}
         ),
-        indexes = @Index(
+        indexes = {@Index(
                 name = "idx_community_score_history_member_created",
                 columnList = "community_member_id, created_at, id"
-        )
+        ), @Index(name = "idx_community_score_history_community_created", columnList = "community_id, created_at, community_member_id")}
 )
 public class CommunityScoreHistory {
     @Id

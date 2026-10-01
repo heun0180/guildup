@@ -2,11 +2,15 @@ package com.guildup.community.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.Instant;
 
@@ -24,6 +28,17 @@ public class Community {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'ALL_TIME'")
+    @Column(name = "ranking_period_type", nullable = false, length = 20)
+    private RankingPeriodType rankingPeriodType = RankingPeriodType.ALL_TIME;
+
+    public RankingPeriodType getRankingPeriodType() { return rankingPeriodType; }
+
+    public void changeRankingPeriodType(RankingPeriodType periodType) {
+        this.rankingPeriodType = java.util.Objects.requireNonNull(periodType);
+    }
 
     /** JPA가 엔티티를 생성할 때 사용하는 기본 생성자다. */
     protected Community() {

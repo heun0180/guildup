@@ -1,5 +1,7 @@
 package com.guildup.community.controller;
 
+import com.guildup.community.dto.RankingSettingsResponse;
+import com.guildup.community.dto.RankingSettingsRequest;
 import com.guildup.community.dto.AttendanceCheckResponse;
 import com.guildup.community.dto.AttendanceStatusResponse;
 import com.guildup.community.dto.CommunityRankingsResponse;
@@ -32,7 +34,21 @@ public class CommunityScoreController {
     }
 
     @GetMapping("/rankings")
-    public CommunityRankingsResponse getRankings(@PathVariable Long communityId, HttpSession session) {
-        return rankings.getRankings(CurrentUserSession.requireUserId(session), communityId);
+    public CommunityRankingsResponse getRankings(@PathVariable Long communityId, HttpSession session,
+                                                 @RequestParam(required = false) Integer year,
+                                                 @RequestParam(required = false) Integer month,
+                                                 @RequestParam(required = false) Integer quarter) {
+        return rankings.getRankings(CurrentUserSession.requireUserId(session), communityId, year, month, quarter);
+    }
+
+    @GetMapping("/ranking-settings")
+    public RankingSettingsResponse getSettings(@PathVariable Long communityId, HttpSession session) {
+        return rankings.getSettings(CurrentUserSession.requireUserId(session), communityId);
+    }
+
+    @PutMapping("/ranking-settings")
+    public RankingSettingsResponse updateSettings(@PathVariable Long communityId, HttpSession session,
+                                                  @RequestBody RankingSettingsRequest request) {
+        return rankings.updateSettings(CurrentUserSession.requireUserId(session), communityId, request.periodType());
     }
 }

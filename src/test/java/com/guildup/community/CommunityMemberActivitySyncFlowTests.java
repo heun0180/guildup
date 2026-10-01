@@ -4,6 +4,9 @@ import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
 import com.guildup.community.service.CommunityService;
 import com.guildup.discord.bot.DiscordBot;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.domain.MonitoringSeverity;
+import com.guildup.monitoring.repository.MonitoringEventRepository;
 import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgParticipant;
@@ -66,6 +69,7 @@ class CommunityMemberActivitySyncFlowTests {
     @Autowired CommunityMemberRepository members;
     @Autowired CommunityMemberAccountRepository accounts;
     @Autowired CommunityMemberActivitySnapshotRepository snapshots;
+    @Autowired MonitoringEventRepository monitoringEvents;
 
     @MockitoBean Clock clock;
     @MockitoBean PubgPlayerService playerService;
@@ -81,6 +85,7 @@ class CommunityMemberActivitySyncFlowTests {
 
     @BeforeEach
     void setUp() {
+        monitoringEvents.deleteAll();
         snapshots.deleteAll();
         syncs.deleteAll();
         nicknameRules.deleteAll();
@@ -158,6 +163,7 @@ class CommunityMemberActivitySyncFlowTests {
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isTooManyRequests());
+        assertThat(monitoringEvents.count()).isZero();
         verify(matchService, times(1)).findUniqueMatchesFresh(
                 eq("kakao"), anyList(), anyLong(), anyLong()
         );
@@ -215,6 +221,22 @@ class CommunityMemberActivitySyncFlowTests {
         var sync = syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow();
         assertThat(sync.getSyncStatus()).isEqualTo(CommunityGameActivitySyncStatus.FAILED);
         assertThat(snapshots.count()).isZero();
+        var failure = monitoringEvents.findAll().stream()
+                .filter(event -> event.getEventCode() == MonitoringEventCode.COMMUNITY_ACTIVITY_SYNC_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failure.getSeverity()).isEqualTo(MonitoringSeverity.ERROR);
+        assertThat(failure.getCommunityId()).isEqualTo(fixture.community().getId());
+        assertThat(failure.getUserId()).isEqualTo(owner.getId());
+        assertThat(failure.getMetadata()).containsEntry("status", 503)
+                .containsEntry("upstreamStatus", 503)
+                .containsEntry("pubgErrorCode", "PUBG_UNAVAILABLE")
+                .containsKey("elapsedMs");
+        assertThat(failure.getMetadata().toString()).doesNotContain("PUBG match retries exhausted");
+        assertThat(monitoringEvents.findAll()).anySatisfy(event -> {
+            assertThat(event.getEventCode()).isEqualTo(MonitoringEventCode.HTTP_5XX);
+            assertThat(event.getMetadata()).containsEntry("status", 503)
+                    .containsEntry("uri", syncPath(fixture));
+        });
     }
 
     @Test

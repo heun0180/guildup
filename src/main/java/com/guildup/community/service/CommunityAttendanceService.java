@@ -49,13 +49,14 @@ public class CommunityAttendanceService {
     @Transactional
     public AttendanceCheckResponse attend(Long userId, Long communityId) {
         CommunityMember member = currentMembers.requireForUpdate(userId, communityId);
-        LocalDate today = today();
+        var occurredAt = clock.instant();
+        LocalDate today = occurredAt.atZone(ATTENDANCE_ZONE).toLocalDate();
         var existing = attendances.findByCommunityMemberIdAndAttendanceDate(member.getId(), today);
         if (existing.isPresent()) {
             return new AttendanceCheckResponse(true, today, 0, scores.getTotalScore(member));
         }
 
-        var attendance = attendances.saveAndFlush(new CommunityAttendance(member, today, clock.instant()));
+        var attendance = attendances.saveAndFlush(new CommunityAttendance(member, today, occurredAt));
         int total = scores.addScore(
                 member,
                 CommunityScoreType.ATTENDANCE,
@@ -63,7 +64,7 @@ public class CommunityAttendanceService {
                 "일일 출석",
                 CommunityScoreReferenceType.ATTENDANCE,
                 attendance.getId(),
-                clock.instant()
+                occurredAt
         );
         return new AttendanceCheckResponse(true, today, 1, total);
     }
