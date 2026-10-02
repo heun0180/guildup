@@ -11,6 +11,7 @@ import com.guildup.pubg.repository.PubgStoredMatchRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.guildup.pubg.model.PubgPlatform;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -29,21 +30,23 @@ public class PubgMatchFactWriter {
     }
 
     @Transactional
-    public boolean saveMatchIfAbsent(String shard, PubgMatch source) {
-        if (matches.findByMatchId(source.matchId()).isPresent()) return false;
+    public boolean saveMatchIfAbsent(PubgPlatform platform, PubgMatch source) {
+        if (matches.findByShardAndMatchId(platform.getShard(), source.matchId()).isPresent()) return false;
         Instant now = clock.instant();
-        PubgStoredMatch stored = new PubgStoredMatch(source.matchId(), shard, source.playedAt(), source.gameMode(),
+        PubgStoredMatch stored = new PubgStoredMatch(source.matchId(), platform.getShard(), source.playedAt(), source.gameMode(),
                 source.matchType(), source.mapName(), source.customMatch(), source.telemetryUrl(), source.durationSeconds(), now);
         int teamNumber = 0;
         for (PubgTeam team : source.teams()) {
             teamNumber++;
             for (PubgParticipant player : team.participants()) {
                 if (player.accountId() == null) continue;
-                stored.addPlayer(new PubgStoredMatchPlayer(stored, player.accountId(), player.name(), teamNumber,
+                PubgStoredMatchPlayer storedPlayer = new PubgStoredMatchPlayer(stored, player.accountId(), player.name(), teamNumber,
                         player.kills(), decimal(player.damageDealt()), player.assists(), player.dbnos(),
                         player.headshotKills(), player.revives(), player.heals(), player.boosts(),
                         decimal(player.walkDistance()), decimal(player.rideDistance()), decimal(player.swimDistance()),
-                        player.winPlace(), now));
+                        player.winPlace(), now);
+                storedPlayer.originalCombatStats(player.survivalTime(), player.roadKills());
+                stored.addPlayer(storedPlayer);
             }
         }
         matches.saveAndFlush(stored);
@@ -51,8 +54,8 @@ public class PubgMatchFactWriter {
     }
 
     @Transactional
-    public StoredCounts saveTelemetry(String matchId, Map<String, PlayerMatchFacts> facts) {
-        PubgStoredMatch stored = matches.findForUpdateByMatchId(matchId).orElseThrow(() ->
+    public StoredCounts saveTelemetry(PubgPlatform platform, String matchId, Map<String, PlayerMatchFacts> facts) {
+        PubgStoredMatch stored = matches.findForUpdateByShardAndMatchId(platform.getShard(), matchId).orElseThrow(() ->
                 new IllegalStateException("PUBG source match missing during telemetry fact save: matchId=" + matchId));
         if (!stored.needsTelemetryFactUpgrade()) return new StoredCounts(0, 0);
         Instant now = clock.instant();

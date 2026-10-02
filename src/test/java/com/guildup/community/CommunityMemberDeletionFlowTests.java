@@ -1,5 +1,7 @@
 package com.guildup.community;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.activity.ClanActivityStatus;
 import com.guildup.community.domain.Community;
@@ -93,7 +95,7 @@ class CommunityMemberDeletionFlowTests {
     void ownerRemovesManualMemberFromListWhilePreservingGameAccountAndHistory() throws Exception {
         CommunityMember remaining = members.save(new CommunityMember(community, "유지할 클랜원"));
         CommunityMemberAccount gameAccount = accounts.save(new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, "account.manual", "ManualPlayer"));
+                member, PubgPlatform.KAKAO, "account.manual", "ManualPlayer"));
         Instant now = Instant.now();
         CommunityMemberScore score = new CommunityMemberScore(member, now);
         score.add(42, now);

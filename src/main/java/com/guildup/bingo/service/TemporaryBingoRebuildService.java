@@ -101,7 +101,7 @@ public class TemporaryBingoRebuildService {
         try {
             removeExpiredPreviews();
             BuildResult result = calculate(event, communityId, communityGameId,
-                    PubgGameSupport.requireShard(game.getGameType()));
+                    PubgGameSupport.requirePlatform(game));
             if (!result.failures().isEmpty()) return failed(event, userId, communityId, communityGameId, "PREVIEW", result);
             String token = UUID.randomUUID().toString();
             PreviewSnapshot snapshot = result.snapshot(token, clock.instant().plus(PREVIEW_TTL));
@@ -126,7 +126,7 @@ public class TemporaryBingoRebuildService {
         try {
             BingoEvent active = requireOnlyActive(communityId, communityGameId);
             BuildResult recalculated = calculate(active, communityId, communityGameId,
-                    PubgGameSupport.requireShard(game.getGameType()));
+                    PubgGameSupport.requirePlatform(game));
             if (!recalculated.failures().isEmpty()) return failed(active, userId, communityId, communityGameId, "APPLY", recalculated);
             PreviewSnapshot current = recalculated.snapshot(snapshot.token(), snapshot.expiresAt());
             if (!sameRepairPlan(snapshot, current))
@@ -139,15 +139,16 @@ public class TemporaryBingoRebuildService {
         }
     }
 
-    private BuildResult calculate(BingoEvent event, Long communityId, Long communityGameId, String shard) {
+    private BuildResult calculate(BingoEvent event, Long communityId, Long communityGameId, PubgPlatform platform) {
+        String shard = platform.getShard();
         Instant calculatedAt = clock.instant();
         List<BingoParticipant> participantRows = participants.findByEventIdOrderByIdAsc(event.getId());
         List<BingoCell> cells = event.getCells();
         if (cells.size() != 16)
             conflict("현재 활성 빙고가 16개 셀로 구성되어 있지 않습니다.");
 
-        List<CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProvider(
-                communityId, ExternalAccountProvider.PUBG);
+        List<CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProviderAndPlatform(
+                communityId, ExternalAccountProvider.PUBG, platform);
         Map<Long, CommunityMemberAccount> accountByMember = currentAccounts.stream().collect(Collectors.toMap(
                 account -> account.getCommunityMember().getId(), Function.identity(), (left, right) -> left));
         List<TemporaryBingoRebuildResponse.Failure> failures = new ArrayList<>();
@@ -257,8 +258,8 @@ public class TemporaryBingoRebuildService {
             }
             Map<String, PlayerMatchFacts> matchFacts;
             try {
-                matchFacts = requireTelemetry ? facts.factsRequired(match, communityAccounts)
-                        : facts.facts(match, communityAccounts);
+                matchFacts = requireTelemetry ? facts.factsRequired(platform, match, communityAccounts)
+                        : facts.facts(platform, match, communityAccounts);
             } catch (RuntimeException exception) {
                 String stage = telemetryFailureStage(exception);
                 diagnostics.add(diagnostic(stage, exception));
@@ -347,8 +348,8 @@ public class TemporaryBingoRebuildService {
                 || !Objects.equals(snapshot.cellFingerprint(), eventFingerprint(event)))
             conflict("미리보기 이후 빙고 또는 일반 집계 데이터가 변경되었습니다. 다시 미리보기를 실행해 주세요.");
 
-        Map<Long, CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProvider(
-                        snapshot.communityId(), ExternalAccountProvider.PUBG).stream()
+        Map<Long, CommunityMemberAccount> currentAccounts = memberAccounts.findByCommunityIdAndProviderAndPlatform(
+                        snapshot.communityId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame())).stream()
                 .collect(Collectors.toMap(account -> account.getCommunityMember().getId(), Function.identity(), (a, b) -> a));
         Map<Long, BingoParticipant> currentParticipants = participants.findByEventIdOrderByIdAsc(event.getId()).stream()
                 .collect(Collectors.toMap(BingoParticipant::getId, Function.identity()));

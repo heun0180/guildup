@@ -33,6 +33,9 @@ import { CommunityProvider, useCommunity } from "./community/CommunityContext.js
 import DeveloperLayout from "./developer/DeveloperLayout.jsx";
 import { DeveloperBingoDetailPage, DeveloperCommunitiesPage, DeveloperCommunityDetailPage,
   DeveloperDashboardPage, DeveloperKillCompetitionDetailPage } from "./developer/DeveloperPages.jsx";
+import GameScopeBoundary from "./community/GameScopeBoundary.jsx";
+import PubgPlatformBar from "./components/PubgPlatformBar.jsx";
+import { gamePageScopeKey } from "./pubgPlatform.js";
 import MonitoringPage from "./developer/MonitoringPage.jsx";
 
 const activeByPath = {
@@ -68,7 +71,9 @@ function CommunityShell() {
   return (
     <DashboardLayout persistent active={active} communityId={state.communityId} community={state.community}>
       <CommunityRouteGuard>
-        <Outlet />
+        <PubgPlatformBar>
+          <GameScopeBoundary key={gamePageScopeKey(location)}><Outlet /></GameScopeBoundary>
+        </PubgPlatformBar>
       </CommunityRouteGuard>
     </DashboardLayout>
   );

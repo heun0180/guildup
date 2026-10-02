@@ -14,7 +14,7 @@ create table if not exists pubg_matches (
     telemetry_fact_version integer not null default 0,
     created_at timestamptz not null,
     updated_at timestamptz not null,
-    constraint uk_pubg_matches_match_id unique (match_id)
+    constraint uk_pubg_matches_shard_match_id unique (shard, match_id)
 );
 
 create index if not exists idx_pubg_matches_started_at on pubg_matches (started_at);
@@ -34,6 +34,8 @@ create table if not exists pubg_match_players (
     revives integer not null,
     heals integer not null,
     boosts integer not null,
+    time_survived double precision null,
+    road_kills integer null,
     walk_distance numeric(18,3) null,
     ride_distance numeric(18,3) null,
     swim_distance numeric(18,3) null,

@@ -73,7 +73,7 @@ class PubgMatchPersistenceTests {
                         new PubgParticipant("account-a", "A", 3),
                         new PubgParticipant("account-b", "B", 1)))));
 
-        writer.saveMatchIfAbsent("kakao", match);
+        writer.saveMatchIfAbsent(PubgPlatform.KAKAO, match);
 
         assertThat(players.findAll()).extracting(value -> value.getAccountId())
                 .containsExactlyInAnyOrder("account-a", "account-b");
@@ -84,7 +84,7 @@ class PubgMatchPersistenceTests {
         PubgMatch match = new PubgMatch("shared-telemetry", at, "squad", "Erangel_Main",
                 "official", false, "https://telemetry-cdn.pubg.com/shared-telemetry",
                 List.of(new PubgTeam(List.of(new PubgParticipant("account-a", "A", 1)))));
-        writer.saveMatchIfAbsent("kakao", match);
+        writer.saveMatchIfAbsent(PubgPlatform.KAKAO, match);
         PlayerMatchFacts fact = new PlayerMatchFacts("shared-telemetry", at, "Erangel_Main", "squad",
                 Map.of("KILLS", BigDecimal.ONE),
                 List.of(new PlayerMatchFacts.KillFact("victim", "VSS", "DMR", null, 200, false, at)),
@@ -98,7 +98,7 @@ class PubgMatchPersistenceTests {
             for (Future<?> future : futures) future.get(3, TimeUnit.SECONDS);
         }
 
-        assertThat(matches.findByMatchId("shared-telemetry").orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(matches.findByShardAndMatchId("kakao","shared-telemetry").orElseThrow().isTelemetryLoaded()).isTrue();
         assertThat(kills.count()).isEqualTo(1);
     }
 
@@ -117,26 +117,81 @@ class PubgMatchPersistenceTests {
                 """));
         PubgBingoFactService parser = new PubgBingoFactService(telemetry, Clock.systemUTC());
 
-        writer.saveMatchIfAbsent("kakao", match);
-        writer.saveTelemetry(match.matchId(), parser.facts(match, Set.of("account-a")));
+        writer.saveMatchIfAbsent(PubgPlatform.KAKAO, match);
+        writer.saveTelemetry(PubgPlatform.KAKAO,match.matchId(), parser.facts(PubgPlatform.KAKAO,match, Set.of("account-a")));
 
         assertThat(kills.findAll()).extracting(value -> value.getDistanceMeters())
                 .containsExactlyInAnyOrder(new BigDecimal("199.990"), new BigDecimal("200.000"), new BigDecimal("250.000"));
         assertThat(kills.findAll()).filteredOn(value -> value.getVictimAccountId().startsWith("ai."))
                 .singleElement().satisfies(value -> assertThat(value.isHeadshot()).isTrue());
-        assertThat(matches.findByMatchId(match.matchId()).orElseThrow().getTelemetryFactVersion())
+        assertThat(matches.findByShardAndMatchId("kakao",match.matchId()).orElseThrow().getTelemetryFactVersion())
                 .isEqualTo(com.guildup.pubg.domain.PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION);
-        PlayerMatchFacts stored = query.findBetween(at.minusSeconds(1), at.plusSeconds(1), Set.of("account-a"))
+        PlayerMatchFacts stored = query.findBetween(PubgPlatform.KAKAO,at.minusSeconds(1), at.plusSeconds(1), Set.of("account-a"), Set.of("account-a"))
                 .getFirst().byAccount().get("account-a");
         assertThat(stored.metric("NON_BOT_KILLS")).isEqualByComparingTo("2");
         assertThat(new BingoMissionEngine().value(BingoMissionType.LONG_DISTANCE_KILL, stored,
                 Map.of("distance", 200))).isEqualByComparingTo("2");
     }
 
+    @Test void sameMatchIdOnTwoPlatformsIsStoredQueriedAndUpdatedIndependently() {
+        Instant at = Instant.parse("2026-09-25T00:00:00Z");
+        PubgMatch kakao = new PubgMatch("match-123", at, "squad", "Erangel_Main", "official", false, null,
+                List.of(new PubgTeam(List.of(new PubgParticipant("same-account", "Kakao", 3)))));
+        PubgMatch steam = new PubgMatch("match-123", at, "squad", "Erangel_Main", "official", false, null,
+                List.of(new PubgTeam(List.of(new PubgParticipant("same-account", "Steam", 8)))));
+        assertThat(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, kakao)).isTrue();
+        assertThat(writer.saveMatchIfAbsent(PubgPlatform.STEAM, steam)).isTrue();
+        assertThat(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, kakao)).isFalse();
+        writer.saveTelemetry(PubgPlatform.KAKAO, "match-123", Map.of());
+        assertThat(matches.findByShardAndMatchId("kakao", "match-123").orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(matches.findByShardAndMatchId("steam", "match-123").orElseThrow().isTelemetryLoaded()).isFalse();
+        assertThat(query.findTelemetryMissing(PubgPlatform.STEAM, Set.of("match-123")))
+                .singleElement().satisfies(match -> assertThat(match.teams().getFirst().participants().getFirst().kills()).isEqualTo(8));
+        assertThat(query.findBetween(PubgPlatform.KAKAO, at.minusSeconds(1), at.plusSeconds(1), Set.of("same-account"), Set.of()))
+                .singleElement().satisfies(fact -> assertThat(fact.platform()).isEqualTo(PubgPlatform.KAKAO));
+        assertThat(query.findBetween(PubgPlatform.KAKAO, at.minusSeconds(1), at.plusSeconds(1), Set.of("unrelated-account"), Set.of())).isEmpty();
+        assertThat(matches.count()).isEqualTo(2);
+    }
+
+    @Test void originalTimeSurvivedAndRoadKillsSurviveFactDatabaseRoundTrip() {
+        Instant at = Instant.parse("2026-09-25T00:00:00Z");
+        PubgParticipant source = new PubgParticipant("account-a", "A", 4, 300, 2, 1, 1, 2, 3, 1, 2, 1,
+                1234.567891, 100, 200, 10, 150);
+        PubgMatch match = new PubgMatch("original-stats", at, "squad", "Erangel_Main", "official", false, null,
+                List.of(new PubgTeam(List.of(source))));
+        writer.saveMatchIfAbsent(PubgPlatform.STEAM, match);
+        PubgParticipant restored = query.findTelemetryMissing(PubgPlatform.STEAM, Set.of(match.matchId()))
+                .getFirst().teams().getFirst().participants().getFirst();
+        assertThat(restored.survivalTime()).isEqualTo(source.survivalTime());
+        assertThat(restored.roadKills()).isEqualTo(source.roadKills());
+    }
+
+    @Test void fallbackFactsAndFailedTelemetryNeverMarkTheStoredMatchLoaded() {
+        Instant at = Instant.parse("2026-09-25T00:00:00Z");
+        PubgMatch match = new PubgMatch("missing-telemetry", at, "squad", "Erangel_Main", "official", false, null,
+                List.of(new PubgTeam(List.of(new PubgParticipant("account-a", "A", 4)))));
+        PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
+        PubgBingoFactService parser = new PubgBingoFactService(telemetry, Clock.systemUTC());
+        assertThat(parser.facts(PubgPlatform.KAKAO, match, Set.of()).get("account-a").metric("KILLS"))
+                .isEqualByComparingTo("4");
+        com.guildup.pubg.service.PubgPlayerService playerApi = mock(com.guildup.pubg.service.PubgPlayerService.class);
+        com.guildup.pubg.service.PubgMatchService matchApi = mock(com.guildup.pubg.service.PubgMatchService.class);
+        when(playerApi.findByAccountIdsFresh("kakao", List.of("account-a")))
+                .thenReturn(List.of(new PubgPlayer("account-a", "A", List.of(match.matchId()))));
+        when(matchApi.findUniqueMatches("kakao", Set.of(match.matchId()))).thenReturn(Map.of(match.matchId(), match));
+        var collector = new com.guildup.pubg.service.PubgMatchSyncService(playerApi, matchApi, parser, query, writer, 1);
+        try {
+            var result = collector.sync(PubgPlatform.KAKAO, List.of("account-a"), ignored -> true,
+                    com.guildup.pubg.service.PubgMatchSyncService.ProgressListener.noop());
+            assertThat(result.telemetryFailures()).isEqualTo(1);
+            assertThat(matches.findByShardAndMatchId("kakao", match.matchId()).orElseThrow().isTelemetryLoaded()).isFalse();
+        } finally { org.springframework.test.util.ReflectionTestUtils.invokeMethod(collector, "shutdownExecutor"); }
+    }
+
     private void saveAtTheSameTime(CyclicBarrier barrier, PubgMatch match) {
         try {
             barrier.await();
-            writer.saveMatchIfAbsent("kakao", match);
+            writer.saveMatchIfAbsent(PubgPlatform.KAKAO, match);
         } catch (DataIntegrityViolationException ignored) {
             // The database unique key is the final arbiter for a true race.
         } catch (InterruptedException exception) {
@@ -150,6 +205,6 @@ class PubgMatchPersistenceTests {
     private PubgMatchFactWriter.StoredCounts saveTelemetryAtTheSameTime(
             CyclicBarrier barrier, Map<String, PlayerMatchFacts> facts) throws Exception {
         barrier.await();
-        return writer.saveTelemetry("shared-telemetry", facts);
+        return writer.saveTelemetry(PubgPlatform.KAKAO,"shared-telemetry", facts);
     }
 }

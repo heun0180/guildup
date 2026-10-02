@@ -1,5 +1,7 @@
 package com.guildup.community;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.repository.*;
@@ -164,7 +166,7 @@ class CommunityDeletionFlowTests {
         CommunityGame game = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
         CommunityMember member = communityMembers.save(new CommunityMember(community, "member-" + suffix));
         memberAccounts.save(new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, "account-" + suffix, "player-" + suffix));
+                member, PubgPlatform.KAKAO, "account-" + suffix, "player-" + suffix));
         roleSettings.save(new CommunityMemberRoleSetting(community, "role-" + suffix, "Clan"));
         discordConnections.save(new DiscordCommunityConnection(community, "guild-" + suffix, "Guild"));
 

@@ -1,5 +1,7 @@
 package com.guildup.community;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
 import com.guildup.community.service.CommunityService;
@@ -380,7 +382,7 @@ class CommunityFlowTests {
         CommunityMember member = communityMembers.save(new CommunityMember(community, "Mkimin"));
         memberAccounts.save(new CommunityMemberAccount(
                 member,
-                com.guildup.account.domain.ExternalAccountProvider.PUBG,
+                PubgPlatform.KAKAO,
                 "wrong-account",
                 "KiMinM"
         ));
@@ -409,9 +411,37 @@ class CommunityFlowTests {
         mvc.perform(get(base + "/members").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].gameNickname").value("Mkimin"));
-        assertThat(memberAccounts.findByCommunityMemberIdAndProvider(
-                member.getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                member.getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO
         )).get().extracting(CommunityMemberAccount::getExternalUserId).isEqualTo("correct-account");
+    }
+
+    @Test
+    void synchronizingEitherPlatformPreservesTheOtherAccountInDatabase() throws Exception {
+        Community community = service.createCommunity("두 플랫폼", user.getId());
+        CommunityGame kakao = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        CommunityGame steam = communityGames.save(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+        CommunityMember member = communityMembers.save(new CommunityMember(community, "SharedNick"));
+        memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.KAKAO, "old-k", "OldK"));
+        memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.STEAM, "old-s", "OldS"));
+        for (CommunityGame game : java.util.List.of(kakao, steam)) {
+            gameNicknameRules.save(new CommunityGameNicknameRule(community, game.getGameType(),
+                    GameNicknameRuleStrategyType.FULL_NICKNAME, null, null, false, null, "SharedNick", "SharedNick"));
+            var platform = com.guildup.pubg.support.PubgGameSupport.requirePlatform(game);
+            org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh(platform.getShard(), java.util.List.of("SharedNick")))
+                    .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer("new-" + platform, "SharedNick", java.util.List.of())));
+            mvc.perform(post("/api/communities/" + community.getId() + "/games/" + game.getId() + "/nickname-rule/sync").session(session))
+                    .andExpect(status().isOk());
+            assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(member.getId(),
+                    com.guildup.account.domain.ExternalAccountProvider.PUBG, platform).orElseThrow().getExternalUserId())
+                    .isEqualTo("new-" + platform);
+            var otherPlatform = platform == PubgPlatform.KAKAO
+                    ? PubgPlatform.STEAM : PubgPlatform.KAKAO;
+            assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(member.getId(),
+                    com.guildup.account.domain.ExternalAccountProvider.PUBG, otherPlatform).orElseThrow().getExternalUserId())
+                    .isEqualTo(platform == PubgPlatform.KAKAO ? "old-s" : "new-KAKAO");
+        }
+        assertThat(memberAccounts.findPubgAccountsByCommunityId(community.getId())).hasSize(2);
     }
 
     @Test

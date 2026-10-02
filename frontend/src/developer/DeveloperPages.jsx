@@ -242,8 +242,8 @@ function CommunityUsers({ communityId }) {
 
 function CommunityMembers({ communityId }) {
   return <TabPage url={`/api/developer/communities/${communityId}/members?size=${PAGE_SIZE}`} columns={["Member ID", "인게임 닉네임", "PUBG Account ID", "연결된 GuildUp User", "상태", "Discord"]}
-    row={(item) => <tr key={item.memberId}><td><CopyId value={item.memberId} label="Community Member ID" /></td><td><strong>{item.pubgNickname || item.nickname}</strong><small>{item.nickname}</small></td>
-      <td><CopyId value={item.pubgAccountId} label="PUBG Account ID" /></td><td>{item.linkedUserId ? <>{item.linkedUserNickname}<CopyId value={item.linkedUserId} label="User ID" /></> : <Status value="UNLINKED" />}</td>
+    row={(item) => <tr key={item.memberId}><td><CopyId value={item.memberId} label="Community Member ID" /></td><td><strong>{item.nickname}</strong>{(item.pubgAccounts ?? []).map((account) => <small key={account.platform}>{account.platform === "KAKAO" ? "Kakao" : "Steam"} · {account.nickname || "-"}</small>)}</td>
+      <td>{(item.pubgAccounts ?? []).map((account) => <div key={account.platform}><small>{account.platform === "KAKAO" ? "Kakao" : "Steam"}</small><CopyId value={account.accountId} label="PUBG Account ID" /></div>)}</td><td>{item.linkedUserId ? <>{item.linkedUserNickname}<CopyId value={item.linkedUserId} label="User ID" /></> : <Status value="UNLINKED" />}</td>
       <td><Status value={item.status} /></td><td><CopyId value={item.discordUserId} label="Discord User ID" /></td></tr>} />;
 }
 

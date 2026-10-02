@@ -1,5 +1,6 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useEffect, useMemo, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 
@@ -8,6 +9,7 @@ const damage = (value) => value == null ? "-" : new Intl.NumberFormat("ko-KR", {
 }).format(value);
 
 export default function TeamMakerPage() {
+  const api = useScopedApi();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
   const teamMakerApi = `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(communityGameId)}/team-maker`;
@@ -35,7 +37,7 @@ export default function TeamMakerPage() {
         setSelectedIds(new Set(data.participants.map((participant) => participant.memberId)));
       })
       .catch((error) => {
-        if (!redirectToLogin(error)) {
+        if (!isRequestCancelled(error) && !redirectToLogin(error)) {
           setMessage(error.status === 403
             ? "팀 만들기는 커뮤니티 운영진과 관리자만 사용할 수 있습니다."
             : error.message || "참가자 목록을 불러오지 못했습니다.");
@@ -93,7 +95,7 @@ export default function TeamMakerPage() {
         generated.missingStatsParticipants.map((participant) => [participant.memberId, ""]),
       ));
     } catch (error) {
-      if (!redirectToLogin(error)) setMessage(error.message || "팀 생성 중 오류가 발생했습니다.");
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message || "팀 생성 중 오류가 발생했습니다.");
     } finally {
       setGenerating(false);
     }
@@ -119,7 +121,7 @@ export default function TeamMakerPage() {
         selectedSeasonIds: current.selectedSeasonIds,
       }));
     } catch (error) {
-      if (!redirectToLogin(error)) setMessage(error.message || "팀을 다시 만들지 못했습니다.");
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message || "팀을 다시 만들지 못했습니다.");
     } finally {
       setGenerating(false);
     }
@@ -162,7 +164,7 @@ export default function TeamMakerPage() {
       });
       setMessage("입력한 평균 딜량을 포함해 팀을 생성했습니다.");
     } catch (error) {
-      if (!redirectToLogin(error)) setMessage(error.message || "수동 딜량으로 팀을 만들지 못했습니다.");
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message || "수동 딜량으로 팀을 만들지 못했습니다.");
     } finally {
       setGenerating(false);
     }

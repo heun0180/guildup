@@ -299,6 +299,9 @@ sequenceDiagram
 
 운영 DB에서는 `ddl-auto=update`에 의존하기보다 현재 엔티티 전체를 기준으로 버전형 migration을 먼저 정리해야 한다.
 
+PUBG Kakao/Steam 계정 및 Match 경계 변경의 두 단계 SQL, 데이터 감사, 신규 설치 절차는 [플랫폼 분리 배포 안내](PUBG_PLATFORM_DEPLOYMENT.md)를 따른다. 새 앱을 시작하기 전에 migration과 PostgreSQL 부분 unique index 적용을 완료해야 한다.
+변경 파일과 회귀 검증 결과는 [플랫폼 분리 구현 결과](PUBG_PLATFORM_IMPLEMENTATION.md)에 정리했다.
+
 ## 프로젝트 구조
 
 ```text

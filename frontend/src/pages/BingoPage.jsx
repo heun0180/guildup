@@ -1,5 +1,6 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import HelpLink from "../components/HelpLink.jsx";
@@ -36,6 +37,7 @@ const localKst = (value) => value ? new Date(new Date(value).getTime()+9*3600000
 const remaining = (value) => {const ms=new Date(value).getTime()-Date.now();if(ms<=0)return "종료됨";const hours=Math.ceil(ms/3600000);return hours>=24?`${Math.floor(hours/24)}일 ${hours%24}시간`:`${hours}시간`;};
 
 export default function BingoPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
@@ -59,7 +61,7 @@ export default function BingoPage() {
       // The catalog only enriches the mission editor. A rolling deployment or
       // a backend process that has not restarted yet must not break bingo view.
       const catalogRequest=api(`${bingoApi}/catalog`).catch(error=>{
-        if(!redirectToLogin(error))setCatalogWarning("미션 선택 정보를 불러오지 못했습니다. 빙고판은 확인할 수 있지만 일부 미션 편집 정보가 제한됩니다.");
+        if(!isRequestCancelled(error) && !redirectToLogin(error))setCatalogWarning("미션 선택 정보를 불러오지 못했습니다. 빙고판은 확인할 수 있지만 일부 미션 편집 정보가 제한됩니다.");
         return EMPTY_CATALOG;
       });
       if (managing) {
@@ -74,7 +76,7 @@ export default function BingoPage() {
         setItems([]);
       }
     }
-    catch (error) { if (!redirectToLogin(error)) setMessage(error.message); }
+    catch (error) { if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message); }
     finally { setLoading(false); }
   },[bingoApi,managing]);
   useEffect(()=>{ load(); },[load]);
@@ -84,7 +86,7 @@ export default function BingoPage() {
     let cancelled=false,timer;
     const loadStatus=()=>api(`${bingoApi}/${selected.id}/aggregate/status`)
       .then(job=>{if(!cancelled)setAggregationJob(job);})
-      .catch(error=>{if(!cancelled&&!redirectToLogin(error)){setMessage("집계 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
+      .catch(error=>{if(!cancelled&&!isRequestCancelled(error) && !redirectToLogin(error)){setMessage("집계 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
     loadStatus();
     return()=>{cancelled=true;window.clearTimeout(timer);};
   },[admin,managing,selected?.id,bingoApi]);
@@ -94,7 +96,7 @@ export default function BingoPage() {
     let cancelled=false,timer;
     const loadStatus=()=>api(`${bingoApi}/${selected.id}/aggregate/me/status`)
       .then(job=>{if(!cancelled)setPersonalAggregationJob(job);})
-      .catch(error=>{if(!cancelled&&!redirectToLogin(error)){setMessage("업데이트 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
+      .catch(error=>{if(!cancelled&&!isRequestCancelled(error) && !redirectToLogin(error)){setMessage("업데이트 상태 확인을 다시 시도하고 있습니다.");timer=window.setTimeout(loadStatus,3000);}});
     loadStatus();
     return()=>{cancelled=true;window.clearTimeout(timer);};
   },[selected?.id,selected?.me?.participantId,selected?.status,bingoApi]);
@@ -121,7 +123,7 @@ export default function BingoPage() {
           setAggregationJob(job);
         }
       }catch(error){
-        if(!cancelled&&!redirectToLogin(error)){
+        if(!cancelled&&!isRequestCancelled(error) && !redirectToLogin(error)){
           setMessage("집계는 계속 진행 중입니다. 상태 확인을 다시 시도하고 있습니다.");
           timer=window.setTimeout(poll,3000);
         }
@@ -152,7 +154,7 @@ export default function BingoPage() {
           setPersonalAggregationJob(job);
         }
       }catch(error){
-        if(!cancelled&&!redirectToLogin(error)){
+        if(!cancelled&&!isRequestCancelled(error) && !redirectToLogin(error)){
           setMessage("업데이트는 계속 진행 중입니다. 상태 확인을 다시 시도하고 있습니다.");
           timer=window.setTimeout(poll,3000);
         }
@@ -164,7 +166,7 @@ export default function BingoPage() {
 
   async function open(id) {
     try { setSelected(await api(`${bingoApi}/${id}`)); setViewedBoard(null); setEditing(false); }
-    catch(error){ setMessage(error.message); }
+    catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); }
   }
   function startCreate(){ setForm(initialForm()); setEditingId(null); setSelected(null); setEditing(true); }
   function startEdit(){setForm({title:selected.title,description:selected.description||"",startsAt:localKst(selected.startsAt),endsAt:localKst(selected.endsAt),boardSize:selected.boardSize,targetLines:selected.targetLines,blackoutEnabled:selected.blackoutEnabled,allowLateJoin:selected.allowLateJoin,excludeBotCombatStats:selected.excludeBotCombatStats??false,clanPlayRequired:selected.clanPlayRequired??false,status:selected.status,locked:selected.status==="ACTIVE",cells:selected.cells.map(cell=>({...cell,configured:true,customTitle:cell.customTitle||"",options:cell.options||{}}))});setEditingId(selected.id);setEditing(true);}
@@ -180,7 +182,7 @@ export default function BingoPage() {
       setSelected(created);setEditing(false);setEditingId(null);await load();
       if(reaggregate){const job=await api(`${bingoApi}/${created.id}/aggregate`,{method:"POST"});setAggregationJob(job);setMessage("경기 집계 조건 변경을 반영하기 위해 기존 경기를 다시 집계하고 있습니다.");}
     }
-    catch(error){ setMessage(error.message); }
+    catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); }
   }
   async function aggregate(){
     setMessage("");
@@ -188,7 +190,7 @@ export default function BingoPage() {
       const job=await api(`${bingoApi}/${selected.id}/aggregate`,{method:"POST"});
       setAggregationJob(job);
       setMessage("집계를 시작했습니다. PUBG 경기와 Telemetry를 확인하는 동안 상태를 자동으로 갱신합니다.");
-    }catch(error){setMessage(error.message);}
+    }catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); }
   }
   async function aggregateMe(){
     setMessage("");
@@ -196,11 +198,11 @@ export default function BingoPage() {
       const job=await api(`${bingoApi}/${selected.id}/aggregate/me`,{method:"POST"});
       setPersonalAggregationJob(job);
       setMessage("내 최근 PUBG 경기를 확인하고 있습니다.");
-    }catch(error){setMessage(error.message);}
+    }catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); }
   }
-  async function remove(){ if(!window.confirm("이 빙고를 삭제하거나 취소할까요?")) return; try {await api(`${bingoApi}/${selected.id}`,{method:"DELETE"});setSelected(null);await load();}catch(error){setMessage(error.message);} }
-  async function showCell(cell){ setCellModal(cell); setCompletions([]); try{setCompletions(await api(`${bingoApi}/${selected.id}/cells/${cell.id}/completions`));}catch(error){setMessage(error.message);} }
-  async function viewParticipant(participantId){ try{setViewedBoard(await api(`${bingoApi}/${selected.id}/participants/${participantId}`));}catch(error){setMessage(error.message);} }
+  async function remove(){ if(!window.confirm("이 빙고를 삭제하거나 취소할까요?")) return; try {await api(`${bingoApi}/${selected.id}`,{method:"DELETE"});setSelected(null);await load();}catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); } }
+  async function showCell(cell){ setCellModal(cell); setCompletions([]); try{setCompletions(await api(`${bingoApi}/${selected.id}/cells/${cell.id}/completions`));}catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); } }
+  async function viewParticipant(participantId){ try{setViewedBoard(await api(`${bingoApi}/${selected.id}/participants/${participantId}`));}catch(error){ if (!isRequestCancelled(error)) setMessage(error.message); } }
 
   const groups=useMemo(()=>groupManagedBingos(items),[items]);
   const currentScreen=currentBingoScreen(currentType);

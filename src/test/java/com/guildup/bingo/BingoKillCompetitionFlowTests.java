@@ -1,5 +1,7 @@
 package com.guildup.bingo;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.dto.BingoEventRequest;
@@ -283,7 +285,7 @@ class BingoKillCompetitionFlowTests {
         CommunityMember member = members.save(new CommunityMember(targetCommunity, name));
         memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.DISCORD, externalId, name));
         String accountId = "account-" + targetCommunity.getId() + "-" + name;
-        memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG, accountId, "pubg-" + name));
+        memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.KAKAO, accountId, "pubg-" + name));
         return new Person(user, member, accountId);
     }
 

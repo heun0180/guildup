@@ -90,7 +90,7 @@ class TemporaryBingoRebuildFlowTests {
         userAccounts.save(new UserExternalAccount(owner, ExternalAccountProvider.DISCORD, "discord-" + id, "owner"));
         member = members.save(new CommunityMember(community, "owner"));
         memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.DISCORD, "discord-" + id, "owner"));
-        memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG, "account-a", "Apple"));
+        memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.KAKAO, "account-a", "Apple"));
     }
 
     @Test
@@ -112,8 +112,8 @@ class TemporaryBingoRebuildFlowTests {
             String id = ((List<String>) invocation.getArgument(1)).getFirst();
             return Map.of(id, matchRows.get(id));
         });
-        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch match = invocation.getArgument(0);
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(1);
             return Map.of("account-a", facts(match.matchId(), match.playedAt()));
         });
 
@@ -148,7 +148,7 @@ class TemporaryBingoRebuildFlowTests {
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 new PubgPlayer("account-a", "Apple", List.of("M1", "M2", "M3", "M4"))));
         when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of("M4", match("M4", 4)));
-        when(factService.facts(argThat(value -> value.matchId().equals("M4")), anySet()))
+        when(factService.facts(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(value -> value.matchId().equals("M4")), anySet()))
                 .thenReturn(Map.of("account-a", oneKillFact("M4", match("M4", 4).playedAt())));
 
         assertThat(aggregation.aggregate(owner.getId(), community.getId(), event.getId()).processedMatches()).isEqualTo(1);
@@ -191,7 +191,7 @@ class TemporaryBingoRebuildFlowTests {
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 new PubgPlayer("account-a", "Apple", List.of("M1"))));
         when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(Map.of("M1", match("M1", 1)));
-        when(factService.factsRequired(any(), anySet())).thenThrow(new IllegalStateException("telemetry unavailable"));
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenThrow(new IllegalStateException("telemetry unavailable"));
 
         TemporaryBingoRebuildResponse result = rebuild.preview(owner.getId(), community.getId(), game.getId());
 
@@ -208,7 +208,7 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(metadata.getValue()).containsEntry("stage", "TELEMETRY_PARSE").containsEntry("operation", "PREVIEW");
         verify(pubgPlayers, times(1)).findByAccountIdsFresh(eq("kakao"), anyList());
         verify(pubgMatches, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
-        verify(factService, times(1)).factsRequired(any(), anySet());
+        verify(factService, times(1)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet());
     }
 
     @Test
@@ -222,8 +222,8 @@ class TemporaryBingoRebuildFlowTests {
             String id = ((List<String>) invocation.getArgument(1)).getFirst();
             return Map.of(id, match(id, "M1".equals(id) ? 1 : 2));
         });
-        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch match = invocation.getArgument(0);
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(1);
             if ("M1".equals(match.matchId())) throw new PubgApiException(PubgApiErrorCode.PUBG_RATE_LIMITED,
                     "PUBG 요청 한도에 도달했습니다.", new IllegalStateException("upstream failure"), 429, false);
             throw new PubgApiException("PUBG Telemetry를 불러오지 못했습니다.",
@@ -243,7 +243,7 @@ class TemporaryBingoRebuildFlowTests {
                 .containsEntry("upstreamStatuses", List.of(429)).containsEntry("failureCount", 2);
         verify(pubgPlayers, times(1)).findByAccountIdsFresh(eq("kakao"), anyList());
         verify(pubgMatches, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
-        verify(factService, times(2)).factsRequired(any(), anySet());
+        verify(factService, times(2)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet());
         verifyNoMoreInteractions(pubgPlayers, pubgMatches, factService);
     }
 
@@ -255,10 +255,10 @@ class TemporaryBingoRebuildFlowTests {
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 new PubgPlayer("account-a", "Apple", List.of("M1"))));
         when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(Map.of("M1", match("M1", 1)));
-        when(factService.factsRequired(any(), anySet())).thenReturn(Map.of("account-a", facts("M1", match("M1", 1).playedAt())));
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenReturn(Map.of("account-a", facts("M1", match("M1", 1).playedAt())));
         TemporaryBingoRebuildResponse preview = rebuild.preview(owner.getId(), community.getId(), game.getId());
         assertThat(preview.status()).isEqualTo("REBUILD_PREVIEW_READY");
-        when(factService.factsRequired(any(), anySet())).thenThrow(new PubgApiException(PubgApiErrorCode.PUBG_TIMEOUT,
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenThrow(new PubgApiException(PubgApiErrorCode.PUBG_TIMEOUT,
                 "PUBG 응답 시간이 초과되었습니다.", new IllegalStateException("upstream timeout"), null, false));
         doThrow(new IllegalStateException("monitoring unavailable")).when(monitoring).recordError(
                 eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED), anyString(),
@@ -275,7 +275,7 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(metadata.getValue()).containsEntry("stage", "TELEMETRY_FETCH").containsEntry("operation", "APPLY");
         verify(pubgPlayers, times(2)).findByAccountIdsFresh(eq("kakao"), anyList());
         verify(pubgMatches, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
-        verify(factService, times(2)).factsRequired(any(), anySet());
+        verify(factService, times(2)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet());
     }
 
     @Test
@@ -294,8 +294,8 @@ class TemporaryBingoRebuildFlowTests {
         when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenAnswer(invocation -> {
             String id = ((List<String>) invocation.getArgument(1)).getFirst(); return Map.of(id, rows.get(id));
         });
-        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch match = invocation.getArgument(0); return Map.of("account-a", facts(match.matchId(), match.playedAt()));
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(1); return Map.of("account-a", facts(match.matchId(), match.playedAt()));
         });
 
         TemporaryBingoRebuildResponse result = rebuild.preview(owner.getId(), community.getId(), game.getId());
@@ -315,7 +315,7 @@ class TemporaryBingoRebuildFlowTests {
                 new PubgPlayer("account-a", "Apple", List.of("M1"))));
         when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList()))
                 .thenReturn(Map.of("M1", match("M1", 1)));
-        when(factService.factsRequired(any(), anySet())).thenReturn(Map.of(
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenReturn(Map.of(
                 "account-a", repairOnlyFacts("M1", match("M1", 1).playedAt())));
         Map<Long, Instant> updatedBefore = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())
                 .stream().collect(Collectors.toMap(BingoProgress::getId, BingoProgress::getUpdatedAt));
@@ -375,8 +375,8 @@ class TemporaryBingoRebuildFlowTests {
             String id = ((List<String>) invocation.getArgument(1)).getFirst();
             return Map.of(id, match(id, id.equals("M1") ? 1 : 2));
         });
-        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch match = invocation.getArgument(0);
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(1);
             return Map.of("account-a", repairOnlyFacts(match.matchId(), match.playedAt()));
         });
         TemporaryBingoRebuildResponse preview = rebuild.preview(owner.getId(), community.getId(), game.getId());

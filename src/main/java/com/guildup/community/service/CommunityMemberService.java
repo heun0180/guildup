@@ -78,17 +78,14 @@ public class CommunityMemberService {
                         account -> account.getCommunityMember().getId(),
                         Function.identity()
                 ));
-        Map<Long, CommunityMemberAccount> gameAccountsByMemberId = accountRepository
-                .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
-                .collect(Collectors.toMap(
-                        account -> account.getCommunityMember().getId(),
-                        Function.identity()
-                ));
+        Map<Long, List<CommunityMemberAccount>> gameAccountsByMemberId = accountRepository
+                .findPubgAccountsByCommunityId(communityId).stream()
+                .collect(Collectors.groupingBy(account -> account.getCommunityMember().getId()));
         return members.stream()
-                .map(member -> CommunityMemberResponse.from(
+                .map(member -> CommunityMemberResponse.fromAccounts(
                         member,
                         discordAccountsByMemberId.get(member.getId()),
-                        gameAccountsByMemberId.get(member.getId())
+                        gameAccountsByMemberId.getOrDefault(member.getId(), List.of())
                 ))
                 .toList();
     }

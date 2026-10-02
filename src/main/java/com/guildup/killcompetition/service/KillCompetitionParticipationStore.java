@@ -1,5 +1,8 @@
 package com.guildup.killcompetition.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
+import com.guildup.pubg.support.PubgGameSupport;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.domain.CommunityMemberAccount;
@@ -61,7 +64,7 @@ public class KillCompetitionParticipationStore {
         }
         var identity = identities.find(member, competition.getCommunityGame()).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
                 "Discord 닉네임에서 PUBG 인게임 닉네임을 확인할 수 없습니다. 커뮤니티 닉네임 형식을 확인해 주세요."));
-        return new JoinPreparation(member.getId(), identity.shard(), identity.nickname(), identity.accountId());
+        return new JoinPreparation(member.getId(), identity.platform(), identity.nickname(), identity.accountId());
     }
 
     @Transactional(readOnly = true)
@@ -75,7 +78,7 @@ public class KillCompetitionParticipationStore {
         if (participants.existsByCompetitionIdAndCommunityMemberId(competitionId, memberId)) conflict("이미 신청 또는 참가한 클랜원입니다.");
         var identity = identities.find(member, competition.getCommunityGame()).orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
                 "선택한 클랜원의 PUBG 닉네임을 확인할 수 없습니다."));
-        return new JoinPreparation(member.getId(), identity.shard(), identity.nickname(), identity.accountId());
+        return new JoinPreparation(member.getId(), identity.platform(), identity.nickname(), identity.accountId());
     }
 
     @Transactional
@@ -83,6 +86,7 @@ public class KillCompetitionParticipationStore {
                        JoinPreparation preparation, PubgPlayer resolvedPlayer) {
         KillCompetition competition = requireForUpdate(communityId, competitionId);
         requireJoinable(competition, clock.instant());
+        requirePlatform(competition, preparation);
         CommunityMember member = currentMembers.requireForUpdate(userId, communityId);
         if (!Objects.equals(member.getId(), preparation.memberId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "현재 클랜원 정보가 변경되었습니다.");
@@ -91,20 +95,20 @@ public class KillCompetitionParticipationStore {
             conflict("이미 참가한 킬내기입니다.");
         }
 
-        CommunityMemberAccount account = accounts.findByCommunityMemberIdAndProvider(
-                member.getId(), ExternalAccountProvider.PUBG).filter(this::usable).orElse(null);
+        CommunityMemberAccount account = accounts.findByCommunityMemberIdAndProviderAndPlatform(
+                member.getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(competition.getCommunityGame())).filter(this::usable).orElse(null);
         if (account == null) {
             if (resolvedPlayer == null || resolvedPlayer.accountId() == null || resolvedPlayer.accountId().isBlank()
                     || resolvedPlayer.name() == null || resolvedPlayer.name().isBlank()) {
                 conflict("PUBG 계정을 확인하지 못했습니다. 다시 시도해 주세요.");
             }
-            accounts.findByCommunityIdAndProviderAndExternalUserId(
-                    communityId, ExternalAccountProvider.PUBG, resolvedPlayer.accountId()).ifPresent(claimed -> {
+            accounts.findByCommunityIdAndProviderAndPlatformAndExternalUserId(
+                    communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(competition.getCommunityGame()), resolvedPlayer.accountId()).ifPresent(claimed -> {
                 if (!Objects.equals(claimed.getCommunityMember().getId(), member.getId())) {
                     conflict("해당 PUBG 계정은 다른 클랜원에게 연결되어 있습니다.");
                 }
             });
-            account = accounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG,
+            account = accounts.save(new CommunityMemberAccount(member, PubgGameSupport.requirePlatform(competition.getCommunityGame()),
                     resolvedPlayer.accountId(), resolvedPlayer.name()));
         }
 
@@ -122,11 +126,12 @@ public class KillCompetitionParticipationStore {
         managementAccess.requireCanManage(userId, communityId, competition);
         Instant now = clock.instant();
         requireMutable(competition, now);
+        requirePlatform(competition, preparation);
         CommunityMember member = memberRepository.findById(preparation.memberId()).filter(candidate ->
                         Objects.equals(candidate.getCommunity().getId(), communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "클랜원을 찾을 수 없습니다."));
         if (participants.existsByCompetitionIdAndCommunityMemberId(competitionId, member.getId())) conflict("이미 신청 또는 참가한 클랜원입니다.");
-        CommunityMemberAccount account = resolveAccount(communityId, member, resolvedPlayer);
+        CommunityMemberAccount account = resolveAccount(communityId, competition, member, resolvedPlayer);
         KillCompetitionTeam team = resolveTeam(competition, teamId,
                 competition.getStatus() == KillCompetitionStatus.IN_PROGRESS);
         addParticipant(competition, member, account, KillCompetitionParticipationStatus.APPROVED,
@@ -140,6 +145,7 @@ public class KillCompetitionParticipationStore {
 
     private void addParticipant(KillCompetition competition, CommunityMember member, CommunityMemberAccount account,
                                 KillCompetitionParticipationStatus status, Instant eligibleFrom, KillCompetitionTeam team) {
+        if (account.getPlatform() != PubgGameSupport.requirePlatform(competition.getCommunityGame())) conflict("참가 계정의 PUBG 플랫폼이 일치하지 않습니다.");
         KillCompetitionParticipant participant = new KillCompetitionParticipant(
                 competition, member, account.getExternalUserId(), account.getExternalUsername(), status);
         if (status == KillCompetitionParticipationStatus.APPROVED && eligibleFrom != null) participant.approve(eligibleFrom, team);
@@ -148,17 +154,17 @@ public class KillCompetitionParticipationStore {
         participants.save(participant);
     }
 
-    private CommunityMemberAccount resolveAccount(Long communityId, CommunityMember member, PubgPlayer resolvedPlayer) {
-        CommunityMemberAccount account = accounts.findByCommunityMemberIdAndProvider(
-                member.getId(), ExternalAccountProvider.PUBG).filter(this::usable).orElse(null);
+    private CommunityMemberAccount resolveAccount(Long communityId, KillCompetition competition, CommunityMember member, PubgPlayer resolvedPlayer) {
+        CommunityMemberAccount account = accounts.findByCommunityMemberIdAndProviderAndPlatform(
+                member.getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(competition.getCommunityGame())).filter(this::usable).orElse(null);
         if (account != null) return account;
         if (resolvedPlayer == null || resolvedPlayer.accountId() == null || resolvedPlayer.accountId().isBlank()
                 || resolvedPlayer.name() == null || resolvedPlayer.name().isBlank()) conflict("PUBG 계정을 확인하지 못했습니다. 다시 시도해 주세요.");
-        accounts.findByCommunityIdAndProviderAndExternalUserId(
-                communityId, ExternalAccountProvider.PUBG, resolvedPlayer.accountId()).ifPresent(claimed -> {
+        accounts.findByCommunityIdAndProviderAndPlatformAndExternalUserId(
+                communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(competition.getCommunityGame()), resolvedPlayer.accountId()).ifPresent(claimed -> {
             if (!Objects.equals(claimed.getCommunityMember().getId(), member.getId())) conflict("해당 PUBG 계정은 다른 클랜원에게 연결되어 있습니다.");
         });
-        return accounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG,
+        return accounts.save(new CommunityMemberAccount(member, PubgGameSupport.requirePlatform(competition.getCommunityGame()),
                 resolvedPlayer.accountId(), resolvedPlayer.name()));
     }
 
@@ -196,6 +202,11 @@ public class KillCompetitionParticipationStore {
                 new ResponseStatusException(HttpStatus.NOT_FOUND, "킬내기를 찾을 수 없습니다."));
     }
 
+    private void requirePlatform(KillCompetition competition, JoinPreparation preparation) {
+        if (preparation.platform() != PubgGameSupport.requirePlatform(competition.getCommunityGame()))
+            conflict("참가 준비 이후 PUBG 플랫폼이 변경되었습니다. 다시 시도해 주세요.");
+    }
+
     private boolean usable(CommunityMemberAccount account) {
         return account.getExternalUserId() != null && !account.getExternalUserId().isBlank()
                 && account.getExternalUsername() != null && !account.getExternalUsername().isBlank();
@@ -205,7 +216,8 @@ public class KillCompetitionParticipationStore {
         throw new ResponseStatusException(HttpStatus.CONFLICT, message);
     }
 
-    public record JoinPreparation(Long memberId, String shard, String nickname, String accountId) {
+    public record JoinPreparation(Long memberId, PubgPlatform platform, String nickname, String accountId) {
+        public String shard() { return platform.getShard(); }
         public boolean requiresLookup() {
             return accountId == null || accountId.isBlank();
         }

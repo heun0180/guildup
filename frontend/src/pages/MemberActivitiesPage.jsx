@@ -1,6 +1,7 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import {
   activityStatus,
   activitySyncView,
@@ -17,6 +18,7 @@ import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function MemberActivitiesPage() {
+  const api = useScopedApi();
   const navigate = useNavigate();
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
@@ -50,7 +52,7 @@ export default function MemberActivitiesPage() {
         setActivities(result.activities);
         setConfigurationStatus(result.status);
       } catch (error) {
-        if (!redirectToLogin(error) && !cancelled) {
+        if (!isRequestCancelled(error) && !redirectToLogin(error) && !cancelled) {
           setConfigurationStatus("error");
           setMessage(error.status === 403
             ? "클랜원 활동을 확인할 권한이 없습니다."
@@ -119,11 +121,11 @@ export default function MemberActivitiesPage() {
       );
       setActivities(result);
     } catch (error) {
-      if (!redirectToLogin(error)) {
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) {
         if (error.status === 409 || error.status === 429) {
           const latest = await api(`${gameApi}/activities`)
             .catch((statusError) => {
-              if (!redirectToLogin(statusError)) setMessage("활동 조회 상태를 확인하지 못했습니다. 잠시 후 페이지를 다시 열어 주세요.");
+              if (!isRequestCancelled(statusError) && !redirectToLogin(statusError)) setMessage("활동 조회 상태를 확인하지 못했습니다. 잠시 후 페이지를 다시 열어 주세요.");
               return null;
             });
           if (latest) setActivities(latest);

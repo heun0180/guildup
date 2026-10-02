@@ -1,11 +1,13 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useEffect, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { ACTIVITY_PERIOD_OPTIONS, MINIMUM_CLAN_MEMBER_OPTIONS, activityRulePayload } from "../activityRule.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function ActivityRuleSettingsPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
@@ -24,7 +26,7 @@ export default function ActivityRuleSettingsPage() {
     api(endpoint).then((result) => {
       if (cancelled) return;
       setRule(result); setPeriodDays(result.activityPeriodDays); setMinimumMembers(result.minimumClanMembersInRoster);
-    }).catch((error) => { if (!redirectToLogin(error) && !cancelled) setMessage(error.message || "클랜 활동 규칙을 불러오지 못했습니다."); })
+    }).catch((error) => { if (!isRequestCancelled(error) && !redirectToLogin(error) && !cancelled) setMessage(error.message || "클랜 활동 규칙을 불러오지 못했습니다."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [endpoint]);
@@ -34,7 +36,7 @@ export default function ActivityRuleSettingsPage() {
     try {
       const saved = await api(endpoint, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(activityRulePayload(periodDays, minimumMembers)) });
       setRule(saved); setPeriodDays(saved.activityPeriodDays); setMinimumMembers(saved.minimumClanMembersInRoster); setSuccess("클랜 활동 규칙이 저장되었습니다.");
-    } catch (error) { if (!redirectToLogin(error)) setMessage(error.message || "클랜 활동 규칙을 저장하지 못했습니다."); }
+    } catch (error) { if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message || "클랜 활동 규칙을 저장하지 못했습니다."); }
     finally { setSaving(false); }
   }
 

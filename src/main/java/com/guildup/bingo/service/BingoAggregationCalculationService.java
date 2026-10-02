@@ -45,7 +45,9 @@ public class BingoAggregationCalculationService {
                 .filter(value -> value.getCommunity().getId().equals(communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
         Instant now = clock.instant();
-        List<StoredMatchFacts> eligibleMatches = storedFacts.stream().filter(this::eligible)
+        List<StoredMatchFacts> eligibleMatches = storedFacts.stream()
+                .filter(fact -> fact.platform() == com.guildup.pubg.support.PubgGameSupport.requirePlatform(event.getCommunityGame()))
+                .filter(this::eligible)
                 .sorted(Comparator.comparing(StoredMatchFacts::startedAt).thenComparing(StoredMatchFacts::matchId)).toList();
         int processedCount = 0;
         Set<Long> updated = new LinkedHashSet<>();
@@ -79,7 +81,9 @@ public class BingoAggregationCalculationService {
                 .filter(value -> value.getEvent().getId().equals(event.getId()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고 참가자를 찾을 수 없습니다."));
         Instant now = clock.instant();
-        List<StoredMatchFacts> eligibleMatches = storedFacts.stream().filter(this::eligible)
+        List<StoredMatchFacts> eligibleMatches = storedFacts.stream()
+                .filter(fact -> fact.platform() == com.guildup.pubg.support.PubgGameSupport.requirePlatform(event.getCommunityGame()))
+                .filter(this::eligible)
                 .sorted(Comparator.comparing(StoredMatchFacts::startedAt).thenComparing(StoredMatchFacts::matchId)).toList();
         ParticipantCalculation result = calculateLockedParticipant(
                 event, participant, eligibleMatches, completeRecalculation, now);

@@ -1,5 +1,6 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.support.PubgGameSupport;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.activity.ClanActivityStatus;
 import com.guildup.community.domain.CommunityGame;
@@ -84,7 +85,7 @@ public class CommunityMemberActivityService {
                         (first, ignored) -> first,
                         LinkedHashMap::new
                 ));
-        Map<Long, CommunityMemberAccount> accounts = pubgAccountsByMemberId(communityId);
+        Map<Long, CommunityMemberAccount> accounts = pubgAccountsByMemberId(communityId, game);
         List<MemberActivitySummaryResponse> summaries = members.stream()
                 .map(member -> toSummary(member, snapshots.get(member.getId()), accounts.get(member.getId())))
                 .toList();
@@ -114,7 +115,7 @@ public class CommunityMemberActivityService {
         CommunityMemberActivitySnapshot snapshot = snapshotRepository
                 .findByCommunityGameIdAndCommunityMemberId(game.getId(), memberId)
                 .orElse(null);
-        CommunityMemberAccount account = pubgAccountsByMemberId(communityId).get(memberId);
+        CommunityMemberAccount account = pubgAccountsByMemberId(communityId, game).get(memberId);
         MemberActivitySummaryResponse summary = toSummary(member, snapshot, account);
         List<MemberActivityMatchResponse> matches = !isCurrentSnapshot(snapshot, account)
                 ? List.of()
@@ -165,9 +166,9 @@ public class CommunityMemberActivityService {
         return Objects.equals(snapshot.getPubgAccountId(), currentAccountId);
     }
 
-    private Map<Long, CommunityMemberAccount> pubgAccountsByMemberId(Long communityId) {
-        return accountRepository.findByCommunityIdAndProvider(
-                communityId, ExternalAccountProvider.PUBG
+    private Map<Long, CommunityMemberAccount> pubgAccountsByMemberId(Long communityId, CommunityGame game) {
+        return accountRepository.findByCommunityIdAndProviderAndPlatform(
+                communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)
         ).stream().collect(Collectors.toMap(
                 account -> account.getCommunityMember().getId(),
                 Function.identity(),

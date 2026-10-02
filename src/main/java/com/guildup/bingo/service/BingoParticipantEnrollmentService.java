@@ -1,5 +1,6 @@
 package com.guildup.bingo.service;
 
+import com.guildup.pubg.support.PubgGameSupport;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.repository.*;
@@ -48,8 +49,8 @@ public class BingoParticipantEnrollmentService {
 
     private BingoParticipant enroll(BingoEvent event, CommunityUser user, Instant joinedAt, Instant eligibleFrom) {
         Optional<CommunityMember> member = currentMembers.find(user.getUser().getId(), event.getCommunity().getId());
-        CommunityMemberAccount account = member.flatMap(value -> accounts.findByCommunityMemberIdAndProvider(
-                value.getId(), ExternalAccountProvider.PUBG)).orElse(null);
+        CommunityMemberAccount account = member.flatMap(value -> accounts.findByCommunityMemberIdAndProviderAndPlatform(
+                value.getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame()))).orElse(null);
         BingoParticipant participant = participants.save(new BingoParticipant(
                 event, user, member.orElse(null), account == null ? null : account.getExternalUserId(),
                 account == null ? null : account.getExternalUsername(), joinedAt, eligibleFrom));

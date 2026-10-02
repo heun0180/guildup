@@ -14,6 +14,23 @@ import static org.mockito.Mockito.*;
 
 class PubgBingoFactServiceTests {
     @Test
+    void identicalMatchIdsOnDifferentPlatformsNeverReuseBingoFactCache() throws Exception {
+        PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
+        var mapper = JsonMapper.builder().build();
+        when(telemetry.get("https://telemetry-cdn.pubg.com/kakao"))
+                .thenReturn(mapper.readTree("[{\"_T\":\"LogPlayerKillV2\",\"killer\":{\"accountId\":\"account.a\"},\"victim\":{\"accountId\":\"human.k\"}}]"));
+        when(telemetry.get("https://telemetry-cdn.pubg.com/steam")).thenReturn(mapper.readTree("[]"));
+        var service = new PubgBingoFactService(telemetry, Clock.systemUTC());
+        var teams = List.of(new PubgTeam(List.of(new PubgParticipant("account.a", "A"))));
+        var kakao = new PubgMatch("same-id", Instant.now(), "squad", "Erangel", "https://telemetry-cdn.pubg.com/kakao", teams);
+        var steam = new PubgMatch("same-id", kakao.playedAt(), "squad", "Erangel", "https://telemetry-cdn.pubg.com/steam", teams);
+        assertThat(service.factsRequired(PubgPlatform.KAKAO, kakao, Set.of()).get("account.a").kills()).hasSize(1);
+        assertThat(service.factsRequired(PubgPlatform.STEAM, steam, Set.of()).get("account.a").kills()).isEmpty();
+        service.factsRequired(PubgPlatform.KAKAO, kakao, Set.of());
+        verify(telemetry, times(1)).get(kakao.telemetryUrl());
+        verify(telemetry, times(1)).get(steam.telemetryUrl());
+    }
+    @Test
     void excludesAiVictimsOnlyWhenTheBingoOptionIsEnabled() throws Exception {
         PubgTelemetryClient telemetry = mock(PubgTelemetryClient.class);
         when(telemetry.get(anyString())).thenReturn(JsonMapper.builder().build().readTree("""
@@ -40,7 +57,7 @@ class PubgBingoFactServiceTests {
                 "https://telemetry-cdn.pubg.com/bot-filter.json",
                 List.of(new PubgTeam(List.of(participant))));
         PlayerMatchFacts facts = new PubgBingoFactService(telemetry, Clock.systemUTC())
-                .facts(match, Set.of("account.a")).get("account.a");
+                .facts(PubgPlatform.KAKAO,match, Set.of("account.a")).get("account.a");
         BingoMissionEngine engine = new BingoMissionEngine();
 
         assertThat(engine.value(com.guildup.bingo.domain.BingoMissionType.KILLS, facts, Map.of(), false)).isEqualByComparingTo("5");
@@ -88,8 +105,8 @@ class PubgBingoFactServiceTests {
                 "competitive",false,"https://telemetry-cdn.pubg.com/test.json",
                 List.of(new PubgTeam(List.of(player,new PubgParticipant("b","Fox")))));
 
-        PlayerMatchFacts facts = service.facts(match,Set.of("a","b")).get("a");
-        service.facts(match,Set.of("a","b"));
+        PlayerMatchFacts facts = service.facts(PubgPlatform.KAKAO,match,Set.of("a","b")).get("a");
+        service.facts(PubgPlatform.KAKAO,match,Set.of("a","b"));
 
         assertThat(facts.kills()).hasSize(2);
         assertThat(facts.metric("REVIVES")).isEqualByComparingTo("1");
@@ -127,7 +144,7 @@ class PubgBingoFactServiceTests {
                 new PubgTeam(List.of(new PubgParticipant("a", "Apple"), new PubgParticipant("b", "Fox"))),
                 new PubgTeam(List.of(new PubgParticipant("c", "Bear")))));
 
-        Map<String, PlayerMatchFacts> facts = service.facts(match, Set.of("a", "b", "c"));
+        Map<String, PlayerMatchFacts> facts = service.facts(PubgPlatform.KAKAO,match, Set.of("a", "b", "c"));
 
         assertThat(facts.get("a").clanMembersInTeam()).isEqualTo(1);
         assertThat(facts.get("b").clanMembersInTeam()).isEqualTo(1);
@@ -153,7 +170,7 @@ class PubgBingoFactServiceTests {
                 "official", false, "https://telemetry-cdn.pubg.com/test.json",
                 List.of(new PubgTeam(List.of(new PubgParticipant("a", "Apple")))));
 
-        PlayerMatchFacts facts = service.facts(match, Set.of("a")).get("a");
+        PlayerMatchFacts facts = service.facts(PubgPlatform.KAKAO,match, Set.of("a")).get("a");
 
         assertThat(facts.kills()).extracting(PlayerMatchFacts.KillFact::distance)
                 .containsExactly(199.99, 200.0, 200.01);
@@ -181,7 +198,7 @@ class PubgBingoFactServiceTests {
                 "official", false, "https://telemetry-cdn.pubg.com/test.json",
                 List.of(new PubgTeam(List.of(participant))));
 
-        PlayerMatchFacts facts = service.facts(match, Set.of("a")).get("a");
+        PlayerMatchFacts facts = service.facts(PubgPlatform.KAKAO,match, Set.of("a")).get("a");
 
         assertThat(facts.kills()).extracting(PlayerMatchFacts.KillFact::weapon).containsExactly("VSS", "VSS");
         assertThat(facts.metric("WALK_DISTANCE")).isEqualByComparingTo("29999");

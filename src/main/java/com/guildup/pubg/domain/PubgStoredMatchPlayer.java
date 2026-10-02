@@ -25,6 +25,8 @@ public class PubgStoredMatchPlayer {
     private int revives;
     private int heals;
     private int boosts;
+    @Column(name = "time_survived") private Double timeSurvived;
+    @Column(name = "road_kills") private Integer roadKills;
     @Column(name = "walk_distance", precision = 18, scale = 3) private BigDecimal walkDistance;
     @Column(name = "ride_distance", precision = 18, scale = 3) private BigDecimal rideDistance;
     @Column(name = "swim_distance", precision = 18, scale = 3) private BigDecimal swimDistance;
@@ -53,6 +55,14 @@ public class PubgStoredMatchPlayer {
         this.walkDistance = walkDistance; this.rideDistance = rideDistance; this.swimDistance = swimDistance;
         this.placement = placement; this.win = placement == 1; this.createdAt = now; this.updatedAt = now;
     }
+
+    public void originalCombatStats(double timeSurvived, int roadKills) {
+        this.timeSurvived = timeSurvived;
+        this.roadKills = roadKills;
+    }
+    // NULL means unknown for legacy rows; preserve their previous zero fallback at the model boundary.
+    public double getTimeSurvived() { return timeSurvived == null ? 0 : timeSurvived; }
+    public int getRoadKills() { return roadKills == null ? 0 : roadKills; }
 
     public void telemetryFacts(String metricsJson, String throwableUsesJson, String pickedItemsJson,
                                String usedItemsJson, String carePackageItemsJson, String destroyedArmorJson,

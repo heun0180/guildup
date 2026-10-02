@@ -76,6 +76,12 @@ public class CommunityGameNicknameSyncService {
     @Transactional
     public CommunityGameNicknameSyncResponse synchronize(Long userId, Long communityId, Long communityGameId) {
         CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.NICKNAME_SYNC);
+        // ddl-auto=update cannot backfill platform or remove the legacy provider-only unique constraints.
+        // Never treat an unresolved legacy account as a new account, or infer its platform in a request.
+        if (accountRepository.existsByCommunityIdAndProviderAndPlatformIsNull(communityId, ExternalAccountProvider.PUBG)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "기존 PUBG 계정의 플랫폼 migration이 완료되지 않았습니다. 관리자가 DB migration을 적용한 뒤 다시 동기화해 주세요.");
+        }
         CommunityGameNicknameRule rule = ruleRepository
                 .findByCommunityIdAndGameType(communityId, game.getGameType())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -86,7 +92,7 @@ public class CommunityGameNicknameSyncService {
                 communityId, CommunityMemberStatus.ACTIVE
         );
         Map<Long, CommunityMemberAccount> existingAccounts = accountRepository
-                .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+                .findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)).stream()
                 .filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
                 .collect(Collectors.toMap(
                         account -> account.getCommunityMember().getId(),
@@ -134,7 +140,7 @@ public class CommunityGameNicknameSyncService {
                 updatedAccounts++;
             }
             synchronizedAccounts.add(new CommunityMemberAccount(
-                    member, ExternalAccountProvider.PUBG, player.accountId(), player.name()
+                    member, PubgGameSupport.requirePlatform(game), player.accountId(), player.name()
             ));
         }
 

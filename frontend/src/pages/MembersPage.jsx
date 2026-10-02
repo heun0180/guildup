@@ -1,5 +1,8 @@
+import { memberForPubgGame } from "../pubgPlatform.js";
+import { usePubgGame } from "../community/usePubgGame.js";
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
@@ -8,11 +11,12 @@ import { useCommunity } from "../community/CommunityContext.jsx";
 import { sortCommunityMembers } from "../memberView.js";
 
 export default function MembersPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
-  const nicknameGame = community?.games?.find((game) => game.capabilities?.includes("NICKNAME_SYNC"));
-  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
+  const nicknameGame = usePubgGame();
+  const activityGame = nicknameGame;
   const gameApi = nicknameGame ? `/api/communities/${encodeURIComponent(communityId)}/games/${encodeURIComponent(nicknameGame.communityGameId)}` : null;
   const guildId = params.get("guildId");
   const discordRoles = params.get("discordRoles") === "true";
@@ -39,7 +43,7 @@ export default function MembersPage() {
   const roleRequestId = useRef(0);
 
   const handleError = useCallback((error, fallback) => {
-    if (!redirectToLogin(error)) setMessage(error.status === 403 ? "이 커뮤니티에 접근할 권한이 없습니다." : fallback);
+    if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.status === 403 ? "이 커뮤니티에 접근할 권한이 없습니다." : fallback);
   }, []);
 
   const loadCommunityMembers = useCallback(async () => {
@@ -104,7 +108,7 @@ export default function MembersPage() {
       api(`/api/communities/${encodeURIComponent(communityId)}/member-role-settings`)
         .then((settings) => { if (!cancelled) setMemberRolesConfigured(settings.roles.length > 0); })
         .catch((error) => {
-          if (cancelled || redirectToLogin(error)) return;
+          if (cancelled || isRequestCancelled(error) || redirectToLogin(error)) return;
           if (error.status === 404) { setMemberRolesConfigured(false); return; }
           setMemberRolesConfigured(null);
           setMessage("Discord 역할 설정 상태를 확인하지 못했습니다. 클랜원 목록은 계속 확인할 수 있습니다.");
@@ -112,7 +116,7 @@ export default function MembersPage() {
       (gameApi ? api(`${gameApi}/nickname-rule/status`) : Promise.resolve({ configured: false }))
         .then((status) => { if (!cancelled) setNicknameRuleConfigured(status.configured); })
         .catch((error) => {
-          if (cancelled || redirectToLogin(error)) return;
+          if (cancelled || isRequestCancelled(error) || redirectToLogin(error)) return;
           setNicknameRuleConfigured(null);
           setMessage("인게임 닉네임 설정 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.");
         }),
@@ -175,7 +179,7 @@ export default function MembersPage() {
         ? `인게임 닉네임 ${result.synchronizedMembers}명을 동기화했습니다. ${result.failedMembers}명은 PUBG 계정을 확인하지 못했습니다.`
         : `인게임 닉네임 ${result.synchronizedMembers}명을 동기화했습니다.`);
     } catch (error) {
-      if (!redirectToLogin(error)) {
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) {
         setMessage(error.message || "인게임 닉네임 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
@@ -187,15 +191,16 @@ export default function MembersPage() {
   const count = loading ? "불러오는 중..." : roleMode
     ? selectedRole ? `${selectedRole.name} (${members.length}명)` : "역할을 선택해 주세요."
     : `클랜원 ${members.length}명`;
+  const scopedMembers = useMemo(() => roleMode ? members : members.map((member) => memberForPubgGame(member, nicknameGame)), [members, roleMode, nicknameGame]);
   const filteredMembers = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase();
-    const searched = normalizedSearch ? members.filter((member) =>
+    const searched = normalizedSearch ? scopedMembers.filter((member) =>
       [member.displayName, member.nickname, member.username, member.discordDisplayName,
         member.discordUsername, member.gameNickname]
         .filter(Boolean).some((value) => value.toLocaleLowerCase().includes(normalizedSearch))
-    ) : members;
+    ) : scopedMembers;
     return roleMode ? searched : sortCommunityMembers(searched, sort.key, sort.direction);
-  }, [members, roleMode, search, sort]);
+  }, [scopedMembers, roleMode, search, sort]);
   const canManage = canManageCommunity(community?.role);
   const discordConnected = community?.discordConnected === true;
   const syncSetupRequired = Boolean(community)

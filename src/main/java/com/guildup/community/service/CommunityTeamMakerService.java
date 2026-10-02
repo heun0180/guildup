@@ -190,7 +190,7 @@ public class CommunityTeamMakerService {
                 communityId, CommunityMemberStatus.ACTIVE
         );
         Map<Long, CommunityMemberAccount> pubgAccounts = accountRepository
-                .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+                .findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)).stream()
                 .collect(Collectors.toMap(
                         account -> account.getCommunityMember().getId(), Function.identity()
                 ));

@@ -9,7 +9,7 @@ import java.util.List;
 /** GuildUp 콘텐츠가 함께 재사용하는 PUBG 경기 원본 요약이다. */
 @Entity
 @Table(name = "pubg_matches", uniqueConstraints = @UniqueConstraint(
-        name = "uk_pubg_matches_match_id", columnNames = "match_id"), indexes = {
+        name = "uk_pubg_matches_shard_match_id", columnNames = {"shard", "match_id"}), indexes = {
         @Index(name = "idx_pubg_matches_started_at", columnList = "started_at"),
         @Index(name = "idx_pubg_matches_shard_started", columnList = "shard,started_at")
 })

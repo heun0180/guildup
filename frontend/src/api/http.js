@@ -1,4 +1,7 @@
 import { reportClientFailure, safeEndpoint, safeRequestId } from "./diagnostics.js";
+import { isRequestCancelled } from "./requestScope.js";
+
+export { isRequestCancelled };
 
 export class ApiError extends Error {
   constructor(status, message, details = {}) {
@@ -22,7 +25,7 @@ export async function api(url, options = {}) {
   try {
     response = await fetch(url, { credentials: "same-origin", ...options });
   } catch (failure) {
-    if (failure?.name === "AbortError") throw failure;
+    if (isRequestCancelled(failure)) throw failure;
     context.elapsedMs = performance.now() - startedAt;
     const error = new ApiError(0, "서버에 연결하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.",
       { ...context, code: "NETWORK_ERROR" });
@@ -36,7 +39,7 @@ export async function api(url, options = {}) {
   if (!response.ok) {
     let message = `요청을 처리하지 못했습니다. (HTTP ${response.status})`;
     const body = await response.json().catch((failure) => {
-      if (failure?.name === "AbortError") throw failure;
+      if (isRequestCancelled(failure)) throw failure;
       return null;
     });
     if (response.status >= 500) {
@@ -54,7 +57,7 @@ export async function api(url, options = {}) {
   try {
     return await response.json();
   } catch (failure) {
-    if (failure?.name === "AbortError") throw failure;
+    if (isRequestCancelled(failure)) throw failure;
     context.elapsedMs = performance.now() - startedAt;
     const message = "서버 응답을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
       + (context.requestId ? ` (요청 ID: ${context.requestId})` : "");

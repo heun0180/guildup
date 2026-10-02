@@ -1,6 +1,8 @@
 package com.guildup.developer.service;
 
 import com.guildup.developer.dto.DeveloperResponses;
+import com.guildup.community.dto.PubgAccountResponse;
+import com.guildup.pubg.model.PubgPlatform;
 import com.guildup.developer.dto.DeveloperResponses.*;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.http.HttpStatus;
@@ -129,11 +131,10 @@ public class DeveloperQueryService {
         List<DeveloperResponses.CommunityMember> content = jdbc.query("""
                 select cm.id member_id, cm.nickname, cm.status, cm.created_at, cm.updated_at,
                        discord.external_user_id discord_user_id, discord.external_username discord_username,
-                       pubg.external_user_id pubg_account_id, pubg.external_username pubg_nickname,
+                       null pubg_account_id, null pubg_nickname,
                        u.id linked_user_id, u.nickname linked_user_nickname
                 from community_members cm
                 left join community_member_accounts discord on discord.community_member_id = cm.id and discord.provider = 'DISCORD'
-                left join community_member_accounts pubg on pubg.community_member_id = cm.id and pubg.provider = 'PUBG'
                 left join user_external_accounts ua on ua.provider = 'DISCORD' and ua.external_user_id = discord.external_user_id
                 left join users u on u.id = ua.user_id
                 where cm.community_id = ?
@@ -143,8 +144,26 @@ public class DeveloperQueryService {
                 rs.getString("nickname"), rs.getString("status"), rs.getString("discord_user_id"),
                 rs.getString("discord_username"), rs.getString("pubg_account_id"), rs.getString("pubg_nickname"),
                 nullableLong(rs, "linked_user_id"), rs.getString("linked_user_nickname"),
-                instant(rs, "created_at"), instant(rs, "updated_at")), communityId, page.size(), page.offset());
+                instant(rs, "created_at"), instant(rs, "updated_at"), List.of()), communityId, page.size(), page.offset());
+        Map<Long, List<PubgAccountResponse>> accounts = pubgAccounts(content.stream().map(DeveloperResponses.CommunityMember::memberId).toList(), communityId);
+        content = content.stream().map(member -> member.withPubgAccounts(accounts.getOrDefault(member.memberId(), List.of()))).toList();
         return DeveloperResponses.Page.of(content, page.number(), page.size(), total);
+    }
+
+    private Map<Long, List<PubgAccountResponse>> pubgAccounts(List<Long> memberIds, long communityId) {
+        if (memberIds.isEmpty()) return Map.of();
+        Map<Long, List<PubgAccountResponse>> accounts = new LinkedHashMap<>();
+        namedJdbc.query("""
+                select community_member_id, platform, external_user_id, external_username
+                from community_member_accounts
+                where community_id = :communityId and community_member_id in (:memberIds) and provider = 'PUBG'
+                order by platform, id
+                """, new MapSqlParameterSource("communityId", communityId).addValue("memberIds", memberIds), rs -> {
+            accounts.computeIfAbsent(rs.getLong("community_member_id"), ignored -> new ArrayList<>())
+                    .add(new PubgAccountResponse(PubgPlatform.valueOf(rs.getString("platform")),
+                            rs.getString("external_username"), rs.getString("external_user_id")));
+        });
+        return accounts;
     }
 
     public DeveloperResponses.Page<BingoSummary> bingos(long communityId, int requestedPage, int requestedSize) {
@@ -357,14 +376,14 @@ public class DeveloperQueryService {
         results.addAll(jdbc.query(userSql, (rs, row) -> new SearchResult("USER", String.valueOf(rs.getLong("id")),
                 rs.getString("external_user_id"), rs.getString("nickname"), "GuildUp 사용자", null), userArgs));
         results.addAll(jdbc.query("""
-                select a.external_user_id, a.external_username, a.community_member_id, a.community_id, cm.nickname
+                select a.external_user_id, a.external_username, a.platform, a.community_member_id, a.community_id, cm.nickname
                 from community_member_accounts a join community_members cm on cm.id = a.community_member_id
                 where a.provider = 'PUBG' and (lower(a.external_username) like ? or a.external_user_id = ?)
                 order by a.id desc limit ?
                 """, (rs, row) -> new SearchResult("PUBG_ACCOUNT", rs.getString("external_user_id"),
                 String.valueOf(rs.getLong("community_member_id")),
                 Optional.ofNullable(rs.getString("external_username")).orElse(rs.getString("nickname")),
-                "PUBG 계정 · Community Member ID", rs.getLong("community_id")), like, query, perTypeLimit));
+                "PUBG · " + rs.getString("platform") + " · Community Member ID", rs.getLong("community_id")), like, query, perTypeLimit));
         return new SearchResponse(results.stream().limit(limit).toList());
     }
 

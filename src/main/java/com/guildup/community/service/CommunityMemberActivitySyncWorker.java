@@ -1,5 +1,7 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.activity.ClanActivityStatus;
 import com.guildup.community.activity.ClanMemberActivityEvaluation;
@@ -209,7 +211,7 @@ public class CommunityMemberActivitySyncWorker {
         Map<Long, CommunityMember> membersById = members.stream()
                 .collect(Collectors.toMap(CommunityMember::getId, Function.identity()));
         Map<Long, CommunityMemberAccount> accountsByMemberId = accountRepository
-                .findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+                .findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)).stream()
                 .collect(Collectors.toMap(
                         account -> account.getCommunityMember().getId(), Function.identity()
                 ));
@@ -350,7 +352,7 @@ public class CommunityMemberActivitySyncWorker {
             PubgPlayer player = nickname == null ? null : playersByName.get(normalize(nickname));
             if (player == null || !claimedAccountIds.add(player.accountId())) continue;
             CommunityMemberAccount account = new CommunityMemberAccount(
-                    member, ExternalAccountProvider.PUBG, player.accountId(), player.name()
+                    member, PubgPlatform.fromShard(shard), player.accountId(), player.name()
             );
             accountsByMemberId.put(member.getId(), account);
             playersByAccountId.put(player.accountId(), player);

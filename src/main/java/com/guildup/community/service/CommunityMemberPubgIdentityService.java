@@ -1,5 +1,7 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityMember;
 import com.guildup.community.domain.CommunityMemberAccount;
@@ -32,18 +34,17 @@ public class CommunityMemberPubgIdentityService {
     }
 
     public Optional<PubgIdentity> find(CommunityMember member, CommunityGame game) {
-            String shard = PubgGameSupport.requireShard(game.getGameType());
-            Optional<CommunityMemberAccount> stored = accounts.findByCommunityMemberIdAndProvider(
-                    member.getId(), ExternalAccountProvider.PUBG).filter(this::usable);
+            Optional<CommunityMemberAccount> stored = accounts.findByCommunityMemberIdAndProviderAndPlatform(
+                    member.getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)).filter(this::usable);
             if (stored.isPresent()) {
                 CommunityMemberAccount account = stored.get();
-                return Optional.of(new PubgIdentity(shard, account.getExternalUsername(),
+                return Optional.of(new PubgIdentity(PubgGameSupport.requirePlatform(game), account.getExternalUsername(),
                         account.getExternalUserId()));
             }
             return nicknameRules.findByCommunityIdAndGameType(member.getCommunity().getId(), game.getGameType())
                     .flatMap(rule -> nicknameInference.extract(candidate(rule), member.getNickname()))
                     .filter(nickname -> !nickname.isBlank())
-                    .map(nickname -> new PubgIdentity(shard, nickname, null));
+                    .map(nickname -> new PubgIdentity(PubgGameSupport.requirePlatform(game), nickname, null));
     }
 
     private NicknameRuleCandidate candidate(CommunityGameNicknameRule rule) {
@@ -56,7 +57,8 @@ public class CommunityMemberPubgIdentityService {
                 && account.getExternalUsername() != null && !account.getExternalUsername().isBlank();
     }
 
-    public record PubgIdentity(String shard, String nickname, String accountId) {
+    public record PubgIdentity(PubgPlatform platform, String nickname, String accountId) {
+        public String shard() { return platform.getShard(); }
         public boolean requiresLookup() {
             return accountId == null || accountId.isBlank();
         }

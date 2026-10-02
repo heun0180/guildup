@@ -1,5 +1,7 @@
 package com.guildup.community;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
 import com.guildup.community.service.CommunityService;
@@ -119,6 +121,30 @@ class CommunityMemberActivitySyncFlowTests {
                 .andExpect(jsonPath("$.matches").isEmpty());
 
         verifyNoInteractions(playerService, matchService);
+    }
+
+    @Test
+    void steamActivityUsesSteamAccountsAndPreservesKakaoAccounts() throws Exception {
+        Fixture kakao = createFixture();
+        CommunityGame steam = games.save(new CommunityGame(kakao.community(), GameType.BATTLEGROUNDS_STEAM));
+        rules.save(CommunityGameActivityRule.defaultRule(steam));
+        accounts.save(new CommunityMemberAccount(kakao.apple(), PubgPlatform.KAKAO, "account.kakao", "KakaoNick"));
+        accounts.save(new CommunityMemberAccount(kakao.apple(), PubgPlatform.STEAM, "account.steam", "SteamNick"));
+        accounts.save(new CommunityMemberAccount(kakao.julmi(), PubgPlatform.STEAM, "account.steam2", "SteamNick2"));
+        nicknameRules.save(new CommunityGameNicknameRule(kakao.community(), GameType.BATTLEGROUNDS_STEAM,
+                GameNicknameRuleStrategyType.FULL_NICKNAME, null, null, false, null, "sa-gwa", "sa-gwa"));
+        var fixture = new Fixture(kakao.community(), steam, kakao.apple(), kakao.julmi());
+        when(playerService.findByAccountIdsFresh(eq("steam"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account.steam", "SteamNick", List.of()),
+                new PubgPlayer("account.steam2", "SteamNick2", List.of())));
+        when(matchService.findUniqueMatchesFresh(eq("steam"), anyList(), anyLong(), anyLong())).thenReturn(Map.of());
+        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
+        verify(playerService).findByAccountIdsFresh("steam", List.of("account.steam", "account.steam2"));
+        verify(playerService, never()).findByAccountIdsFresh(eq("kakao"), anyList());
+        assertThat(accounts.findByCommunityMemberIdAndProviderAndPlatform(kakao.apple().getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO).orElseThrow().getExternalUserId())
+                .isEqualTo("account.kakao");
+        mvc.perform(get(listPath(fixture)).session(ownerSession)).andExpect(status().isOk());
     }
 
     @Test
@@ -245,8 +271,8 @@ class CommunityMemberActivitySyncFlowTests {
         stubSuccessfulPubgLookup();
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
 
-        CommunityMemberAccount previous = accounts.findByCommunityMemberIdAndProvider(
-                fixture.apple().getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG
+        CommunityMemberAccount previous = accounts.findByCommunityMemberIdAndProviderAndPlatform(
+                fixture.apple().getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO
         ).orElseThrow();
         previous.updateExternalUsername("sa-gwa-renamed");
         accounts.saveAndFlush(previous);
@@ -258,7 +284,7 @@ class CommunityMemberActivitySyncFlowTests {
         accounts.flush();
         accounts.saveAndFlush(new CommunityMemberAccount(
                 fixture.apple(),
-                com.guildup.account.domain.ExternalAccountProvider.PUBG,
+                PubgPlatform.KAKAO,
                 "account.apple.new",
                 "sa-gwa-new"
         ));

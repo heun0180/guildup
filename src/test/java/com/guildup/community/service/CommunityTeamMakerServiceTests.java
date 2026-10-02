@@ -1,5 +1,7 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityGame;
@@ -55,13 +57,13 @@ class CommunityTeamMakerServiceTests {
         CommunityGame game = new CommunityGame(community, GameType.BATTLEGROUNDS_KAKAO);
         ReflectionTestUtils.setField(game, "id", 30L);
         CommunityMemberAccount account = new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, "account.20", "jul-mi"
+                member, PubgPlatform.KAKAO, "account.20", "jul-mi"
         );
         when(games.findByCommunityIdOrderByIdAsc(10L)).thenReturn(List.of(game));
         when(games.findById(30L)).thenReturn(Optional.of(game));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, com.guildup.community.domain.CommunityMemberStatus.ACTIVE))
                 .thenReturn(List.of(member));
-        when(accounts.findByCommunityIdAndProvider(10L, ExternalAccountProvider.PUBG))
+        when(accounts.findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG,PubgPlatform.KAKAO))
                 .thenReturn(List.of(account));
         when(rules.findByCommunityIdAndGameType(10L, GameType.BATTLEGROUNDS_KAKAO))
                 .thenReturn(Optional.empty());
@@ -80,6 +82,24 @@ class CommunityTeamMakerServiceTests {
         assertThat(response.missingStatsParticipants()).isEmpty();
         assertThat(response.participants().getFirst().averageDamage()).isEqualTo(266.7);
         assertThat(response.teams()).hasSize(1);
+    }
+
+    @Test
+    void steamGameUsesOnlySteamAccountEvenWhenMemberHasBoth() {
+        var steam = new CommunityGame(member.getCommunity(), GameType.BATTLEGROUNDS_STEAM);
+        ReflectionTestUtils.setField(steam, "id", 31L);
+        when(games.findById(31L)).thenReturn(Optional.of(steam));
+        when(accounts.findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG,
+                PubgPlatform.STEAM)).thenReturn(List.of(new CommunityMemberAccount(
+                        member, PubgPlatform.STEAM, "account.steam", "SteamNick")));
+        when(seasons.getCurrentAndPrevious("steam")).thenReturn(new PubgSeasonService.SeasonPair("current", "previous"));
+        when(seasons.getCombinedStats("steam", List.of("account.steam"), List.of("current")))
+                .thenReturn(Map.of("account.steam", new PubgSeasonStats("account.steam", 900, 3)));
+        var response = service.generate(1L, 10L, 31L, new TeamGenerationRequest(List.of(20L), true, false, 4, 1L));
+        assertThat(response.participants().getFirst().pubgNickname()).isEqualTo("SteamNick");
+        assertThat(response.participants().getFirst().averageDamage()).isEqualTo(300);
+        org.mockito.Mockito.verify(seasons, org.mockito.Mockito.never()).getCombinedStats(
+                org.mockito.ArgumentMatchers.eq("kakao"), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.anyList());
     }
 
     @Test

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.guildup.pubg.model.PubgPlatform;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -28,23 +29,23 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         this.telemetry = telemetry; this.clock = clock;
     }
 
-    public Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts) {
-        return facts(match, communityAccounts, false);
+    public Map<String, PlayerMatchFacts> facts(PubgPlatform platform, PubgMatch match, Set<String> communityAccounts) {
+        return facts(platform, match, communityAccounts, false);
     }
 
     /** 원본 복구처럼 Telemetry 누락을 0으로 대체할 수 없는 작업에서 사용한다. */
-    public Map<String, PlayerMatchFacts> factsRequired(PubgMatch match, Set<String> communityAccounts) {
-        return facts(match, communityAccounts, true);
+    public Map<String, PlayerMatchFacts> factsRequired(PubgPlatform platform, PubgMatch match, Set<String> communityAccounts) {
+        return facts(platform, match, communityAccounts, true);
     }
 
-    private Map<String, PlayerMatchFacts> facts(PubgMatch match, Set<String> communityAccounts,
+    private Map<String, PlayerMatchFacts> facts(PubgPlatform platform, PubgMatch match, Set<String> communityAccounts,
                                                  boolean telemetryRequired) {
         Instant now = clock.instant();
         if (telemetryRequired && (match.telemetryUrl() == null
                 || !match.telemetryUrl().startsWith("https://telemetry-cdn.pubg.com/"))) {
             throw new IllegalStateException("Telemetry URL이 없습니다: " + match.matchId());
         }
-        FactCacheKey cacheKey = new FactCacheKey(match.matchId(), communityAccounts.stream().sorted().toList());
+        FactCacheKey cacheKey = new FactCacheKey(platform, match.matchId(), communityAccounts.stream().sorted().toList());
         BingoAggregationMetrics.Context metric = BingoAggregationMetrics.current();
         if (metric != null) metric.telemetryRequested++;
         CachedFacts cached;
@@ -326,5 +327,5 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
                 metrics, kills, throwableUses, pickedItems, usedItems, carePackageItems, destroyedArmor, clanMembersInTeam, latestEvidence); }
     }
     private record CachedFacts(Map<String, PlayerMatchFacts> byAccount, boolean telemetryLoaded, Instant expiresAt) {}
-    private record FactCacheKey(String matchId, List<String> communityAccounts) {}
+    private record FactCacheKey(PubgPlatform platform, String matchId, List<String> communityAccounts) {}
 }

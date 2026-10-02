@@ -1,6 +1,8 @@
+import { usePubgGame } from "../community/usePubgGame.js";
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
@@ -28,13 +30,14 @@ function SettingsCard({ icon, tone, title, description, status, href, buttonLabe
 }
 
 export default function CommunitySettingsPage() {
+  const api = useScopedApi();
   const { community, clearCommunity } = useCommunity();
   const navigate = useNavigate();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const validId = /^\d+$/.test(communityId ?? "");
   const encodedId = encodeURIComponent(communityId || "");
-  const nicknameGame = community?.games?.find((game) => game.capabilities?.includes("NICKNAME_SYNC"));
-  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
+  const nicknameGame = usePubgGame();
+  const activityGame = nicknameGame;
   const nicknameApi = nicknameGame ? `/api/communities/${encodedId}/games/${nicknameGame.communityGameId}/nickname-rule` : null;
   const activityApi = activityGame ? `/api/communities/${encodedId}/games/${activityGame.communityGameId}/activity-rule` : null;
   const [loading, setLoading] = useState(true);
@@ -116,7 +119,7 @@ export default function CommunitySettingsPage() {
       setRankingPeriod(result.periodType);
       setRankingNotice("랭킹 설정을 저장했습니다.");
     } catch (error) {
-      if (!redirectToLogin(error)) setRankingNotice(error.message || "랭킹 설정을 저장하지 못했습니다.");
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) setRankingNotice(error.message || "랭킹 설정을 저장하지 못했습니다.");
     } finally { setSavingRanking(false); }
   }
 
@@ -143,7 +146,7 @@ export default function CommunitySettingsPage() {
       clearCommunity();
       navigate("/communities.html", { replace: true });
     } catch (error) {
-      if (!redirectToLogin(error)) {
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) {
         setDeleteError(error.message || "커뮤니티를 삭제하지 못했습니다.");
       }
       setDeleting(false);

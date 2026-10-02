@@ -1,5 +1,7 @@
 package com.guildup.developer;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.repository.BingoEventRepository;
@@ -86,7 +88,7 @@ class DeveloperAccessAndQueryTests {
         member = members.save(new CommunityMember(community, "PUBG 사용자"));
         memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.DISCORD,
                 "discord-owner", "owner"));
-        memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG,
+        memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.KAKAO,
                 "account.pubg.test", "PUBG-NICK"));
         discordConnections.save(new DiscordCommunityConnection(community, "guild-123", "테스트 서버"));
         entityManager.flush();
@@ -178,6 +180,19 @@ class DeveloperAccessAndQueryTests {
         mvc.perform(get("/api/developer/communities/{id}/kill-competitions/{killId}",
                         community.getId(), kill.getId()).session(session))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RECRUITING"));
+    }
+
+    @Test void platformAccountsDoNotDuplicateMemberRowsOrPaginationAndLegacyNicknameRemainsKakao() throws Exception {
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(members.findById(member.getId()).orElseThrow(),
+                PubgPlatform.STEAM, "steam-account", "SteamNick"));
+        mvc.perform(get("/api/developer/communities/{id}/members?size=1", community.getId()).session(session(systemAdmin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].pubgAccounts.length()").value(2))
+                .andExpect(jsonPath("$.content[0].pubgNickname").value("PUBG-NICK"));
+        mvc.perform(get("/api/communities/{id}/members", community.getId()).session(session(owner)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].pubgAccounts.length()").value(2))
+                .andExpect(jsonPath("$[0].gameNickname").value("PUBG-NICK"));
     }
 
     private MockHttpSession session(User user) {

@@ -1,6 +1,8 @@
 package com.guildup.community.domain;
 
 import com.guildup.account.domain.ExternalAccountProvider;
+import com.guildup.pubg.model.PubgPlatform;
+import org.hibernate.annotations.Check;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -25,15 +27,17 @@ import java.util.Objects;
         name = "community_member_accounts",
         uniqueConstraints = {
                 @UniqueConstraint(
-                        name = "uk_community_member_account_provider",
-                        columnNames = {"community_member_id", "provider"}
+                        name = "uk_community_member_account_platform",
+                        columnNames = {"community_member_id", "provider", "platform"}
                 ),
                 @UniqueConstraint(
-                        name = "uk_community_member_account_community_provider_user",
-                        columnNames = {"community_id", "provider", "external_user_id"}
+                        name = "uk_community_member_account_platform_user",
+                        columnNames = {"community_id", "provider", "platform", "external_user_id"}
                 )
         }
 )
+// PostgreSQL non-PUBG partial unique indexes are installed by the platform migration.
+@Check(name = "ck_community_member_account_platform", constraints = "(provider = 'PUBG' AND platform IS NOT NULL AND platform IN ('KAKAO', 'STEAM')) OR (provider <> 'PUBG' AND platform IS NULL)")
 public class CommunityMemberAccount {
 
     @Id
@@ -53,6 +57,10 @@ public class CommunityMemberAccount {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private ExternalAccountProvider provider;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private PubgPlatform platform;
 
     @Column(name = "external_user_id", nullable = false)
     private String externalUserId;
@@ -75,12 +83,27 @@ public class CommunityMemberAccount {
             String externalUserId,
             String externalUsername
     ) {
+        if (provider == ExternalAccountProvider.PUBG) {
+            throw new IllegalArgumentException("PUBG 계정은 플랫폼을 명시해야 합니다.");
+        }
         this.communityMember = communityMember;
         this.community = communityMember.getCommunity();
         this.provider = provider;
         this.externalUserId = externalUserId;
         this.externalUsername = externalUsername;
     }
+
+    public CommunityMemberAccount(CommunityMember communityMember, PubgPlatform platform,
+                                  String externalUserId, String externalUsername) {
+        this.communityMember = Objects.requireNonNull(communityMember);
+        this.community = communityMember.getCommunity();
+        this.provider = ExternalAccountProvider.PUBG;
+        this.platform = Objects.requireNonNull(platform, "PUBG platform");
+        this.externalUserId = externalUserId;
+        this.externalUsername = externalUsername;
+    }
+
+    public PubgPlatform getPlatform() { return platform; }
 
     public CommunityMemberAccount(
             CommunityMember communityMember,

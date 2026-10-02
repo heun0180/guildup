@@ -131,12 +131,13 @@ export default function CommunitiesPage() {
               <input id="community-name" maxLength="255" required placeholder="예: 치즈 클랜"
                      value={name} onChange={(event) => setName(event.target.value)} />
             </label>
+            <label htmlFor="community-game-name"><span>게임</span><input id="community-game-name" value="PUBG" readOnly /></label>
             <label htmlFor="community-game">
-              <span>게임</span>
+              <span>플랫폼</span>
               <select id="community-game" required value={gameType}
                       onChange={(event) => setGameType(event.target.value)}>
-                <option value="BATTLEGROUNDS_KAKAO">배틀그라운드 카카오</option>
-                <option value="BATTLEGROUNDS_STEAM">배틀그라운드 스팀</option>
+                <option value="BATTLEGROUNDS_KAKAO">Kakao</option>
+                <option value="BATTLEGROUNDS_STEAM">Steam</option>
               </select>
             </label>
             <button type="submit" disabled={creating}>{creating ? "만드는 중..." : "커뮤니티 만들기"}</button>

@@ -1,5 +1,6 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useCallback, useEffect, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { useCommunity } from "../community/CommunityContext.jsx";
@@ -95,6 +96,7 @@ function PreviewResults({ preview, saved = false, saving = false, onSave }) {
 }
 
 export default function GameNicknameSettingsPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const communityId = new URLSearchParams(window.location.search).get("communityId");
   const communityGameId = new URLSearchParams(window.location.search).get("communityGameId");
@@ -112,7 +114,7 @@ export default function GameNicknameSettingsPage() {
   const endpoint = `/api/communities/${encodeURIComponent(communityId || "")}/games/${encodeURIComponent(communityGameId || "")}/nickname-rule`;
 
   const showError = useCallback((error, fallback) => {
-    if (redirectToLogin(error)) return;
+    if (isRequestCancelled(error) || redirectToLogin(error)) return;
     if (error.status === 403) {
       setMessage("인게임 닉네임 규칙을 설정할 관리 권한이 없습니다.");
       return;

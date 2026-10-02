@@ -1,5 +1,7 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityGame;
@@ -58,7 +60,7 @@ class CommunityGameNicknameSyncServiceTests {
         CommunityMember newMember = member(1L, community, "new-player");
         CommunityMember storedMember = member(2L, community, "correct-player");
         CommunityMemberAccount storedAccount = new CommunityMemberAccount(
-                storedMember, ExternalAccountProvider.PUBG, "wrong-account", "wrong-player"
+                storedMember, PubgPlatform.KAKAO, "wrong-account", "wrong-player"
         );
         CommunityGameNicknameRule rule = new CommunityGameNicknameRule(
                 community,
@@ -77,7 +79,7 @@ class CommunityGameNicknameSyncServiceTests {
                 .thenReturn(Optional.of(rule));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, CommunityMemberStatus.ACTIVE))
                 .thenReturn(List.of(newMember, storedMember));
-        when(accounts.findByCommunityIdAndProvider(10L, ExternalAccountProvider.PUBG))
+        when(accounts.findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG,PubgPlatform.KAKAO))
                 .thenReturn(List.of(storedAccount));
         when(players.findByNamesFresh("kakao", List.of("new-player", "correct-player")))
                 .thenReturn(List.of(
@@ -119,7 +121,7 @@ class CommunityGameNicknameSyncServiceTests {
         identify(community, game);
         CommunityMember member = member(1L, community, "not-found-player");
         CommunityMemberAccount staleAccount = new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, "stale-account", "stale-player"
+                member, PubgPlatform.KAKAO, "stale-account", "stale-player"
         );
         CommunityGameNicknameRule rule = new CommunityGameNicknameRule(
                 community,
@@ -138,7 +140,7 @@ class CommunityGameNicknameSyncServiceTests {
                 .thenReturn(Optional.of(rule));
         when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, CommunityMemberStatus.ACTIVE))
                 .thenReturn(List.of(member));
-        when(accounts.findByCommunityIdAndProvider(10L, ExternalAccountProvider.PUBG))
+        when(accounts.findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG,PubgPlatform.KAKAO))
                 .thenReturn(List.of(staleAccount));
         when(players.findByNamesFresh("kakao", List.of("not-found-player"))).thenReturn(List.of());
 
@@ -164,6 +166,63 @@ class CommunityGameNicknameSyncServiceTests {
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("인게임 닉네임 규칙");
         verify(players, never()).findByNamesFresh(org.mockito.ArgumentMatchers.anyString(), anyList());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void unresolvedLegacyAccountStopsSyncBeforePubgLookupOrAccountReplacement(PubgPlatform platform) {
+        Community community = new Community("GuildUp");
+        GameType type = platform == PubgPlatform.KAKAO
+                ? GameType.BATTLEGROUNDS_KAKAO : GameType.BATTLEGROUNDS_STEAM;
+        CommunityGame game = new CommunityGame(community, type);
+        identify(community, game);
+        when(games.findById(20L)).thenReturn(Optional.of(game));
+        when(accounts.existsByCommunityIdAndProviderAndPlatformIsNull(10L, ExternalAccountProvider.PUBG))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.synchronize(5L, 10L, 20L))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                    assertThat(error.getStatusCode().value()).isEqualTo(409);
+                    assertThat(error.getReason()).contains("플랫폼 migration");
+                });
+        verify(players, never()).findByNamesFresh(org.mockito.ArgumentMatchers.anyString(), anyList());
+        verify(accounts, never()).deleteAllInBatch(org.mockito.ArgumentMatchers.any());
+        verify(accounts, never()).saveAll(org.mockito.ArgumentMatchers.any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void synchronizingOnePlatformNeverDeletesOrUpdatesTheOther(PubgPlatform platform) {
+        Community community = new Community("GuildUp");
+        GameType type = platform == PubgPlatform.KAKAO ? GameType.BATTLEGROUNDS_KAKAO : GameType.BATTLEGROUNDS_STEAM;
+        CommunityGame game = new CommunityGame(community, type);
+        identify(community, game);
+        CommunityMember member = member(1L, community, "new-name");
+        var otherPlatform = platform == PubgPlatform.KAKAO
+                ? PubgPlatform.STEAM : PubgPlatform.KAKAO;
+        CommunityMemberAccount selected = new CommunityMemberAccount(member, platform, "old-selected", "old-name");
+        CommunityMemberAccount other = new CommunityMemberAccount(member, otherPlatform, "other-id", "other-name");
+        when(games.findById(20L)).thenReturn(Optional.of(game));
+        when(rules.findByCommunityIdAndGameType(10L, type)).thenReturn(Optional.of(new CommunityGameNicknameRule(
+                community, type, GameNicknameRuleStrategyType.FULL_NICKNAME, null, null, false, null, "sample", "sample")));
+        when(members.findByCommunityIdAndStatusOrderByIdAsc(10L, CommunityMemberStatus.ACTIVE)).thenReturn(List.of(member));
+        when(accounts.findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG, platform)).thenReturn(List.of(selected));
+        when(players.findByNamesFresh(platform.getShard(), List.of("new-name")))
+                .thenReturn(List.of(new PubgPlayer("new-id", "new-name", List.of())));
+
+        service.synchronize(5L, 10L, 20L);
+
+        verify(accounts).deleteAllInBatch(org.mockito.ArgumentMatchers.argThat(deleted -> {
+            var values = new java.util.ArrayList<CommunityMemberAccount>(); deleted.forEach(values::add);
+            return values.equals(List.of(selected));
+        }));
+        verify(accounts).saveAll(org.mockito.ArgumentMatchers.argThat(saved -> {
+            var values = new java.util.ArrayList<CommunityMemberAccount>(); saved.forEach(values::add);
+            return values.size() == 1 && values.getFirst().getPlatform() == platform && values.getFirst().getExternalUserId().equals("new-id");
+        }));
+        verify(accounts, never()).findByCommunityIdAndProviderAndPlatform(10L, ExternalAccountProvider.PUBG, otherPlatform);
+        assertThat(other.getExternalUserId()).isEqualTo("other-id");
+        assertThat(other.getExternalUsername()).isEqualTo("other-name");
     }
 
     private CommunityMember member(Long id, Community community, String nickname) {

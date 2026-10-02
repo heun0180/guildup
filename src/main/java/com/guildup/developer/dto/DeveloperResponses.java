@@ -1,5 +1,6 @@
 package com.guildup.developer.dto;
 
+import com.guildup.community.dto.PubgAccountResponse;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -38,7 +39,14 @@ public final class DeveloperResponses {
                                   String discordUserId, String discordUsername,
                                   String pubgAccountId, String pubgNickname,
                                   Long linkedUserId, String linkedUserNickname,
-                                  Instant createdAt, Instant updatedAt) {}
+                                  Instant createdAt, Instant updatedAt, List<PubgAccountResponse> pubgAccounts) {
+        public CommunityMember withPubgAccounts(List<PubgAccountResponse> accounts) {
+            return new CommunityMember(memberId, nickname, status, discordUserId, discordUsername,
+                    accounts.isEmpty() ? null : accounts.getFirst().accountId(),
+                    accounts.isEmpty() ? null : accounts.getFirst().nickname(), linkedUserId, linkedUserNickname,
+                    createdAt, updatedAt, List.copyOf(accounts));
+        }
+    }
 
     public record BingoSummary(long id, String title, String status, Instant startsAt,
                                Instant endsAt, int boardSize, long participantCount,

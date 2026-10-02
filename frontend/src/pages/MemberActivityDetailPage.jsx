@@ -1,5 +1,6 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useEffect, useState } from "react";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import { activityStatus, formatGameMode, formatRelativeDays } from "../activityView.js";
 import Avatar from "../components/Avatar.jsx";
 import DashboardLayout from "../components/DashboardLayout.jsx";
@@ -7,6 +8,7 @@ import Icon from "../components/Icon.jsx";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
 export default function MemberActivityDetailPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const params = new URLSearchParams(window.location.search);
   const communityId = params.get("communityId");
@@ -27,7 +29,7 @@ export default function MemberActivityDetailPage() {
         if (cancelled) return;
         setActivity(result);
       } catch (error) {
-        if (!redirectToLogin(error) && !cancelled) {
+        if (!isRequestCancelled(error) && !redirectToLogin(error) && !cancelled) {
           setMessage(error.status === 404
             ? "클랜원을 찾을 수 없습니다."
             : error.status === 403

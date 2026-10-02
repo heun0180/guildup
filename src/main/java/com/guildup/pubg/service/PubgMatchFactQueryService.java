@@ -1,6 +1,7 @@
 package com.guildup.pubg.service;
 
 import com.guildup.pubg.model.PlayerMatchFacts;
+import com.guildup.pubg.model.PubgPlatform;
 import com.guildup.pubg.domain.PubgStoredMatch;
 import com.guildup.pubg.domain.PubgStoredMatchPlayer;
 import com.guildup.pubg.model.PubgMatch;
@@ -25,19 +26,27 @@ public class PubgMatchFactQueryService {
     }
 
     @Transactional(readOnly = true)
-    public Set<String> existingMatchIds(Collection<String> matchIds) {
+    public Set<String> existingMatchIds(PubgPlatform platform, Collection<String> matchIds) {
         if (matchIds.isEmpty()) return Set.of();
         Set<String> result = new LinkedHashSet<>();
         List<String> ids = List.copyOf(matchIds);
         for (int start = 0; start < ids.size(); start += 500) {
-            result.addAll(matches.findExistingMatchIds(ids.subList(start, Math.min(start + 500, ids.size()))));
+            result.addAll(matches.findExistingMatchIds(platform.getShard(), ids.subList(start, Math.min(start + 500, ids.size()))));
         }
         return result;
     }
 
     @Transactional(readOnly = true)
-    public List<StoredMatchFacts> findBetween(Instant from, Instant to, Set<String> communityAccounts) {
-        List<PubgStoredMatch> stored = matches.findWithPlayersBetween(from, to);
+    public List<StoredMatchFacts> findBetween(PubgPlatform platform, Instant from, Instant to, Set<String> targetAccounts, Set<String> communityAccounts) {
+        if (targetAccounts.isEmpty()) return List.of();
+        Map<Long, PubgStoredMatch> distinct = new LinkedHashMap<>();
+        List<String> accounts = List.copyOf(targetAccounts);
+        for (int start = 0; start < accounts.size(); start += 500) {
+            matches.findWithPlayersBetween(platform.getShard(), accounts.subList(start, Math.min(start + 500, accounts.size())), from, to)
+                    .forEach(match -> distinct.putIfAbsent(match.getId(), match));
+        }
+        List<PubgStoredMatch> stored = distinct.values().stream()
+                .sorted(Comparator.comparing(PubgStoredMatch::getStartedAt).thenComparing(PubgStoredMatch::getMatchId)).toList();
         Map<Long, List<com.guildup.pubg.domain.PubgStoredMatchKill>> killsByMatch = stored.isEmpty() ? Map.of()
                 : kills.findByMatchIdIn(stored.stream().map(PubgStoredMatch::getId).toList()).stream()
                 .collect(Collectors.groupingBy(kill -> kill.getMatch().getId()));
@@ -46,12 +55,12 @@ public class PubgMatchFactQueryService {
     }
 
     @Transactional(readOnly = true)
-    public List<PubgMatch> findTelemetryMissing(Collection<String> matchIds) {
+    public List<PubgMatch> findTelemetryMissing(PubgPlatform platform, Collection<String> matchIds) {
         if (matchIds.isEmpty()) return List.of();
         List<PubgMatch> result = new ArrayList<>();
         List<String> ids = List.copyOf(matchIds);
         for (int start = 0; start < ids.size(); start += 500) {
-            matches.findTelemetryMissing(ids.subList(start, Math.min(start + 500, ids.size())))
+            matches.findTelemetryMissing(platform.getShard(), ids.subList(start, Math.min(start + 500, ids.size())))
                     .forEach(match -> result.add(toMatch(match)));
         }
         return result;
@@ -59,24 +68,24 @@ public class PubgMatchFactQueryService {
 
     /** 최근 Player API 목록에서 밀려난 경기라도 연결 account의 미완료 Telemetry는 다시 시도한다. */
     @Transactional(readOnly = true)
-    public List<PubgMatch> findTelemetryMissingForAccounts(Collection<String> accountIds) {
+    public List<PubgMatch> findTelemetryMissingForAccounts(PubgPlatform platform, Collection<String> accountIds) {
         if (accountIds.isEmpty()) return List.of();
         Map<String, PubgMatch> result = new LinkedHashMap<>();
         List<String> ids = List.copyOf(accountIds);
         for (int start = 0; start < ids.size(); start += 500) {
-            matches.findTelemetryMissingForAccounts(ids.subList(start, Math.min(start + 500, ids.size())))
+            matches.findTelemetryMissingForAccounts(platform.getShard(), ids.subList(start, Math.min(start + 500, ids.size())))
                     .forEach(match -> result.putIfAbsent(match.getMatchId(), toMatch(match)));
         }
         return List.copyOf(result.values());
     }
 
     @Transactional(readOnly = true)
-    public List<PubgMatch> findTelemetryUpgradeCandidates(Collection<String> matchIds) {
+    public List<PubgMatch> findTelemetryUpgradeCandidates(PubgPlatform platform, Collection<String> matchIds) {
         if (matchIds.isEmpty()) return List.of();
         List<PubgMatch> result = new ArrayList<>();
         List<String> ids = List.copyOf(matchIds);
         for (int start = 0; start < ids.size(); start += 500) {
-            matches.findTelemetryUpgradeCandidates(ids.subList(start, Math.min(start + 500, ids.size())),
+            matches.findTelemetryUpgradeCandidates(platform.getShard(), ids.subList(start, Math.min(start + 500, ids.size())),
                             PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION)
                     .forEach(match -> result.add(toMatch(match)));
         }
@@ -84,12 +93,12 @@ public class PubgMatchFactQueryService {
     }
 
     @Transactional(readOnly = true)
-    public List<PubgMatch> findTelemetryUpgradeCandidatesForAccounts(Collection<String> accountIds) {
+    public List<PubgMatch> findTelemetryUpgradeCandidatesForAccounts(PubgPlatform platform, Collection<String> accountIds) {
         if (accountIds.isEmpty()) return List.of();
         Map<String, PubgMatch> result = new LinkedHashMap<>();
         List<String> ids = List.copyOf(accountIds);
         for (int start = 0; start < ids.size(); start += 500) {
-            matches.findTelemetryUpgradeCandidatesForAccounts(ids.subList(start, Math.min(start + 500, ids.size())),
+            matches.findTelemetryUpgradeCandidatesForAccounts(platform.getShard(), ids.subList(start, Math.min(start + 500, ids.size())),
                             PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION)
                     .forEach(match -> result.putIfAbsent(match.getMatchId(), toMatch(match)));
         }
@@ -127,7 +136,7 @@ public class PubgMatchFactQueryService {
                     PubgFactCodec.integers(player.getUsedItemsJson()), PubgFactCodec.integers(player.getCarePackageItemsJson()),
                     PubgFactCodec.integers(player.getDestroyedArmorJson()), clanMembers, player.getLatestEvidenceAt()));
         }
-        return new StoredMatchFacts(match.getMatchId(), match.getStartedAt(), match.getGameMode(), match.getMapName(),
+        return new StoredMatchFacts(PubgPlatform.fromShard(match.getShard()), match.getMatchId(), match.getStartedAt(), match.getGameMode(), match.getMapName(),
                 match.getMatchType(), match.getCustomMatch(), match.isTelemetryLoaded(),
                 match.getTelemetryFactVersion(), Map.copyOf(facts));
     }
@@ -137,7 +146,7 @@ public class PubgMatchFactQueryService {
         match.getPlayers().forEach(player -> teams.computeIfAbsent(player.getTeamNumber(), ignored -> new ArrayList<>()).add(
                 new PubgParticipant(player.getAccountId(), player.getPlayerName(), player.getKills(),
                         player.getDamage().doubleValue(), player.getAssists(), player.getDbnos(), player.getHeadshotKills(),
-                        player.getHeals(), player.getBoosts(), player.getRevives(), 0, player.getPlacement(), 0,
+                        player.getHeals(), player.getBoosts(), player.getRevives(), player.getRoadKills(), player.getPlacement(), player.getTimeSurvived(),
                         player.getWalkDistance().doubleValue(), player.getRideDistance().doubleValue(),
                         player.getSwimDistance().doubleValue(), 0)));
         return new PubgMatch(match.getMatchId(), match.getStartedAt(), match.getGameMode(), match.getMapName(),
@@ -145,14 +154,14 @@ public class PubgMatchFactQueryService {
                 match.getDuration(), teams.values().stream().map(PubgTeam::new).toList());
     }
 
-    public record StoredMatchFacts(String matchId, Instant startedAt, String gameMode, String mapName,
+    public record StoredMatchFacts(PubgPlatform platform, String matchId, Instant startedAt, String gameMode, String mapName,
                                    String matchType, Boolean customMatch, boolean telemetryLoaded,
                                    int telemetryFactVersion,
                                    Map<String, PlayerMatchFacts> byAccount) {
-        public StoredMatchFacts(String matchId, Instant startedAt, String gameMode, String mapName,
+        public StoredMatchFacts(PubgPlatform platform, String matchId, Instant startedAt, String gameMode, String mapName,
                                 String matchType, Boolean customMatch, boolean telemetryLoaded,
                                 Map<String, PlayerMatchFacts> byAccount) {
-            this(matchId, startedAt, gameMode, mapName, matchType, customMatch, telemetryLoaded,
+            this(platform, matchId, startedAt, gameMode, mapName, matchType, customMatch, telemetryLoaded,
                     PubgStoredMatch.CURRENT_TELEMETRY_FACT_VERSION, byAccount);
         }
     }

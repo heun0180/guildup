@@ -1,5 +1,7 @@
 package com.guildup.killcompetition;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
@@ -76,7 +78,7 @@ class KillCompetitionPostgresClaimIntegrationTests {
         memberAccounts.save(new CommunityMemberAccount(
                 member, ExternalAccountProvider.DISCORD, "discord-creator", "creator"));
         memberAccounts.save(new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, "account-creator", "pubg-creator"));
+                member, PubgPlatform.KAKAO, "account-creator", "pubg-creator"));
 
         var created = competitions.create(user.getId(), community.getId(), game.getId(),
                 new KillCompetitionCreateRequest("precision", KillCompetitionGameMode.SOLO,

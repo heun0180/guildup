@@ -1,5 +1,7 @@
 package com.guildup.killcompetition;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.*;
 import com.guildup.community.repository.*;
@@ -98,6 +100,7 @@ class KillCompetitionFlowTests {
     void persistsRequestedCommunityGameAndSettlementUsesItInsteadOfTheFirstGame() {
         CommunityGame steam = communityGames.save(
                 new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+        memberAccounts.save(new CommunityMemberAccount(creator.member(), PubgPlatform.STEAM, "account-생성자", "steam-생성자"));
         var created = competitions.create(
                 creator.user().getId(), community.getId(), steam.getId(),
                 new KillCompetitionCreateRequest(
@@ -152,8 +155,8 @@ class KillCompetitionFlowTests {
         assertThat(joined.participants()).singleElement()
                 .extracting(KillCompetitionDetailResponse.Participant::pubgNickname)
                 .isEqualTo("TEMA-___-");
-        assertThat(memberAccounts.findByCommunityMemberIdAndProvider(
-                apple.member().getId(), ExternalAccountProvider.PUBG)).get().satisfies(account -> {
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                apple.member().getId(), ExternalAccountProvider.PUBG,PubgPlatform.KAKAO)).get().satisfies(account -> {
                     assertThat(account.getExternalUserId()).isEqualTo("account-apple");
                     assertThat(account.getExternalUsername()).isEqualTo("TEMA-___-");
                 });
@@ -172,8 +175,8 @@ class KillCompetitionFlowTests {
 
         assertConflict(() -> participation.join(apple.user().getId(), community.getId(), created.id()));
 
-        assertThat(memberAccounts.findByCommunityMemberIdAndProvider(
-                apple.member().getId(), ExternalAccountProvider.PUBG)).isEmpty();
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                apple.member().getId(), ExternalAccountProvider.PUBG,PubgPlatform.KAKAO)).isEmpty();
         assertThat(competitions.get(creator.user().getId(), community.getId(), created.id()).participants()).isEmpty();
     }
 
@@ -876,7 +879,7 @@ class KillCompetitionFlowTests {
         communityUsers.save(new CommunityUser(community, user, role));
         CommunityMember member = members.save(new CommunityMember(community, name));
         memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.DISCORD, "discord-" + name, name));
-        if (pubg) memberAccounts.save(new CommunityMemberAccount(member, ExternalAccountProvider.PUBG, "account-" + name, "pubg-" + name));
+        if (pubg) memberAccounts.save(new CommunityMemberAccount(member, PubgPlatform.KAKAO, "account-" + name, "pubg-" + name));
         return new Person(user, member);
     }
     private void mockKills(Map<String, Integer> byAccount) {
@@ -913,6 +916,21 @@ class KillCompetitionFlowTests {
         assertThatThrownBy(callable).isInstanceOfSatisfying(ResponseStatusException.class,
                 error -> assertThat(error.getStatusCode().value()).isEqualTo(403));
     }
+    @Test void eachCompetitionSnapshotsOnlyItsPlatformAccount() {
+        CommunityGame kakao = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        CommunityGame steam = communityGames.save(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(creator.member(), PubgPlatform.STEAM,
+                "steam-creator", "SteamCreator"));
+        for (CommunityGame game : List.of(kakao, steam)) {
+            var competition = competitions.create(creator.user().getId(), community.getId(), game.getId(),
+                    new KillCompetitionCreateRequest("플랫폼 대회", KillCompetitionGameMode.SOLO, clock.instant().plusSeconds(3600)));
+            participation.join(creator.user().getId(), community.getId(), competition.id());
+            assertThat(competitionRepository.findDetail(community.getId(), game.getId(), competition.id()).orElseThrow().getParticipants()).singleElement()
+                    .satisfies(participant -> assertThat(participant.getPubgAccountId()).isEqualTo(
+                            game == steam ? "steam-creator" : "account-생성자"));
+        }
+    }
+
     private record Person(User user, CommunityMember member) {}
     @TestConfiguration
     static class ClockConfig {

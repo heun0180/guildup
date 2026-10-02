@@ -46,6 +46,7 @@ class BingoAggregationFlowTests {
     @Autowired CommunityMemberRepository members; @Autowired CommunityMemberAccountRepository memberAccounts;
     @Autowired CommunityGameRepository games; @Autowired UserRepository users; @Autowired UserExternalAccountRepository userAccounts;
     @Autowired MutableClock clock;
+    @Autowired PubgMatchFactWriter factWriter;
     @MockitoBean PubgPlayerService pubgPlayers; @MockitoBean PubgMatchService pubgMatches;
     @MockitoBean PubgBingoFactService factService; @MockitoBean JDA jda; @MockitoBean DiscordBot bot;
     Community community; User owner;
@@ -60,7 +61,7 @@ class BingoAggregationFlowTests {
         userAccounts.save(new UserExternalAccount(owner,ExternalAccountProvider.DISCORD,"discord-a","애플"));
         CommunityMember member=members.save(new CommunityMember(community,"애플"));
         memberAccounts.save(new CommunityMemberAccount(member,ExternalAccountProvider.DISCORD,"discord-a","애플"));
-        memberAccounts.save(new CommunityMemberAccount(member,ExternalAccountProvider.PUBG,"account-a","ApplePUBG"));
+        memberAccounts.save(new CommunityMemberAccount(member,PubgPlatform.KAKAO,"account-a","ApplePUBG"));
     }
 
     @Test void aggregatesOnlyActualMatchTimeOnceAndCompletesLinesAndBlackout(){
@@ -76,7 +77,7 @@ class BingoAggregationFlowTests {
         Map<String,PubgMatch> matchRows=new LinkedHashMap<>();
         matchRows.put("before",match("before",before)); matchRows.put("late-api",match("late-api",inside)); matchRows.put("after",match("after",after));
         when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(matchRows);
-        when(factService.facts(argThat(m->m.matchId().equals("late-api")),anySet())).thenReturn(Map.of("account-a",facts("late-api",inside,5)));
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m.matchId().equals("late-api")),anySet())).thenReturn(Map.of("account-a",facts("late-api",inside,5)));
 
         var first=aggregation.aggregate(owner.getId(),community.getId(),event.id());
         clock.set(clock.instant().plus(Duration.ofMinutes(30)));
@@ -87,12 +88,13 @@ class BingoAggregationFlowTests {
         assertThat(progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())).hasSize(9).allMatch(BingoProgress::isCompleted);
         assertThat(participant.getLineCount()).isEqualTo(8);
         assertThat(participant.getTargetLinesCompletedAt()).isNotNull(); assertThat(participant.getBlackoutCompletedAt()).isNotNull();
-        verify(factService,times(1)).facts(any(),anySet());
+        verify(factService,times(1)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(),anySet());
         verify(pubgMatches,times(1)).findUniqueMatches(eq("kakao"), anyCollection());
     }
 
     @Test void aggregationUsesTheGameStoredOnTheEvent(){
         CommunityGame steam = games.save(new CommunityGame(community,GameType.BATTLEGROUNDS_STEAM));
+        memberAccounts.save(new CommunityMemberAccount(members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst(), PubgPlatform.STEAM, "steam-account-a", "SteamApple"));
         var event=events.create(owner.getId(),community.getId(),steam.getId(),request());
         when(pubgPlayers.findByAccountIdsFresh(eq("steam"),anyList())).thenReturn(List.of());
 
@@ -128,9 +130,9 @@ class BingoAggregationFlowTests {
                 new PubgPlayer("account-a", "ApplePUBG", List.of("good", "failed"))));
         when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of(
                 "good", good, "failed", failed));
-        when(factService.facts(argThat(value -> value != null && value.matchId().equals("good")), anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(value -> value != null && value.matchId().equals("good")), anySet()))
                 .thenReturn(Map.of("account-a", facts("good", at, 3)));
-        when(factService.facts(argThat(value -> value != null && value.matchId().equals("failed")), anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(value -> value != null && value.matchId().equals("failed")), anySet()))
                 .thenThrow(new PubgApiException("upstream unavailable", null, 500, true));
 
         var result = aggregation.aggregate(owner.getId(), community.getId(), event.id());
@@ -138,8 +140,31 @@ class BingoAggregationFlowTests {
         assertThat(result.telemetryFailures()).isEqualTo(1);
         assertThat(result.processedMatches()).isEqualTo(1);
         assertThat(processed.findDistinctMatchIdsByEventId(event.id())).contains("good").doesNotContain("failed");
-        assertThat(storedMatches.findByMatchId("good").orElseThrow().isTelemetryLoaded()).isTrue();
-        assertThat(storedMatches.findByMatchId("failed").orElseThrow().isTelemetryLoaded()).isFalse();
+        assertThat(storedMatches.findByShardAndMatchId("kakao","good").orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(storedMatches.findByShardAndMatchId("kakao","failed").orElseThrow().isTelemetryLoaded()).isFalse();
+    }
+
+    @Test void failedTelemetryRetryDoesNotErasePreviouslyCountedProgress() {
+        var event = events.create(owner.getId(), community.getId(), request());
+        Instant at = clock.instant().minusSeconds(60);
+        PubgMatch match = match("previously-counted", at);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "ApplePUBG", List.of(match.matchId()))));
+        when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of(match.matchId(), match));
+        when(factService.factsRequired(eq(PubgPlatform.KAKAO), eq(match), anySet()))
+                .thenReturn(Map.of("account-a", facts(match.matchId(), at, 5)));
+        aggregation.aggregate(owner.getId(), community.getId(), event.id());
+        var participant = participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        var before = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst().getCurrentValue();
+        var stored = storedMatches.findByShardAndMatchId("kakao", match.matchId()).orElseThrow();
+        ReflectionTestUtils.setField(stored, "telemetryLoaded", false);
+        storedMatches.saveAndFlush(stored);
+        when(factService.factsRequired(eq(PubgPlatform.KAKAO), any(), anySet()))
+                .thenThrow(new PubgApiException("retry failed", null));
+        clock.set(clock.instant().plusSeconds(1800));
+        aggregation.aggregate(owner.getId(), community.getId(), event.id());
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst().getCurrentValue())
+                .isEqualByComparingTo(before);
     }
 
     @Test void longDistanceKillIsAppliedAfterFailedTelemetryRetriesFromStoredMatch() {
@@ -155,7 +180,7 @@ class BingoAggregationFlowTests {
                 .thenReturn(List.of(new PubgPlayer("account-a", "ApplePUBG", List.of(match.matchId()))))
                 .thenReturn(List.of(new PubgPlayer("account-a", "ApplePUBG", List.of())));
         when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of(match.matchId(), match));
-        when(factService.facts(argThat(value -> value != null && value.matchId().equals(match.matchId())), anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(value -> value != null && value.matchId().equals(match.matchId())), anySet()))
                 .thenThrow(new PubgApiException("timeout", null))
                 .thenReturn(Map.of("account-a", longDistanceFact));
 
@@ -163,7 +188,7 @@ class BingoAggregationFlowTests {
         BingoProgress first = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst();
         assertThat(first.getCurrentValue()).isZero();
         assertThat(first.isCompleted()).isFalse();
-        assertThat(storedMatches.findByMatchId(match.matchId()).orElseThrow().isTelemetryLoaded()).isFalse();
+        assertThat(storedMatches.findByShardAndMatchId("kakao",match.matchId()).orElseThrow().isTelemetryLoaded()).isFalse();
         assertThat(processed.existsByEventIdAndParticipantIdAndMatchId(
                 event.id(), participant.getId(), match.matchId())).isFalse();
 
@@ -173,7 +198,7 @@ class BingoAggregationFlowTests {
         BingoProgress retried = progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst();
         assertThat(retried.getCurrentValue()).isEqualByComparingTo("1");
         assertThat(retried.isCompleted()).isTrue();
-        assertThat(storedMatches.findByMatchId(match.matchId()).orElseThrow().isTelemetryLoaded()).isTrue();
+        assertThat(storedMatches.findByShardAndMatchId("kakao",match.matchId()).orElseThrow().isTelemetryLoaded()).isTrue();
         assertThat(processed.existsByEventIdAndParticipantIdAndMatchId(
                 event.id(), participant.getId(), match.matchId())).isTrue();
         verify(pubgMatches, times(1)).findUniqueMatches(eq("kakao"), anyCollection());
@@ -190,16 +215,16 @@ class BingoAggregationFlowTests {
                 new PubgPlayer("account-a","ApplePUBG",List.of("before-join","after-join"))));
         when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(Map.of(
                 "before-join",match("before-join",before),"after-join",match("after-join",after)));
-        when(factService.facts(argThat(m->m.matchId().equals("after-join")),anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m.matchId().equals("after-join")),anySet()))
                 .thenReturn(Map.of("account-a",facts("after-join",after,5)));
 
         assertThat(aggregation.aggregate(owner.getId(),community.getId(),event.id()).processedMatches()).isEqualTo(1);
-        verify(factService,never()).facts(argThat(m->m.matchId().equals("before-join")),anySet());
+        verify(factService,never()).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m.matchId().equals("before-join")),anySet());
     }
 
     @Test void participantWithoutPubgAccountKeepsBoardAndSkipsAggregation(){
         CommunityMember member=members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
-        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProvider(member.getId(),ExternalAccountProvider.PUBG).orElseThrow());
+        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(member.getId(),ExternalAccountProvider.PUBG,PubgPlatform.KAKAO).orElseThrow());
         memberAccounts.flush();
         var event=events.create(owner.getId(),community.getId(),request());
         assertThat(event.me()).isNotNull(); assertThat(event.me().pubgConnected()).isFalse();
@@ -210,11 +235,11 @@ class BingoAggregationFlowTests {
     @Test void aggregationRefreshesTheParticipantAccountSnapshotFromTheCurrentStableAccountId(){
         var event=events.create(owner.getId(),community.getId(),request());
         CommunityMember member=members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
-        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProvider(
-                member.getId(),ExternalAccountProvider.PUBG).orElseThrow());
+        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                member.getId(),ExternalAccountProvider.PUBG,PubgPlatform.KAKAO).orElseThrow());
         memberAccounts.flush();
         memberAccounts.saveAndFlush(new CommunityMemberAccount(
-                member,ExternalAccountProvider.PUBG,"account-new","RenamedPUBG"));
+                member,PubgPlatform.KAKAO,"account-new","RenamedPUBG"));
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of());
 
         aggregation.aggregate(owner.getId(),community.getId(),event.id());
@@ -241,7 +266,7 @@ class BingoAggregationFlowTests {
                     account.equals("account-b") ? List.of("shared") : List.of())).toList();
         });
         when(pubgMatches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of("shared", shared));
-        when(factService.facts(argThat(value -> value.matchId().equals("shared")), anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(value -> value.matchId().equals("shared")), anySet()))
                 .thenReturn(Map.of("account-b", facts("shared", at, 5)));
 
         aggregation.aggregatePersonal(bravo.getId(), community.getId(), event.id());
@@ -266,7 +291,7 @@ class BingoAggregationFlowTests {
         assertThat(progress.findByParticipantIdOrderByCellPositionAsc(b.getId()).stream()
                 .map(BingoProgress::getCurrentValue).toList()).isEqualTo(personalValues);
         verify(pubgMatches, times(1)).findUniqueMatches(eq("kakao"), anyCollection());
-        verify(factService, times(1)).facts(any(), anySet());
+        verify(factService, times(1)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet());
     }
 
     @Test void ordinaryMemberCanAggregateSelfButCannotAggregateEveryone() {
@@ -296,8 +321,8 @@ class BingoAggregationFlowTests {
     @Test void personalAggregationRejectsDisconnectedPubgAccountBeforeCallingPubg() {
         var event = events.create(owner.getId(), community.getId(), request());
         CommunityMember member = members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
-        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProvider(
-                member.getId(), ExternalAccountProvider.PUBG).orElseThrow());
+        memberAccounts.delete(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                member.getId(), ExternalAccountProvider.PUBG,PubgPlatform.KAKAO).orElseThrow());
         memberAccounts.flush();
 
         assertThatThrownBy(() -> aggregation.aggregatePersonal(owner.getId(), community.getId(), event.id()))
@@ -324,9 +349,9 @@ class BingoAggregationFlowTests {
                 "solo",match("solo",soloAt),
                 "casual-clan",match("casual-clan",clanAt.minusSeconds(30),"airoyale",false),
                 "clan",match("clan",clanAt)));
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("solo")),anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("solo")),anySet()))
                 .thenReturn(Map.of("account-a",facts("solo",soloAt,5,0)));
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("clan")),anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("clan")),anySet()))
                 .thenReturn(Map.of("account-a",facts("clan",clanAt,5,1)));
 
         var result=aggregation.aggregate(owner.getId(),community.getId(),event.id());
@@ -338,7 +363,7 @@ class BingoAggregationFlowTests {
                     assertThat(row.getCurrentValue()).isEqualByComparingTo("5");
                     assertThat(row.isCompleted()).isFalse();
                 });
-        verify(factService,never()).facts(argThat(m->m != null && m.matchId().equals("casual-clan")),anySet());
+        verify(factService,never()).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("casual-clan")),anySet());
     }
 
     @Test void aggregatesNormalAndRankedMatchesTogether(){
@@ -350,9 +375,9 @@ class BingoAggregationFlowTests {
         when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(Map.of(
                 "normal",match("normal",normalAt,"official",false),
                 "ranked",match("ranked",rankedAt,"competitive",false)));
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("normal")),anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("normal")),anySet()))
                 .thenReturn(Map.of("account-a",facts("normal",normalAt,2)));
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("ranked")),anySet()))
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("ranked")),anySet()))
                 .thenReturn(Map.of("account-a",facts("ranked",rankedAt,3)));
 
         var result=aggregation.aggregate(owner.getId(),community.getId(),event.id());
@@ -361,8 +386,8 @@ class BingoAggregationFlowTests {
         assertThat(result.processedMatches()).isEqualTo(2);
         assertThat(progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()))
                 .allSatisfy(row -> assertThat(row.getCurrentValue()).isEqualByComparingTo("5"));
-        verify(factService).facts(argThat(m->m.matchType().equals("official")),anySet());
-        verify(factService).facts(argThat(m->m.matchType().equals("competitive")),anySet());
+        verify(factService).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m.matchType().equals("official")),anySet());
+        verify(factService).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m.matchType().equals("competitive")),anySet());
     }
 
     @Test void excludedMatchesNeverReachFactsMissionEngineOrTelemetryBasedMissions(){
@@ -401,15 +426,15 @@ class BingoAggregationFlowTests {
         when(pubgPlayers.findByAccountIdsFresh(eq("kakao"),anyList())).thenReturn(List.of(
                 new PubgPlayer("account-a","ApplePUBG",new ArrayList<>(rows.keySet()))));
         when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(rows);
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("start")),anySet())).thenReturn(Map.of(
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("start")),anySet())).thenReturn(Map.of(
                 "account-a",facts("start",endMinute.plus(Duration.ofHours(1)),1)));
-        when(factService.facts(argThat(m->m != null && m.matchId().equals("end-minute")),anySet())).thenReturn(Map.of(
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && m.matchId().equals("end-minute")),anySet())).thenReturn(Map.of(
                 "account-a",facts("end-minute",endMinute.plus(Duration.ofHours(3)),1)));
 
         var result=aggregation.aggregate(owner.getId(),community.getId(),event.id());
 
         assertThat(result.processedMatches()).isEqualTo(2);
-        verify(factService,never()).facts(argThat(m->m != null && Set.of("before","next-minute").contains(m.matchId())),anySet());
+        verify(factService,never()).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),argThat(m->m != null && Set.of("before","next-minute").contains(m.matchId())),anySet());
     }
 
     @Test void eligibleNormalAndRankedMatchesDoNotRequirePerspectiveTeamSizeOrClanMate(){
@@ -427,8 +452,8 @@ class BingoAggregationFlowTests {
                 new PubgPlayer("account-a","ApplePUBG",rows.stream().map(PubgMatch::matchId).toList())));
         when(pubgMatches.findUniqueMatches(eq("kakao"),anyCollection())).thenReturn(rows.stream().collect(
                 java.util.stream.Collectors.toMap(PubgMatch::matchId,java.util.function.Function.identity())));
-        when(factService.facts(any(),anySet())).thenAnswer(invocation -> {
-            PubgMatch match=invocation.getArgument(0);
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(),anySet())).thenAnswer(invocation -> {
+            PubgMatch match=invocation.getArgument(1);
             return Map.of("account-a",facts(match.matchId(),match.playedAt(),1,0));
         });
 
@@ -461,8 +486,8 @@ class BingoAggregationFlowTests {
             ids.forEach(id -> result.put(id,match(id,Instant.parse("2026-09-22T11:00:00Z").plusSeconds(index(id)))));
             return result;
         });
-        when(factService.facts(any(),anySet())).thenAnswer(invocation -> {
-            PubgMatch match=invocation.getArgument(0); return Map.of("account-a",facts(match.matchId(),match.playedAt(),1));
+        when(factService.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(),anySet())).thenAnswer(invocation -> {
+            PubgMatch match=invocation.getArgument(1); return Map.of("account-a",facts(match.matchId(),match.playedAt(),1));
         });
         int total=0;
         for(int batch:batches){
@@ -473,6 +498,38 @@ class BingoAggregationFlowTests {
         }
         BingoParticipant participant=participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
         return progress.findByParticipantIdOrderByCellPositionAsc(participant.getId()).getFirst().getCurrentValue().intValue();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void otherPlatformAndUnrelatedAccountsCannotBlockBotExcludedBingo(PubgPlatform platform) {
+        CommunityGame game = games.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        if (platform == PubgPlatform.STEAM) {
+            game = games.save(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+            memberAccounts.save(new CommunityMemberAccount(members.findByCommunityIdOrderByIdAsc(community.getId()).getFirst(),
+                    PubgPlatform.STEAM, "account-a", "SteamApple"));
+        }
+        BingoEventRequest normal = request();
+        BingoEventRequest botExcluded = new BingoEventRequest(normal.title(), normal.description(), normal.startsAt(), normal.endsAt(),
+                normal.boardSize(), normal.targetLines(), normal.blackoutEnabled(), normal.allowLateJoin(), true, normal.status(), normal.cells());
+        var event = events.create(owner.getId(), community.getId(), game.getId(), botExcluded);
+        Instant at = clock.instant().minusSeconds(600);
+        PubgMatch needed = match("same-match", at);
+        factWriter.saveMatchIfAbsent(platform, needed);
+        PlayerMatchFacts fact = new PlayerMatchFacts("same-match", at, "Erangel_Main", "squad",
+                Map.of("KILLS", BigDecimal.valueOf(5), "NON_BOT_KILLS", BigDecimal.valueOf(5)), List.of(), Map.of(), 0, at);
+        factWriter.saveTelemetry(platform, "same-match", Map.of("account-a", fact));
+        PubgPlatform other = platform == PubgPlatform.KAKAO ? PubgPlatform.STEAM : PubgPlatform.KAKAO;
+        factWriter.saveMatchIfAbsent(other, needed); // Identical account and Match IDs, Telemetry still missing.
+        factWriter.saveMatchIfAbsent(platform, new PubgMatch("unrelated", at, "squad", "Erangel_Main", "official", false, null,
+                List.of(new PubgTeam(List.of(new PubgParticipant("unrelated-account", "Other", 100))))));
+        when(pubgPlayers.findByAccountIdsFresh(platform.getShard(), List.of("account-a")))
+                .thenReturn(List.of(new PubgPlayer("account-a", "Apple", List.of())));
+
+        assertThat(aggregation.aggregate(owner.getId(), community.getId(), event.id()).processedMatches()).isEqualTo(1);
+        BingoParticipant participant = participants.findByEventIdOrderByIdAsc(event.id()).getFirst();
+        assertThat(progress.findByParticipantIdOrderByCellPositionAsc(participant.getId())).allMatch(BingoProgress::isCompleted);
+        assertThat(storedMatches.findByShardAndMatchId(other.getShard(), "same-match").orElseThrow().isTelemetryLoaded()).isFalse();
     }
 
     private long index(String id){return Long.parseLong(id.substring(1));}
@@ -488,7 +545,7 @@ class BingoAggregationFlowTests {
         memberAccounts.save(new CommunityMemberAccount(
                 member, ExternalAccountProvider.DISCORD, "discord-" + suffix, nickname));
         memberAccounts.save(new CommunityMemberAccount(
-                member, ExternalAccountProvider.PUBG, accountId, pubgName));
+                member, PubgPlatform.KAKAO, accountId, pubgName));
         return user;
     }
 

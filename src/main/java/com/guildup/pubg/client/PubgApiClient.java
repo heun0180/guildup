@@ -50,6 +50,7 @@ public class PubgApiClient {
 
     private static final Logger log = LoggerFactory.getLogger(PubgApiClient.class);
     public static final int MAX_PLAYERS_PER_REQUEST = 10;
+    // Team Maker currently uses TPP squad stats on both platforms. FPP selection is a separate feature.
     public static final String TEAM_MAKER_GAME_MODE = "squad";
     private static final String ACCEPT = "application/vnd.api+json";
     private static final int MAX_ATTEMPTS = 4;

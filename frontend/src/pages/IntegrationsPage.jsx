@@ -1,3 +1,4 @@
+import { usePubgGame } from "../community/usePubgGame.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import IntegrationServiceCard from "../components/IntegrationServiceCard.jsx";
 import { useCommunity } from "../community/CommunityContext.jsx";
@@ -8,7 +9,7 @@ export default function IntegrationsPage() {
 
   const encodedCommunityId = encodeURIComponent(communityId || "");
   const canManage = community?.role === "OWNER" || community?.role === "ADMIN";
-  const activityGame = community?.games?.find((game) => game.capabilities?.includes("ACTIVITY"));
+  const activityGame = usePubgGame();
   const discordFeatures = [
     {
       id: "roles",

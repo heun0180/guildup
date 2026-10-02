@@ -1,6 +1,7 @@
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, redirectToLogin } from "../api/http.js";
+import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import HelpLink from "../components/HelpLink.jsx";
@@ -20,6 +21,7 @@ const recommendedPlacementPoints = {
 };
 
 export default function KillCompetitionsPage() {
+  const api = useScopedApi();
   const { community } = useCommunity();
   const navigate = useNavigate();
   const location = useLocation();
@@ -40,7 +42,7 @@ export default function KillCompetitionsPage() {
   const [communityMembers, setCommunityMembers] = useState([]);
 
   const handleError = useCallback((error, fallback) => {
-    if (!redirectToLogin(error)) setMessage(error.message || fallback);
+    if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message || fallback);
   }, []);
 
   const load = useCallback(async () => {

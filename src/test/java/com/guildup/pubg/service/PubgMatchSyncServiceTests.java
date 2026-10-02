@@ -35,42 +35,67 @@ class PubgMatchSyncServiceTests {
 
     @BeforeEach void setUp() { sync = new PubgMatchSyncService(players, matches, facts, query, writer, 3); }
 
+    @Test void sameMatchIdOnDifferentPlatformsHasIndependentInFlightTelemetry() throws Exception {
+        var match = match("same-id");
+        when(players.findByAccountIdsFresh(anyString(), anyList())).thenReturn(List.of(new PubgPlayer("account-a", "A", List.of("same-id"))));
+        when(query.existingMatchIds(any(PubgPlatform.class), anyCollection())).thenReturn(Set.of("same-id"));
+        when(query.findTelemetryMissing(any(PubgPlatform.class), anyCollection())).thenReturn(List.of(match));
+        CountDownLatch entered = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        when(facts.factsRequired(any(PubgPlatform.class), eq(match), anySet())).thenAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return Map.of("account-a", fact("same-id"));
+        });
+        when(writer.saveTelemetry(any(PubgPlatform.class), eq("same-id"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 0));
+        try (var callers = Executors.newFixedThreadPool(2)) {
+            var kakao = callers.submit(() -> sync.sync(PubgPlatform.KAKAO, List.of("account-a"), ignored -> true, PubgMatchSyncService.ProgressListener.noop()));
+            var steam = callers.submit(() -> sync.sync(PubgPlatform.STEAM, List.of("account-a"), ignored -> true, PubgMatchSyncService.ProgressListener.noop()));
+            try { assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue(); }
+            finally { release.countDown(); }
+            assertThat(kakao.get(5, TimeUnit.SECONDS).telemetryFailures()).isZero();
+            assertThat(steam.get(5, TimeUnit.SECONDS).telemetryFailures()).isZero();
+        }
+        verify(writer).saveTelemetry(eq(PubgPlatform.KAKAO), eq("same-id"), anyMap());
+        verify(writer).saveTelemetry(eq(PubgPlatform.STEAM), eq("same-id"), anyMap());
+    }
+
     @Test void newMatchIsFetchedParsedAndStoredOnceOutsideATransaction() {
         PubgMatch match = match("A");
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenAnswer(ignored -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return List.of(new PubgPlayer("account-a", "A", List.of("A")));
         });
-        when(query.existingMatchIds(Set.of("A"))).thenReturn(Set.of());
+        when(query.existingMatchIds(PubgPlatform.KAKAO,Set.of("A"))).thenReturn(Set.of());
         when(matches.findUniqueMatches("kakao", Set.of("A"))).thenAnswer(ignored -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return Map.of("A", match);
         });
-        when(writer.saveMatchIfAbsent("kakao", match)).thenReturn(true);
-        when(query.findTelemetryMissing(Set.of("A"))).thenReturn(List.of(match));
-        when(facts.facts(eq(match), anySet())).thenAnswer(ignored -> {
+        when(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, match)).thenReturn(true);
+        when(query.findTelemetryMissing(PubgPlatform.KAKAO,Set.of("A"))).thenReturn(List.of(match));
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq(match), anySet())).thenAnswer(ignored -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             return Map.of("account-a", fact("A"));
         });
-        when(writer.saveTelemetry(eq("A"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("A"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
 
-        PubgMatchSyncService.SyncResult result = sync.sync("kakao", List.of("account-a"), value -> true,
+        PubgMatchSyncService.SyncResult result = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true,
                 PubgMatchSyncService.ProgressListener.noop());
 
         assertThat(result.newMatchIds()).isEqualTo(1);
         assertThat(result.matchApiCalls()).isEqualTo(1);
         assertThat(result.telemetryApiCalls()).isEqualTo(1);
-        verify(writer).saveMatchIfAbsent("kakao", match);
-        verify(writer).saveTelemetry(eq("A"), anyMap());
+        verify(writer).saveMatchIfAbsent(PubgPlatform.KAKAO, match);
+        verify(writer).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("A"), anyMap());
     }
 
     @Test void storedMatchSkipsBothMatchAndTelemetryApis() {
         when(players.findByAccountIdsFresh(anyString(), anyList())).thenReturn(
                 List.of(new PubgPlayer("account-a", "A", List.of("A"))));
-        when(query.existingMatchIds(Set.of("A"))).thenReturn(Set.of("A"));
-        when(query.findTelemetryMissing(Set.of("A"))).thenReturn(List.of());
+        when(query.existingMatchIds(PubgPlatform.KAKAO,Set.of("A"))).thenReturn(Set.of("A"));
+        when(query.findTelemetryMissing(PubgPlatform.KAKAO,Set.of("A"))).thenReturn(List.of());
 
-        PubgMatchSyncService.SyncResult result = sync.sync("kakao", List.of("account-a"), value -> true,
+        PubgMatchSyncService.SyncResult result = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true,
                 PubgMatchSyncService.ProgressListener.noop());
 
         assertThat(result.existingDbMatches()).isEqualTo(1);
@@ -84,12 +109,12 @@ class PubgMatchSyncServiceTests {
                 new PubgPlayer("a", "A", List.of("X")),
                 new PubgPlayer("b", "B", List.of("X")),
                 new PubgPlayer("c", "C", List.of("X"))));
-        when(query.existingMatchIds(Set.of("X"))).thenReturn(Set.of());
+        when(query.existingMatchIds(PubgPlatform.KAKAO,Set.of("X"))).thenReturn(Set.of());
         when(matches.findUniqueMatches(eq("kakao"), anyCollection())).thenReturn(Map.of("X", match("X")));
-        when(writer.saveMatchIfAbsent(anyString(), any())).thenReturn(true);
-        when(query.findTelemetryMissing(Set.of("X"))).thenReturn(List.of());
+        when(writer.saveMatchIfAbsent(any(PubgPlatform.class), any())).thenReturn(true);
+        when(query.findTelemetryMissing(PubgPlatform.KAKAO,Set.of("X"))).thenReturn(List.of());
 
-        sync.sync("kakao", List.of("a", "b", "c"), value -> false, PubgMatchSyncService.ProgressListener.noop());
+        sync.sync(PubgPlatform.KAKAO, List.of("a", "b", "c"), value -> false, PubgMatchSyncService.ProgressListener.noop());
 
         verify(matches).findUniqueMatches(eq("kakao"), argThat(ids -> ids.size() == 1 && ids.contains("X")));
     }
@@ -100,34 +125,34 @@ class PubgMatchSyncServiceTests {
             String account = ((List<String>) invocation.getArgument(1)).getFirst();
             return List.of(new PubgPlayer(account, account, List.of("match-" + account)));
         });
-        when(query.existingMatchIds(anyCollection())).thenReturn(Set.of());
+        when(query.existingMatchIds(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(Set.of());
         when(matches.findUniqueMatches(eq("kakao"), anyCollection())).thenAnswer(invocation -> {
             String id = ((Collection<String>) invocation.getArgument(1)).iterator().next();
             return Map.of(id, match(id));
         });
-        when(writer.saveMatchIfAbsent(anyString(), any())).thenReturn(true);
-        when(query.findTelemetryMissing(anyCollection())).thenAnswer(invocation -> {
-            String id = ((Collection<String>) invocation.getArgument(0)).iterator().next();
+        when(writer.saveMatchIfAbsent(any(PubgPlatform.class), any())).thenReturn(true);
+        when(query.findTelemetryMissing(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenAnswer(invocation -> {
+            String id = ((Collection<String>) invocation.getArgument(1)).iterator().next();
             return List.of(match(id));
         });
         CountDownLatch entered = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maximum = new AtomicInteger();
-        when(facts.facts(any(), anySet())).thenAnswer(invocation -> {
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
             int current = active.incrementAndGet();
             maximum.accumulateAndGet(current, Math::max);
             entered.countDown();
             assertThat(release.await(2, TimeUnit.SECONDS)).isTrue();
             active.decrementAndGet();
-            PubgMatch value = invocation.getArgument(0);
+            PubgMatch value = invocation.getArgument(1);
             return Map.of("account", fact(value.matchId()));
         });
-        when(writer.saveTelemetry(anyString(), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
 
         try (var callers = Executors.newFixedThreadPool(8)) {
             var futures = java.util.stream.IntStream.range(0, 8).mapToObj(index -> callers.submit(() ->
-                    sync.sync("kakao", List.of("account-" + index), ignored -> true,
+                    sync.sync(PubgPlatform.KAKAO, List.of("account-" + index), ignored -> true,
                             PubgMatchSyncService.ProgressListener.noop()))).toList();
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             assertThat(maximum.get()).isEqualTo(2);
@@ -143,8 +168,8 @@ class PubgMatchSyncServiceTests {
 
         assertThat(result.telemetryApiCalls()).isEqualTo(10);
         assertThat(result.telemetryFailures()).isEqualTo(1);
-        verify(facts, times(10)).facts(any(), anySet());
-        verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
+        verify(facts, times(10)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet());
+        verify(writer, times(9)).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap());
     }
 
     @Test void telemetryTimeoutIsIsolatedFromOtherMatches() {
@@ -152,7 +177,7 @@ class PubgMatchSyncServiceTests {
                 new PubgApiException("timeout", new HttpTimeoutException("read timeout")));
 
         assertThat(result.telemetryFailures()).isEqualTo(1);
-        verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
+        verify(writer, times(9)).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap());
     }
 
     @Test void telemetryJsonParsingFailureIsIsolatedFromOtherMatches() {
@@ -160,7 +185,7 @@ class PubgMatchSyncServiceTests {
                 new IllegalArgumentException("invalid telemetry json"));
 
         assertThat(result.telemetryFailures()).isEqualTo(1);
-        verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
+        verify(writer, times(9)).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap());
     }
 
     @Test void wrappedHttpJsonFailureIsReportedAsParsingRatherThanFetching() {
@@ -170,7 +195,7 @@ class PubgMatchSyncServiceTests {
                 new org.springframework.http.converter.HttpMessageConversionException("invalid JSON")));
 
         assertThat(result.telemetryFailures()).isEqualTo(1);
-        verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
+        verify(writer, times(9)).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap());
         verify(monitoring).recordError(eq(com.guildup.monitoring.domain.MonitoringCategory.PUBG_API),
                 eq(com.guildup.monitoring.domain.MonitoringEventCode.PUBG_API_FAILED), anyString(),
                 isNull(), isNull(), eq("matchId=M0"),
@@ -181,22 +206,22 @@ class PubgMatchSyncServiceTests {
         PubgMatch stored = match("retry");
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
                 List.of(new PubgPlayer("account-a", "A", List.of())));
-        when(query.findTelemetryMissingForAccounts(List.of("account-a"))).thenReturn(List.of(stored));
-        when(facts.facts(eq(stored), anySet()))
+        when(query.findTelemetryMissingForAccounts(PubgPlatform.KAKAO,List.of("account-a"))).thenReturn(List.of(stored));
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq(stored), anySet()))
                 .thenThrow(new PubgApiException("timeout", new HttpTimeoutException("read timeout")))
                 .thenReturn(Map.of("account-a", fact("retry")));
-        when(writer.saveTelemetry(eq("retry"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("retry"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
 
-        PubgMatchSyncService.SyncResult first = sync.sync("kakao", List.of("account-a"), value -> true,
+        PubgMatchSyncService.SyncResult first = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true,
                 PubgMatchSyncService.ProgressListener.noop());
-        PubgMatchSyncService.SyncResult second = sync.sync("kakao", List.of("account-a"), value -> true,
+        PubgMatchSyncService.SyncResult second = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true,
                 PubgMatchSyncService.ProgressListener.noop());
 
         assertThat(first.telemetryFailures()).isEqualTo(1);
         assertThat(second.telemetryFailures()).isZero();
         verifyNoInteractions(matches);
-        verify(facts, times(2)).facts(eq(stored), anySet());
-        verify(writer).saveTelemetry(eq("retry"), anyMap());
+        verify(facts, times(2)).factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq(stored), anySet());
+        verify(writer).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("retry"), anyMap());
     }
 
     @Test void databaseWritesAlsoShareTheApplicationWideTelemetryLimit() throws Exception {
@@ -205,25 +230,25 @@ class PubgMatchSyncServiceTests {
             String account = ((List<String>) invocation.getArgument(1)).getFirst();
             return List.of(new PubgPlayer(account, account, List.of("match-" + account)));
         });
-        when(query.existingMatchIds(anyCollection())).thenReturn(Set.of());
+        when(query.existingMatchIds(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(Set.of());
         when(matches.findUniqueMatches(eq("kakao"), anyCollection())).thenAnswer(invocation -> {
             String id = ((Collection<String>) invocation.getArgument(1)).iterator().next();
             return Map.of(id, match(id));
         });
-        when(writer.saveMatchIfAbsent(anyString(), any())).thenReturn(true);
-        when(query.findTelemetryMissing(anyCollection())).thenAnswer(invocation -> {
-            String id = ((Collection<String>) invocation.getArgument(0)).iterator().next();
+        when(writer.saveMatchIfAbsent(any(PubgPlatform.class), any())).thenReturn(true);
+        when(query.findTelemetryMissing(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenAnswer(invocation -> {
+            String id = ((Collection<String>) invocation.getArgument(1)).iterator().next();
             return List.of(match(id));
         });
-        when(facts.facts(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch value = invocation.getArgument(0);
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch value = invocation.getArgument(1);
             return Map.of("account-a", fact(value.matchId()));
         });
         CountDownLatch entered = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maximum = new AtomicInteger();
-        when(writer.saveTelemetry(anyString(), anyMap())).thenAnswer(ignored -> {
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap())).thenAnswer(ignored -> {
             int current = active.incrementAndGet();
             maximum.accumulateAndGet(current, Math::max);
             entered.countDown();
@@ -234,7 +259,7 @@ class PubgMatchSyncServiceTests {
 
         try (var callers = Executors.newFixedThreadPool(8)) {
             var futures = java.util.stream.IntStream.range(0, 8).mapToObj(index -> callers.submit(() ->
-                    sync.sync("kakao", List.of("account-" + index), ignored -> true,
+                    sync.sync(PubgPlatform.KAKAO, List.of("account-" + index), ignored -> true,
                             PubgMatchSyncService.ProgressListener.noop()))).toList();
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             assertThat(maximum.get()).isEqualTo(2);
@@ -248,12 +273,12 @@ class PubgMatchSyncServiceTests {
         PubgMatch value = match("race");
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
                 List.of(new PubgPlayer("account-a", "A", List.of("race"))));
-        when(query.existingMatchIds(Set.of("race"))).thenReturn(Set.of());
+        when(query.existingMatchIds(PubgPlatform.KAKAO,Set.of("race"))).thenReturn(Set.of());
         when(matches.findUniqueMatches("kakao", Set.of("race"))).thenReturn(Map.of("race", value));
-        when(writer.saveMatchIfAbsent("kakao", value)).thenThrow(new DataIntegrityViolationException("concurrent insert"));
-        when(query.findTelemetryMissing(Set.of("race"))).thenReturn(List.of());
+        when(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, value)).thenThrow(new DataIntegrityViolationException("concurrent insert"));
+        when(query.findTelemetryMissing(PubgPlatform.KAKAO,Set.of("race"))).thenReturn(List.of());
 
-        PubgMatchSyncService.SyncResult result = sync.sync("kakao", List.of("account-a"), ignored -> false,
+        PubgMatchSyncService.SyncResult result = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), ignored -> false,
                 PubgMatchSyncService.ProgressListener.noop());
 
         assertThat(result.dbMatchesInserted()).isZero();
@@ -268,20 +293,20 @@ class PubgMatchSyncServiceTests {
         appender.start(); logger.addAppender(appender);
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
                 List.of(new PubgPlayer("account-a", "A", List.of("bad", "good"))));
-        when(query.existingMatchIds(anyCollection())).thenReturn(Set.of("bad", "good"));
-        when(query.findTelemetryMissing(anyCollection())).thenReturn(List.of(match("bad"), match("good")));
-        when(facts.facts(any(), anySet())).thenAnswer(invocation -> {
+        when(query.existingMatchIds(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(Set.of("bad", "good"));
+        when(query.findTelemetryMissing(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(List.of(match("bad"), match("good")));
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
             assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("req-telemetry-test");
-            PubgMatch value = invocation.getArgument(0);
+            PubgMatch value = invocation.getArgument(1);
             return Map.of("account-a", fact(value.matchId()));
         });
-        when(writer.saveTelemetry(eq("bad"), anyMap())).thenThrow(new DataIntegrityViolationException("fact constraint"));
-        when(writer.saveTelemetry(eq("good"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("bad"), anyMap())).thenThrow(new DataIntegrityViolationException("fact constraint"));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("good"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
         try {
             org.slf4j.MDC.put("requestId", "req-telemetry-test");
-            var result = sync.sync("kakao", List.of("account-a"), value -> true, PubgMatchSyncService.ProgressListener.noop());
+            var result = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true, PubgMatchSyncService.ProgressListener.noop());
             assertThat(result.telemetryFailures()).isEqualTo(1);
-            verify(writer).saveTelemetry(eq("good"), anyMap());
+            verify(writer).saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),eq("good"), anyMap());
             verify(monitoring).recordError(eq(com.guildup.monitoring.domain.MonitoringCategory.DATABASE),
                     eq(com.guildup.monitoring.domain.MonitoringEventCode.DATABASE_ERROR), anyString(), isNull(), isNull(),
                     eq("matchId=bad"), argThat(metadata -> "TELEMETRY_FACT_SAVE".equals(metadata.get("stage"))));
@@ -299,17 +324,17 @@ class PubgMatchSyncServiceTests {
         List<String> ids = rows.stream().map(PubgMatch::matchId).toList();
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
                 List.of(new PubgPlayer("account-a", "A", ids)));
-        when(query.existingMatchIds(anyCollection())).thenReturn(Set.copyOf(ids));
-        when(query.findTelemetryMissing(anyCollection())).thenReturn(rows);
-        when(facts.facts(any(), anySet())).thenAnswer(invocation -> {
-            PubgMatch value = invocation.getArgument(0);
+        when(query.existingMatchIds(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(Set.copyOf(ids));
+        when(query.findTelemetryMissing(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyCollection())).thenReturn(rows);
+        when(facts.factsRequired(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch value = invocation.getArgument(1);
             if (value.matchId().equals("M0")) throw failure;
             return Map.of("account-a", fact(value.matchId()));
         });
-        when(writer.saveTelemetry(anyString(), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        when(writer.saveTelemetry(org.mockito.ArgumentMatchers.eq(PubgPlatform.KAKAO),anyString(), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
         AtomicInteger completed = new AtomicInteger();
 
-        PubgMatchSyncService.SyncResult result = sync.sync("kakao", List.of("account-a"), value -> true,
+        PubgMatchSyncService.SyncResult result = sync.sync(PubgPlatform.KAKAO, List.of("account-a"), value -> true,
                 (stage, current, total, message) -> {
                     if ("TELEMETRY_FETCH".equals(stage)) completed.accumulateAndGet(current, Math::max);
                 });

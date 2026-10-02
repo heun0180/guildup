@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { api } from "../api/http.js";
+import { isRequestCancelled } from "../api/http.js";
+import { useScopedApi } from "../community/GameScopeBoundary.jsx";
 
 /** TEMPORARY: 2026-09 bingo progress repair tool. Remove after current event verification. */
 export default function TemporaryBingoRebuildPanel({ bingoApi, onApplied }) {
+  const api = useScopedApi();
   const [running,setRunning]=useState(false), [result,setResult]=useState(null), [error,setError]=useState("");
 
   async function preview(){
     if(!window.confirm("현재 진행 중인 빙고의 진행도를 원본 경기 데이터와 비교합니다.\n\n이 단계에서는 DB를 수정하지 않습니다. 계속하시겠습니까?")) return;
     setRunning(true); setError(""); setResult(null);
     try{setResult(await api(`${bingoApi}/temporary-rebuild/preview`,{method:"POST"}));}
-    catch(reason){setError(reason.message);}
+    catch(reason){if(!isRequestCancelled(reason))setError(reason.message);}
     finally{setRunning(false);}
   }
   async function apply(){
@@ -19,7 +21,7 @@ export default function TemporaryBingoRebuildPanel({ bingoApi, onApplied }) {
     try{
       const applied=await api(`${bingoApi}/temporary-rebuild/apply`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({previewToken:result.previewToken})});
       setResult(applied); await onApplied?.();
-    }catch(reason){setError(reason.message);}
+    }catch(reason){if(!isRequestCancelled(reason))setError(reason.message);}
     finally{setRunning(false);}
   }
   return <section className="panel bingo-rebuild-panel">

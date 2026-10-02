@@ -19,12 +19,14 @@ public class CommunityGameBoundaryDataMigration implements ApplicationRunner {
                 SELECT MIN(game.id)
                 FROM community_games game
                 WHERE game.community_id = target.community_id
+                  AND game.game_type IN ('BATTLEGROUNDS_KAKAO', 'BATTLEGROUNDS_STEAM')
             )
             WHERE target.community_game_id IS NULL
               AND 1 = (
                   SELECT COUNT(*)
                   FROM community_games game
                   WHERE game.community_id = target.community_id
+                    AND game.game_type IN ('BATTLEGROUNDS_KAKAO', 'BATTLEGROUNDS_STEAM')
               )
             """;
 
@@ -34,12 +36,14 @@ public class CommunityGameBoundaryDataMigration implements ApplicationRunner {
                 SELECT MIN(game.id)
                 FROM community_games game
                 WHERE game.community_id = target.community_id
+                  AND game.game_type IN ('BATTLEGROUNDS_KAKAO', 'BATTLEGROUNDS_STEAM')
             )
             WHERE target.community_game_id IS NULL
               AND 1 = (
                   SELECT COUNT(*)
                   FROM community_games game
                   WHERE game.community_id = target.community_id
+                    AND game.game_type IN ('BATTLEGROUNDS_KAKAO', 'BATTLEGROUNDS_STEAM')
               )
             """;
 

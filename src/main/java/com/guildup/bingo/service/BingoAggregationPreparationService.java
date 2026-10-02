@@ -1,5 +1,7 @@
 package com.guildup.bingo.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.bingo.domain.*;
 import com.guildup.bingo.repository.BingoEventRepository;
@@ -61,7 +63,7 @@ public class BingoAggregationPreparationService {
 
         enrollment.enrollEligible(event, now);
         List<BingoParticipant> participantRows = participants.findByEventIdOrderByIdAsc(event.getId());
-        List<CommunityMemberAccount> accounts = memberAccounts.findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG);
+        List<CommunityMemberAccount> accounts = memberAccounts.findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame()));
         Map<Long, CommunityMemberAccount> byMember = accounts.stream().collect(Collectors.toMap(
                 value -> value.getCommunityMember().getId(), Function.identity(), (left, right) -> left));
         participantRows.stream().filter(value -> value.getCommunityMember() != null).forEach(participant -> {
@@ -76,7 +78,7 @@ public class BingoAggregationPreparationService {
                 .map(CommunityMemberAccount::getExternalUserId).filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         connected.forEach(value -> communityAccounts.add(value.accountId()));
-        return new PreparedAggregation(event.getId(), PubgGameSupport.requireShard(event.getCommunityGame().getGameType()),
+        return new PreparedAggregation(event.getId(), PubgGameSupport.requirePlatform(event.getCommunityGame()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), event.getStatus(),
                 event.isExcludeBotCombatStats(), List.copyOf(connected), Set.copyOf(communityAccounts), participantRows.size());
     }
@@ -103,18 +105,18 @@ public class BingoAggregationPreparationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "로그인 사용자와 연결된 활성 클랜원이 없습니다.");
 
-        CommunityMemberAccount account = memberAccounts.findByCommunityMemberIdAndProvider(
-                participant.getCommunityMember().getId(), ExternalAccountProvider.PUBG).orElseThrow(() ->
+        CommunityMemberAccount account = memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                participant.getCommunityMember().getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame())).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.CONFLICT, "PUBG 계정을 연결한 뒤 다시 시도해 주세요."));
         if (account.getExternalUserId() == null || account.getExternalUserId().isBlank())
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PUBG 계정을 연결한 뒤 다시 시도해 주세요.");
         participant.synchronizePubgAccount(account.getExternalUserId(), account.getExternalUsername());
 
-        Set<String> communityAccounts = activeCommunityAccounts(communityId);
+        Set<String> communityAccounts = activeCommunityAccounts(communityId, event);
         communityAccounts.add(account.getExternalUserId());
         PreparedParticipant preparedParticipant = new PreparedParticipant(
                 participant.getId(), account.getExternalUserId(), participant.getEligibleFrom());
-        return new PreparedAggregation(event.getId(), PubgGameSupport.requireShard(event.getCommunityGame().getGameType()),
+        return new PreparedAggregation(event.getId(), PubgGameSupport.requirePlatform(event.getCommunityGame()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), effectiveStatus,
                 event.isExcludeBotCombatStats(), List.of(preparedParticipant), Set.copyOf(communityAccounts), 1);
     }
@@ -150,16 +152,16 @@ public class BingoAggregationPreparationService {
                 || participant.getCommunityMember().getStatus() != CommunityMemberStatus.ACTIVE)
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "로그인 사용자와 연결된 활성 클랜원이 없습니다.");
-        CommunityMemberAccount account = memberAccounts.findByCommunityMemberIdAndProvider(
-                participant.getCommunityMember().getId(), ExternalAccountProvider.PUBG).orElseThrow(() ->
+        CommunityMemberAccount account = memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(
+                participant.getCommunityMember().getId(), ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame())).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.CONFLICT, "PUBG 계정을 연결한 뒤 다시 시도해 주세요."));
         if (account.getExternalUserId() == null || account.getExternalUserId().isBlank())
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PUBG 계정을 연결한 뒤 다시 시도해 주세요.");
         return participant.getId();
     }
 
-    private Set<String> activeCommunityAccounts(Long communityId) {
-        return memberAccounts.findByCommunityIdAndProvider(communityId, ExternalAccountProvider.PUBG).stream()
+    private Set<String> activeCommunityAccounts(Long communityId, BingoEvent event) {
+        return memberAccounts.findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(event.getCommunityGame())).stream()
                 .filter(value -> value.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
                 .map(CommunityMemberAccount::getExternalUserId).filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
@@ -178,9 +180,11 @@ public class BingoAggregationPreparationService {
                     "진행 중이거나 정산 중인 빙고만 집계할 수 있습니다.");
     }
 
-    public record PreparedAggregation(Long eventId, String shard, Instant startsAt, Instant endsExclusive,
+    public record PreparedAggregation(Long eventId, PubgPlatform platform, Instant startsAt, Instant endsExclusive,
                                       BingoStatus status, boolean excludeBotCombatStats,
                                       List<PreparedParticipant> participants,
-                                      Set<String> communityAccounts, int participantCount) {}
+                                      Set<String> communityAccounts, int participantCount) {
+        public String shard() { return platform.getShard(); }
+    }
     public record PreparedParticipant(Long participantId, String accountId, Instant eligibleFrom) {}
 }

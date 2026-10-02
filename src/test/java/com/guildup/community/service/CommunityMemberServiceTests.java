@@ -1,5 +1,7 @@
 package com.guildup.community.service;
 
+import com.guildup.pubg.model.PubgPlatform;
+
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.Community;
 import com.guildup.community.domain.CommunityMember;
@@ -59,7 +61,8 @@ class CommunityMemberServiceTests {
         )).thenReturn(List.of(member));
         when(accountRepository.findByCommunityIdAndProvider(1L, ExternalAccountProvider.DISCORD))
                 .thenReturn(List.of(discord));
-        when(accountRepository.findByCommunityIdAndProvider(1L, ExternalAccountProvider.PUBG))
+        when(pubg.getPlatform()).thenReturn(PubgPlatform.KAKAO);
+        when(accountRepository.findPubgAccountsByCommunityId(1L))
                 .thenReturn(List.of(pubg));
 
         var result = communityMemberService.getMembers(10L, 1L);
