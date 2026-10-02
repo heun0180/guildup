@@ -11,6 +11,11 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.LogContext;
 
 /** 애플리케이션 시작/종료 생명주기에 Discord JDA 클라이언트를 연결한다. */
 @Component
@@ -22,6 +27,10 @@ public class DiscordBot {
     private final DiscordVoiceRecoveryService voiceRecoveryService;
     private final CommunityMemberReconciliationQueue memberReconciliationQueue;
     private final TaskExecutor recoveryBootstrapExecutor;
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     public DiscordBot(
             JDA jda,
@@ -39,18 +48,31 @@ public class DiscordBot {
     @EventListener(ApplicationReadyEvent.class)
     public void startRecovery() {
         log.info("Discord Bot login successful - name: {}", jda.getSelfUser().getName());
-        recoveryBootstrapExecutor.execute(() -> {
-            try {
-                voiceRecoveryService.reconcile(jda);
-            } catch (RuntimeException exception) {
-                log.error("Discord voice recovery failed", exception);
-            }
-            try {
-                memberReconciliationQueue.enqueueAll();
-            } catch (RuntimeException exception) {
-                log.error("Discord member reconciliation queue bootstrap failed", exception);
-            }
-        });
+        try {
+            recoveryBootstrapExecutor.execute(LogContext.wrap(() -> {
+                try {
+                    voiceRecoveryService.reconcile(jda);
+                } catch (RuntimeException exception) {
+                    log.error("Discord voice recovery failed. jobName=discordVoiceRecovery", exception);
+                    recordFailure("discordVoiceRecovery", exception);
+                }
+                try {
+                    memberReconciliationQueue.enqueueAll();
+                } catch (RuntimeException exception) {
+                    log.error("Discord member reconciliation queue bootstrap failed. jobName=discordMemberBootstrap", exception);
+                    recordFailure("discordMemberBootstrap", exception);
+                }
+            }));
+        } catch (RuntimeException exception) {
+            log.error("Discord startup recovery could not be queued. jobName=discordRecoveryBootstrap", exception);
+            recordFailure("discordRecoveryBootstrap", exception);
+        }
+    }
+
+    private void recordFailure(String jobName, RuntimeException exception) {
+        if (monitoring != null) monitoring.recordError(MonitoringCategory.DISCORD,
+                MonitoringEventCode.DISCORD_API_FAILED, "Discord startup recovery failed", null, null,
+                jobName, java.util.Map.of("jobName", jobName, "exceptionClass", exception.getClass().getSimpleName()));
     }
 
     /** 애플리케이션 종료 전에 Discord Gateway 연결을 정상적으로 닫는다. */

@@ -45,6 +45,9 @@ export default function CommunityDashboardPage() {
         if (cancelled) return;
         if (membersResult.status === "fulfilled") setMemberCount(membersResult.value.length);
         if (rolesResult?.status === "fulfilled") setRoleCount(rolesResult.value.length);
+        const failures = [membersResult, rolesResult].filter((result) => result?.status === "rejected");
+        if (failures.some((result) => redirectToLogin(result.reason))) return;
+        if (failures.length) setMessage("일부 커뮤니티 요약 정보를 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
       } catch (error) {
         if (!redirectToLogin(error) && !cancelled) {
           setMessage(error.status === 403 ? "이 커뮤니티에 접근할 권한이 없습니다." : error.message);

@@ -22,6 +22,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 /** 커뮤니티 생성과 조회를 담당하는 애플리케이션 서비스다. */
 @Service
 public class CommunityService {
+    private static final Logger log = LoggerFactory.getLogger(CommunityService.class);
 
     private final CommunityRepository communityRepository;
 
@@ -76,6 +79,8 @@ public class CommunityService {
             activityRules.save(CommunityGameActivityRule.defaultRule(communityGame));
         }
         memberships.save(new CommunityUser(community, user, CommunityUserRole.OWNER));
+        CommunityOperationLogging.afterCommit(() -> log.info("Community created. communityId={}, userId={}, gameType={}",
+                community.getId(), userId, gameType));
         return community;
     }
 
@@ -131,5 +136,6 @@ public class CommunityService {
                     "Community owner access denied");
         }
         deletionStore.deleteCommunityData(communityId);
+        CommunityOperationLogging.afterCommit(() -> log.info("Community deleted. communityId={}, userId={}", communityId, userId));
     }
 }

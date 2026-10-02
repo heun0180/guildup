@@ -21,6 +21,7 @@ public class DiscordTaskExecutorConfig {
         executor.setMaxPoolSize(concurrency);
         executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix("discord-member-event-");
+        executor.setTaskDecorator(com.guildup.monitoring.logging.LogContext::wrap);
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(false);
         return executor;
@@ -36,6 +37,7 @@ public class DiscordTaskExecutorConfig {
         executor.setMaxPoolSize(concurrency);
         executor.setQueueCapacity(queueCapacity);
         executor.setThreadNamePrefix("discord-member-reconcile-");
+        executor.setTaskDecorator(com.guildup.monitoring.logging.LogContext::wrap);
         executor.setWaitForTasksToCompleteOnShutdown(false);
         return executor;
     }
@@ -47,6 +49,7 @@ public class DiscordTaskExecutorConfig {
         executor.setMaxPoolSize(1);
         executor.setQueueCapacity(1);
         executor.setThreadNamePrefix("discord-recovery-bootstrap-");
+        executor.setTaskDecorator(com.guildup.monitoring.logging.LogContext::wrap);
         executor.setWaitForTasksToCompleteOnShutdown(false);
         return executor;
     }

@@ -7,6 +7,9 @@ import com.guildup.discord.oauth.config.DiscordOAuthProperties;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.FailureLogContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -28,6 +31,7 @@ import java.util.function.Supplier;
  */
 @Component
 public class DiscordApiClient {
+    private static final Logger log = LoggerFactory.getLogger(DiscordApiClient.class);
 
     // 사용자 정보와 참여 서버 목록을 조회할 때 사용하는 Discord REST API 주소다.
     private static final String DISCORD_API_URL = "https://discord.com/api/v10";
@@ -73,7 +77,7 @@ public class DiscordApiClient {
         form.add("code", code);
         form.add("redirect_uri", redirectUri);
 
-        DiscordAccessTokenResponse response = call("OAUTH_TOKEN", () -> restClient.post()
+        DiscordAccessTokenResponse response = call("OAUTH_TOKEN", "POST", () -> restClient.post()
                 .uri(DISCORD_TOKEN_URL)
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .body(form)
@@ -84,9 +88,7 @@ public class DiscordApiClient {
                 || response.accessToken() == null
                 || response.accessToken().isBlank()) {
             recordFailure("OAUTH_TOKEN", null, "EMPTY_RESPONSE");
-            throw new IllegalStateException(
-                    "Discord access token response is empty"
-            );
+            throw emptyResponse("OAUTH_TOKEN");
         }
 
         return response;
@@ -94,7 +96,7 @@ public class DiscordApiClient {
 
     /** 액세스 토큰 주인인 현재 Discord 사용자의 프로필을 조회한다. */
     public DiscordApiUser getCurrentUser(String accessToken) {
-        DiscordApiUser user = call("CURRENT_USER", () -> restClient.get()
+        DiscordApiUser user = call("CURRENT_USER", "GET", () -> restClient.get()
                 .uri(DISCORD_API_URL + "/users/@me")
                 .headers(headers -> headers.setBearerAuth(accessToken))
                 .retrieve()
@@ -102,7 +104,7 @@ public class DiscordApiClient {
 
         if (user == null) {
             recordFailure("CURRENT_USER", null, "EMPTY_RESPONSE");
-            throw new IllegalStateException("Discord user response is empty");
+            throw emptyResponse("CURRENT_USER");
         }
 
         return user;
@@ -110,7 +112,7 @@ public class DiscordApiClient {
 
     /** 현재 Discord 사용자가 참여하고 있는 서버 목록과 각 서버에서의 권한을 조회한다. */
     public List<DiscordApiGuild> getCurrentUserGuilds(String accessToken) {
-        List<DiscordApiGuild> guilds = call("CURRENT_USER_GUILDS", () -> restClient.get()
+        List<DiscordApiGuild> guilds = call("CURRENT_USER_GUILDS", "GET", () -> restClient.get()
                 .uri(DISCORD_API_URL + "/users/@me/guilds")
                 .headers(headers -> headers.setBearerAuth(accessToken))
                 .retrieve()
@@ -118,19 +120,39 @@ public class DiscordApiClient {
                 }));
 
         // Discord가 빈 본문을 반환해도 호출자가 null 검사를 반복하지 않도록 빈 목록으로 바꾼다.
+        if (guilds == null) {
+            log.warn("Discord API returned no guild-list body; empty-list fallback used. endpoint=CURRENT_USER_GUILDS, method=GET");
+        }
         return guilds == null ? List.of() : guilds;
     }
 
-    private <T> T call(String endpoint, Supplier<T> request) {
+    private IllegalStateException emptyResponse(String endpoint) {
+        IllegalStateException failure = new IllegalStateException("Discord API response is empty: " + endpoint);
+        log.error("Discord API response validation failed. endpoint={}, failureType=EMPTY_RESPONSE", endpoint, failure);
+        FailureLogContext.markLogged(failure);
+        return failure;
+    }
+
+    private <T> T call(String endpoint, String method, Supplier<T> request) {
+        long started = System.nanoTime();
         try {
             return request.get();
         } catch (RestClientResponseException exception) {
             int status = exception.getStatusCode().value();
+            boolean clientRejection = status >= 400 && status < 500;
+            (clientRejection ? log.atWarn() : log.atError()).setCause(exception).log(
+                    "Discord API request failed. endpoint={}, method={}, status={}, elapsedMs={}",
+                    endpoint, method, status, (System.nanoTime() - started) / 1_000_000);
+            if (!clientRejection) FailureLogContext.markLogged(exception);
             MonitoringEventCode code = status == 429
                     ? MonitoringEventCode.DISCORD_RATE_LIMIT : MonitoringEventCode.DISCORD_API_FAILED;
             recordFailure(endpoint, status, exception.getClass().getSimpleName(), code);
             throw exception;
         } catch (RestClientException exception) {
+            log.error("Discord API transport or parsing failed. endpoint={}, method={}, failureType={}, elapsedMs={}",
+                    endpoint, method, exception.getClass().getSimpleName(),
+                    (System.nanoTime() - started) / 1_000_000, exception);
+            FailureLogContext.markLogged(exception);
             recordFailure(endpoint, null, exception.getClass().getSimpleName());
             throw exception;
         }
@@ -148,6 +170,9 @@ public class DiscordApiClient {
         metadata.put("failureType", failureType);
         if (status != null && status == 429) {
             monitoring.recordWarn(MonitoringCategory.DISCORD, code, "Discord API rate limit reached",
+                    null, null, endpoint, metadata);
+        } else if (status != null && status >= 400 && status < 500) {
+            monitoring.recordWarn(MonitoringCategory.DISCORD, code, "Discord API rejected the request",
                     null, null, endpoint, metadata);
         } else {
             monitoring.recordError(MonitoringCategory.DISCORD, code, "Discord API request failed",

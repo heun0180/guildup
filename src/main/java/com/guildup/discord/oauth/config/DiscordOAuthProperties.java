@@ -14,6 +14,11 @@ public record DiscordOAuthProperties(
         String clientSecret,
         String redirectUri
 ) {
+    @Override
+    public String toString() {
+        return "DiscordOAuthProperties[clientId=" + clientId
+                + ", clientSecret=[REDACTED], redirectUri=" + redirectUri + "]";
+    }
 
     /** 사용자 OAuth 전체 흐름에 필요한 세 가지 설정이 모두 존재하는지 확인한다. */
     public void validate() {

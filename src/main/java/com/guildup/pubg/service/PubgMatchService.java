@@ -2,6 +2,7 @@ package com.guildup.pubg.service;
 
 import com.guildup.pubg.client.PubgApiClient;
 import com.guildup.pubg.model.PubgMatch;
+import com.guildup.monitoring.logging.LogContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -112,8 +113,8 @@ public class PubgMatchService {
         List<String> uniqueIds = List.copyOf(new LinkedHashSet<>(matchIds));
         if (uniqueIds.isEmpty()) return Map.of();
         List<Future<Optional<PubgMatch>>> futures = uniqueIds.stream()
-                .map(matchId -> fetchExecutor.submit(() -> findOne(
-                        new MatchCacheKey(shard, matchId), refreshMissing))).toList();
+                .map(matchId -> fetchExecutor.submit(LogContext.wrapCallable(() -> findOne(
+                        new MatchCacheKey(shard, matchId), refreshMissing)))).toList();
         for (int index = 0; index < uniqueIds.size(); index++) {
             try {
                 Optional<PubgMatch> match = futures.get(index).get();

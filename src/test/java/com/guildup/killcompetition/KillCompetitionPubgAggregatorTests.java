@@ -50,6 +50,25 @@ class KillCompetitionPubgAggregatorTests {
     }
 
     @Test
+    void playerFailureContextPreservesUpstreamRateLimitClassificationAndCallCount() {
+        var failure = new PubgApiException(com.guildup.pubg.exception.PubgApiErrorCode.PUBG_RATE_LIMITED,
+                "요청이 많습니다.", new IllegalStateException("rate limited"), 429, false);
+        when(players.findByAccountIdsFresh(anyString(), anyList())).thenThrow(failure);
+
+        assertThatThrownBy(() -> aggregator.aggregate("steam", Instant.EPOCH, Instant.now(),
+                List.of(new KillCompetitionPubgAggregator.PlayerInput(1L, "account-a"))))
+                .isInstanceOfSatisfying(PubgApiException.class, error -> {
+                    assertThat(error.getErrorCode()).isEqualTo(failure.getErrorCode());
+                    assertThat(error.getUpstreamStatus()).isEqualTo(429);
+                    assertThat(error.isRetryable()).isFalse();
+                    assertThat(error.getCause()).hasMessageContaining("stage=PLAYER_FETCH");
+                    assertThat(error.getCause().getCause()).isSameAs(failure);
+                });
+        verify(players).findByAccountIdsFresh("steam", List.of("account-a"));
+        verifyNoInteractions(matches);
+    }
+
+    @Test
     void appliesEachParticipantsEligibleFromWithoutFetchingMatchTwice() {
         var inputs = List.of(
                 new KillCompetitionPubgAggregator.PlayerInput(1L, "apple", Instant.parse("2026-09-15T12:00:00Z")),

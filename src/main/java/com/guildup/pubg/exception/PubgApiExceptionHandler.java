@@ -10,6 +10,7 @@ public class PubgApiExceptionHandler {
     @ExceptionHandler(PubgApiException.class)
     public ResponseEntity<PubgApiErrorResponse> handle(PubgApiException exception) {
         int status = exception.getStatusCode().value();
+        if (status >= 500) com.guildup.monitoring.logging.FailureLogContext.capture(exception);
         return ResponseEntity.status(exception.getStatusCode())
                 .body(new PubgApiErrorResponse(status, exception.getErrorCode().name(), exception.getReason()));
     }

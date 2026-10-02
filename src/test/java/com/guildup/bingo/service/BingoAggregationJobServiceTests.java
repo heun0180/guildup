@@ -141,4 +141,48 @@ class BingoAggregationJobServiceTests {
                         exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN));
         assertThat(tasks).isEmpty();
     }
+
+    @Test
+    void resourceMonitoringFailuresCannotStrandOrFailAnOtherwiseSuccessfulJob() {
+        when(runtimeProbe.start(100L)).thenThrow(new IllegalStateException("probe start unavailable"));
+        doThrow(new IllegalStateException("probe stop unavailable")).when(runtimeProbe).stop(100L, null);
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenReturn(new BingoAggregationResponse(
+                100L, 12, 3, "ACTIVE", Instant.parse("2026-09-24T05:00:00Z")));
+
+        jobs.start(1L, 10L, 20L, 100L);
+        tasks.remove().run();
+
+        assertThat(jobs.status(1L, 10L, 20L, 100L).state()).isEqualTo("SUCCEEDED");
+        verify(aggregation).aggregate(eq(1L), eq(10L), eq(100L), any());
+    }
+
+    @Test
+    void workerRetainsRequestContextAndLogsFailedStageWithTheOriginalStack() {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(BingoAggregationJobService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        RuntimeException failure = new IllegalStateException("calculation failed");
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenAnswer(invocation -> {
+            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("req-bingo-test");
+            assertThat(org.slf4j.MDC.get("communityId")).isEqualTo("10");
+            com.guildup.pubg.service.PubgMatchSyncService.ProgressListener progress = invocation.getArgument(3);
+            progress.stage("CALCULATE_BINGO", 0, 1, "계산 중");
+            throw failure;
+        });
+        try {
+            org.slf4j.MDC.put("requestId", "req-bingo-test");
+            jobs.start(1L, 10L, 20L, 100L);
+            org.slf4j.MDC.clear();
+            tasks.remove().run();
+
+            assertThat(jobs.status(1L, 10L, 20L, 100L).state()).isEqualTo("FAILED");
+            assertThat(appender.list).filteredOn(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR)
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).contains("stage=CALCULATE_BINGO", "bingoEventId=100");
+                        assertThat(event.getThrowableProxy()).isNotNull();
+                    });
+            assertThat(org.slf4j.MDC.getCopyOfContextMap()).isNullOrEmpty();
+        } finally { org.slf4j.MDC.clear(); logger.detachAppender(appender); appender.stop(); }
+    }
+
 }

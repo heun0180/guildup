@@ -96,7 +96,9 @@ public class CommunityScoreService {
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatus.CONFLICT, "킬내기 점수를 받은 클랜원 정보를 잠글 수 없습니다."));
             CommunityMemberScore score = scores.findByCommunityMemberId(member.getId())
-                    .orElseThrow(() -> new IllegalStateException("킬내기 점수 원장과 현재 총점이 일치하지 않습니다."));
+                    .orElseThrow(() -> new IllegalStateException("킬내기 점수 원장과 현재 총점이 일치하지 않습니다. communityId="
+                            + member.getCommunity().getId() + ", communityMemberId=" + member.getId()
+                            + ", killCompetitionId=" + competitionId));
             score.remove(history.getScoreChange(), removedAt);
         }
         if (!awarded.isEmpty()) histories.deleteAllInBatch(awarded);

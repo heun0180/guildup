@@ -6,6 +6,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /** PUBG API 서버 주소와 서버 전용 인증 키다. */
 @ConfigurationProperties(prefix = "pubg")
 public record PubgApiProperties(String apiKey, String baseUrl) {
+    @Override
+    public String toString() {
+        return "PubgApiProperties[apiKey=[redacted], baseUrl=" + baseUrl + "]";
+    }
+
 
     public String requireApiKey() {
         if (apiKey == null || apiKey.isBlank()) {

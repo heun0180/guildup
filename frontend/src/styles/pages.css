@@ -901,6 +901,43 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .monitoring-metadata dl > div { display: grid; grid-template-columns: minmax(130px, .35fr) minmax(0, 1fr); gap: 15px; border-bottom: 1px solid var(--color-border); padding: 11px 13px; }
 .monitoring-metadata dl > div:last-child { border-bottom: 0; }
 .monitoring-metadata dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: .74rem; }
+.live-logs-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.live-log-connection { display: inline-flex; align-items: center; gap: 7px; font-size: .78rem; color: var(--color-text-secondary); }
+.live-log-connection.is-connected { color: var(--color-success); }
+.live-log-connection.is-reconnecting { color: var(--color-warning); }
+.live-log-connection.is-closed { color: var(--color-error); }
+.live-logs-panel { overflow: hidden; }
+.live-logs-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px; }
+.live-log-levels { display: flex; gap: 3px; }
+.live-log-levels button { min-height: 34px; border-color: var(--color-border); border-radius: 7px; padding: 0 10px; background: var(--color-surface); color: var(--color-text-secondary); font-size: .74rem; }
+.live-log-levels button.is-active { border-color: var(--color-primary); background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.live-log-search { min-width: 180px; flex: 1; }
+.live-log-search input { min-height: 36px; font-size: .78rem; }
+.live-log-autoscroll { display: inline-flex; align-items: center; gap: 7px; font-size: .76rem; white-space: nowrap; }
+.live-log-autoscroll input { width: 15px; min-height: 15px; height: 15px; margin: 0; }
+.live-logs-toolbar .secondary-button { min-height: 34px; margin: 0; font-size: .74rem; }
+.live-log-caption { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 6px; border-top: 1px solid var(--color-border); padding: 9px 14px; background: var(--color-surface-soft); }
+.live-log-caption p, .live-log-caption > span { color: var(--color-text-secondary); font-size: .7rem; }
+.live-log-notice { border-top: 1px solid var(--color-border); padding: 10px 14px; background: var(--color-warning-soft); color: var(--color-warning); font-size: .76rem; }
+.live-log-notice .secondary-button { min-height: 28px; margin: 0; font-size: .72rem; }
+.live-log-viewport { height: 460px; overflow: auto; overscroll-behavior: contain; border-top: 1px solid var(--color-border); background: #141b29; color: #dce2ef; }
+.live-log-row { border-bottom: 1px solid #2a3344; padding: 10px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; }
+.live-log-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 5px; }
+.live-log-meta time { color: #aab5ca; font-size: .68rem; }
+.live-log-category { color: #aab5ca; overflow-wrap: anywhere; font-size: .68rem; }
+.live-log-message, .live-log-stack pre { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.live-log-error .live-log-message { color: #ffb8be; }
+.live-log-warn .live-log-message { color: #f6d396; }
+.live-log-context { display: flex; flex-wrap: wrap; gap: 3px 12px; margin-top: 6px; color: #aab5ca; font-size: .65rem; overflow-wrap: anywhere; }
+.live-log-context strong { color: #c4d1e8; font-weight: 500; }
+.live-log-stack { margin-top: 6px; color: #b2bfd5; }
+.live-log-stack summary { width: fit-content; cursor: pointer; font-size: .68rem; }
+.live-log-stack pre { margin-top: 8px; }
+.live-log-empty { padding: 40px 20px; color: #aab5ca; font-size: .8rem; text-align: center; }
+.live-log-more { display: block; width: 100%; min-height: 32px; border-radius: 0; background: #27324a; color: #c4d1e8; font-size: .7rem; }
+.client-error-notice { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 20px; background: var(--color-error-soft); color: var(--color-error); font-size: .82rem; }
+.client-error-notice .secondary-button { min-height: 32px; margin: 0; }
+.header-error.message { position: absolute; right: 16px; top: var(--header-height); max-width: min(600px, calc(100vw - 32px)); margin: 8px 0 0; box-shadow: var(--shadow-elevated); }
 
 @media (max-width: 900px) {
   .developer-stat-grid, .developer-definition-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -55,4 +55,16 @@ class CommunityMemberActivityMonitoringTests {
         verify(coordinator).fail(31L);
         verifyNoInteractions(writer);
     }
+
+    @Test
+    void failureStateDatabaseErrorDoesNotReplaceOriginalFailure() {
+        var original = new PubgApiException("upstream unavailable", null, 503, false);
+        var stateFailure = new IllegalStateException("state database unavailable");
+        doThrow(original).when(worker).synchronize(31L);
+        doThrow(stateFailure).when(coordinator).fail(31L);
+
+        assertThatThrownBy(() -> service.sync(4L, 12L, 31L)).isSameAs(original);
+        org.assertj.core.api.Assertions.assertThat(original.getSuppressed()).containsExactly(stateFailure);
+        verifyNoInteractions(activities);
+    }
 }

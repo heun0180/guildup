@@ -52,7 +52,9 @@ public class BingoAggregationCalculationService {
 
         for (BingoParticipant snapshot : participants.findByEventIdOrderByIdAsc(event.getId())) {
             if (snapshot.getPubgAccountId() == null) continue;
-            BingoParticipant participant = participants.findForUpdate(snapshot.getId()).orElseThrow();
+            BingoParticipant participant = participants.findForUpdate(snapshot.getId()).orElseThrow(() ->
+                    new IllegalStateException("Bingo participant disappeared during calculation: bingoEventId="
+                            + bingoId + ", participantId=" + snapshot.getId()));
             ParticipantCalculation result = calculateLockedParticipant(
                     event, participant, eligibleMatches, completeRecalculation, now);
             processedCount += result.processedMatches();
@@ -61,7 +63,7 @@ public class BingoAggregationCalculationService {
         event.aggregated(now);
         if (event.getStatus() == BingoStatus.SETTLING
                 && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
-        log.info("Bingo DB calculation completed - eventId={}, mode={}, matches={}, participants={}", event.getId(),
+        log.debug("Bingo DB calculation completed - eventId={}, mode={}, matches={}, participants={}", event.getId(),
                 completeRecalculation ? "FULL" : "SAFE_INCREMENTAL", eligibleMatches.size(), updated.size());
         return new BingoAggregationResponse(event.getId(), processedCount, updated.size(), event.getStatus().name(), now);
     }
@@ -81,7 +83,7 @@ public class BingoAggregationCalculationService {
                 .sorted(Comparator.comparing(StoredMatchFacts::startedAt).thenComparing(StoredMatchFacts::matchId)).toList();
         ParticipantCalculation result = calculateLockedParticipant(
                 event, participant, eligibleMatches, completeRecalculation, now);
-        log.info("Bingo participant calculation completed - eventId={}, participantId={}, mode={}, matches={}, changed={}",
+        log.debug("Bingo participant calculation completed - eventId={}, participantId={}, mode={}, matches={}, changed={}",
                 event.getId(), participantId, completeRecalculation ? "FULL" : "SAFE_INCREMENTAL",
                 eligibleMatches.size(), result.changed());
         return new BingoAggregationResponse(event.getId(), result.processedMatches(), result.changed() ? 1 : 0,
@@ -109,8 +111,14 @@ public class BingoAggregationCalculationService {
                 if (!completeRecalculation && alreadyProcessed.contains(match.matchId())) continue;
                 PlayerMatchFacts fact = match.byAccount().get(participant.getPubgAccountId());
                 boolean wasCompleted = outcome.completed();
-                outcome = missions.apply(row.getCell(), outcome, fact,
-                        event.isExcludeBotCombatStats(), event.isClanPlayRequired());
+                try {
+                    outcome = missions.apply(row.getCell(), outcome, fact,
+                            event.isExcludeBotCombatStats(), event.isClanPlayRequired());
+                } catch (RuntimeException failure) {
+                    throw new IllegalStateException("Bingo mission calculation failed: bingoEventId=" + event.getId()
+                            + ", participantId=" + participant.getId() + ", cellId=" + row.getCell().getId()
+                            + ", missionType=" + row.getCell().getMissionType() + ", matchId=" + match.matchId(), failure);
+                }
                 if (!wasCompleted && outcome.completed()) {
                     evidenceMatchId = match.matchId();
                     evidenceAt = fact.latestEvidenceAt() == null ? match.startedAt() : fact.latestEvidenceAt();

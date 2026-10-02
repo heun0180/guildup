@@ -25,10 +25,17 @@ import com.guildup.user.auth.dto.LoginUserResponse;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 
 @RestController
 @RequestMapping("/api/auth")
 public class DiscordLoginController {
+    private static final Logger log = LoggerFactory.getLogger(DiscordLoginController.class);
 
     // Discord OAuth 인증 페이지 주소
     private static final String DISCORD_AUTHORIZE_URL =
@@ -49,6 +56,10 @@ public class DiscordLoginController {
     private final DiscordOAuthProperties discordOAuthProperties;
 
     private final DiscordLoginService discordLoginService;
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     public DiscordLoginController(
             DiscordOAuthProperties discordOAuthProperties,
@@ -128,11 +139,14 @@ public class DiscordLoginController {
             HttpSession session
     ) {
         if (error != null || code == null || code.isBlank()) {
+            log.debug("Discord login callback rejected. reason=DENIED_OR_MISSING_CODE");
             clearLoginAttempt(session);
             return redirectToLoginError("discord");
         }
 
         if (!validateAndConsumeState(session, state)) {
+            log.warn("Discord login callback rejected. reason=INVALID_STATE");
+            recordRejectedLogin("INVALID_STATE");
             clearLoginAttempt(session);
             return redirectToLoginError("session");
         }
@@ -141,6 +155,8 @@ public class DiscordLoginController {
                 consumeLoginRedirectUri(session);
 
         if (redirectUri == null) {
+            log.warn("Discord login callback rejected. reason=MISSING_REDIRECT_CONTEXT");
+            recordRejectedLogin("MISSING_REDIRECT_CONTEXT");
             clearLoginAttempt(session);
             return redirectToLoginError("session");
         }
@@ -229,6 +245,12 @@ public class DiscordLoginController {
     private void clearLoginAttempt(HttpSession session) {
         session.removeAttribute(DISCORD_LOGIN_STATE);
         session.removeAttribute(DISCORD_LOGIN_REDIRECT_URI);
+    }
+
+    private void recordRejectedLogin(String reason) {
+        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
+                MonitoringEventCode.DISCORD_OAUTH_FAILED, "Discord login callback validation failed",
+                null, null, "discordLogin", java.util.Map.of("reason", reason));
     }
 
     private ResponseEntity<Void> redirectToLoginError(String reason) {

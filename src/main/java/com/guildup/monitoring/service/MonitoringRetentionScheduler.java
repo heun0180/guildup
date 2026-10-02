@@ -28,6 +28,16 @@ public class MonitoringRetentionScheduler {
 
     @Scheduled(cron = "${monitoring.cleanup-cron:0 20 4 * * *}")
     public void deleteExpiredEvents() {
+        long started = System.nanoTime();
+        try (var ignored = com.guildup.monitoring.logging.LogContext.scope(java.util.Map.of("jobName", "monitoringRetention"))) {
+            deleteExpiredBatch();
+        } catch (RuntimeException failure) {
+            log.error("Monitoring retention job failed - jobName=monitoringRetention elapsedMs={}",
+                    (System.nanoTime() - started) / 1_000_000, failure);
+        }
+    }
+
+    private void deleteExpiredBatch() {
         var cutoff = clock.instant().minus(retentionDays, ChronoUnit.DAYS);
         int total = 0;
         while (true) {

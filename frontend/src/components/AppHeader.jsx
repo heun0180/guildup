@@ -5,22 +5,29 @@ import Icon from "./Icon.jsx";
 
 export default function AppHeader({ actions = false, communityId, onError }) {
   const [user, setUser] = useState(null);
+  const [error, setError] = useState("");
+
+  function showError(message) {
+    setError(message || "사용자 요청을 처리하지 못했습니다. 다시 시도해 주세요.");
+    onError?.(message);
+  }
 
   useEffect(() => {
     if (!actions) return;
     api("/api/auth/me")
       .then(setUser)
       .catch((error) => {
-        if (!redirectToLogin(error)) onError?.(error.message);
+        if (!redirectToLogin(error)) showError(error.message);
       });
   }, [actions, onError]);
 
   async function logout() {
+    setError("");
     try {
       await api("/api/auth/logout", { method: "POST" });
       window.location.replace("/login.html");
     } catch (error) {
-      onError?.(error.message);
+      if (!redirectToLogin(error)) showError(error.message);
     }
   }
 
@@ -51,6 +58,7 @@ export default function AppHeader({ actions = false, communityId, onError }) {
           </>}
         </nav>
       </div>
+      {error && <div className="header-error message" role="alert">{error}</div>}
     </header>
   );
 }

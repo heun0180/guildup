@@ -4,6 +4,11 @@ import com.guildup.killcompetition.dto.KillCompetitionDetailResponse;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.LogContext;
+import com.guildup.monitoring.logging.FailureLogContext;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.dao.DataAccessException;
+import jakarta.persistence.PersistenceException;
 import com.guildup.pubg.exception.PubgApiException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -39,15 +44,45 @@ public class KillCompetitionSettlementService {
     }
 
     public KillCompetitionDetailResponse calculateInterim(Long userId, Long communityId, Long competitionId) {
-        var work = store.claimInterim(userId, communityId, competitionId);
+        try (var ignored = LogContext.scope(Map.of("jobName", "KILL_COMPETITION_INTERIM", "communityId", communityId,
+                "userId", userId, "killCompetitionId", competitionId))) {
+            return calculateInterimWithContext(userId, communityId, competitionId);
+        }
+    }
+
+    private KillCompetitionDetailResponse calculateInterimWithContext(Long userId, Long communityId, Long competitionId) {
+        KillCompetitionSettlementStore.SettlementWork work = null;
+        long startedNanos = System.nanoTime();
+        String stage = "INTERIM_CLAIM";
         try {
+            LogContext.put("stage", stage);
+            work = store.claimInterim(userId, communityId, competitionId);
+            log.info("Kill competition interim aggregation started - killCompetitionId={} communityId={}", competitionId, communityId);
+            stage = "PUBG_FETCH";
+            LogContext.put("stage", stage);
             var snapshot = aggregator.aggregate(work.shard(), work.startedAt(), work.rangeEnd(), work.players());
+            stage = "INTERIM_SAVE";
+            LogContext.put("stage", stage);
             store.finishInterim(communityId, work, snapshot);
+            log.info("Kill competition interim aggregation completed - killCompetitionId={} communityId={} elapsedMs={}",
+                    competitionId, communityId, elapsedMillis(startedNanos));
         } catch (RuntimeException exception) {
-            store.releaseInterim(communityId, work);
-            recordFailure(MonitoringEventCode.KILL_COMPETITION_INTERIM_FAILED,
+            if (work != null) {
+                try { store.releaseInterim(communityId, work); }
+                catch (RuntimeException cleanupFailure) { exception.addSuppressed(cleanupFailure); }
+            }
+            if (!FailureLogContext.isLogged(exception)) {
+                if (expectedRejection(exception)) log.warn("Kill competition interim aggregation rejected - killCompetitionId={} communityId={} userId={} stage={}",
+                        competitionId, communityId, userId, stage);
+                else {
+                    log.error("Kill competition interim aggregation failed - killCompetitionId={} communityId={} userId={} stage={} elapsedMs={}",
+                            competitionId, communityId, userId, stage, elapsedMillis(startedNanos), exception);
+                    FailureLogContext.markLogged(exception);
+                }
+            }
+            if (!expectedRejection(exception)) recordFailure(MonitoringEventCode.KILL_COMPETITION_INTERIM_FAILED,
                     "Kill competition interim aggregation failed", userId, communityId,
-                    competitionId, "INTERIM", 0, exception);
+                    competitionId, stage, elapsedMillis(startedNanos), exception);
             throw exception;
         }
         return competitions.get(userId, communityId, competitionId);
@@ -67,43 +102,59 @@ public class KillCompetitionSettlementService {
     }
 
     public void publishDueResult(Long competitionId) {
-        var work = store.claimDueFinal(competitionId);
-        if (work == null) return;
+        try (var ignored = LogContext.scope(Map.of("jobName", "KILL_COMPETITION_FINAL", "killCompetitionId", competitionId))) {
+            publishWithContext(competitionId);
+        }
+    }
+
+    private void publishWithContext(Long competitionId) {
+        KillCompetitionSettlementStore.SettlementWork work = null;
         long startedNanos = System.nanoTime();
-        String stage = "CLAIM";
-        log.info("Kill competition finalization competition={} claim={} stage=CLAIM_STARTED",
-                competitionId, work.finalizationClaimToken());
+        String stage = "FINAL_CLAIM";
         try {
+            work = store.claimDueFinal(competitionId);
+            if (work == null) return;
+            LogContext.put("communityId", work.communityId());
+            log.info("Kill competition finalization started - killCompetitionId={} communityId={} claim={}",
+                    competitionId, work.communityId(), work.finalizationClaimToken());
             stage = "PUBG_FETCH";
-            long pubgStartedNanos = System.nanoTime();
-            log.info("Kill competition finalization competition={} claim={} stage=PUBG_FETCH_STARTED",
-                    competitionId, work.finalizationClaimToken());
+            LogContext.put("stage", stage);
             var snapshot = aggregator.aggregate(work.shard(), work.startedAt(), work.rangeEnd(), work.players());
-            log.info("Kill competition finalization competition={} claim={} stage=PUBG_FETCH_COMPLETED durationMs={} matches={}",
-                    competitionId, work.finalizationClaimToken(), elapsedMillis(pubgStartedNanos), snapshot.matchKills().size());
+            log.debug("Kill competition PUBG fetch completed - killCompetitionId={} matches={} elapsedMs={}",
+                    competitionId, snapshot.matchKills().size(), elapsedMillis(startedNanos));
             stage = "FINAL_SAVE";
-            log.info("Kill competition finalization competition={} claim={} stage=FINAL_SAVE_STARTED",
-                    competitionId, work.finalizationClaimToken());
+            LogContext.put("stage", stage);
             store.finishFinal(work.communityId(), work, snapshot);
-            log.info("Kill competition finalization competition={} claim={} stage=FINAL_SAVE_SUCCEEDED durationMs={}",
-                    competitionId, work.finalizationClaimToken(), elapsedMillis(startedNanos));
+            log.info("Kill competition finalization completed - killCompetitionId={} communityId={} elapsedMs={}",
+                    competitionId, work.communityId(), elapsedMillis(startedNanos));
         } catch (RuntimeException exception) {
             boolean failureRecorded = false;
-            try {
-                failureRecorded = store.recordFinalFailure(work.communityId(), work, exception);
-            } catch (RuntimeException recordException) {
-                log.error("Kill competition finalization competition={} claim={} stage=FAILURE_RECORD_FAILED "
-                                + "durationMs={} exceptionClass={}", competitionId, work.finalizationClaimToken(),
-                        elapsedMillis(startedNanos), recordException.getClass().getSimpleName(), recordException);
+            if (work != null) {
+                try {
+                    failureRecorded = store.recordFinalFailure(work.communityId(), work, exception);
+                } catch (RuntimeException recordException) {
+                    exception.addSuppressed(recordException);
+                    log.error("Kill competition failure persistence failed - killCompetitionId={} communityId={} stage=FAILURE_RECORD elapsedMs={}",
+                            competitionId, work.communityId(), elapsedMillis(startedNanos), recordException);
+                    FailureLogContext.markLogged(recordException);
+                }
             }
-            log.error("Kill competition finalization competition={} claim={} stage={} durationMs={} "
-                            + "failureRecorded={} exceptionClass={}; claim timeout 후 재시도합니다.",
-                    competitionId, work.finalizationClaimToken(), stage, elapsedMillis(startedNanos),
-                    failureRecorded, exception.getClass().getSimpleName(), exception);
+            if (expectedRejection(exception)) {
+                log.warn("Kill competition finalization rejected - killCompetitionId={} stage={} httpStatus={} failureRecorded={}",
+                        competitionId, stage, ((ResponseStatusException) exception).getStatusCode().value(), failureRecorded);
+            } else if (!FailureLogContext.isLogged(exception)) {
+                log.error("Kill competition finalization failed; claim timeout retry retained - killCompetitionId={} communityId={} stage={} elapsedMs={} failureRecorded={}",
+                        competitionId, work == null ? null : work.communityId(), stage, elapsedMillis(startedNanos), failureRecorded, exception);
+                FailureLogContext.markLogged(exception);
+            }
             recordFailure(MonitoringEventCode.KILL_COMPETITION_SETTLEMENT_FAILED,
-                    "Kill competition final settlement failed", null, work.communityId(), competitionId,
+                    "Kill competition final settlement failed", null, work == null ? null : work.communityId(), competitionId,
                     stage, elapsedMillis(startedNanos), exception);
         }
+    }
+
+    private boolean expectedRejection(RuntimeException exception) {
+        return exception instanceof ResponseStatusException response && response.getStatusCode().is4xxClientError();
     }
 
     private void recordFailure(MonitoringEventCode code, String message, Long userId, Long communityId,
@@ -115,8 +166,20 @@ public class KillCompetitionSettlementService {
         metadata.put("elapsedMs", elapsedMs);
         metadata.put("exceptionClass", exception.getClass().getSimpleName());
         metadata.put("pubgApiFailure", causedByPubg(exception));
-        monitoring.recordError(MonitoringCategory.KILL_COMPETITION, code, message, communityId, userId,
+        if (code == MonitoringEventCode.KILL_COMPETITION_SETTLEMENT_FAILED && causedByDatabase(exception)) {
+            monitoring.recordError(MonitoringCategory.DATABASE, MonitoringEventCode.DATABASE_ERROR,
+                    "Kill competition persistence failed", communityId, userId, "killCompetitionId=" + competitionId, metadata);
+        }
+        if (expectedRejection(exception)) monitoring.recordWarn(MonitoringCategory.KILL_COMPETITION, code, message, communityId, userId,
                 "killCompetitionId=" + competitionId, metadata);
+        else monitoring.recordError(MonitoringCategory.KILL_COMPETITION, code, message, communityId, userId,
+                "killCompetitionId=" + competitionId, metadata);
+    }
+
+    private boolean causedByDatabase(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof DataAccessException || cause instanceof PersistenceException) return true;
+        return false;
     }
 
     private boolean causedByPubg(Throwable failure) {

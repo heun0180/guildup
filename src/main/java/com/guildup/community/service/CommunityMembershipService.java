@@ -22,6 +22,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.guildup.monitoring.service.MonitoringEventService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -31,6 +35,7 @@ import java.util.List;
 /** GuildUp Community 가입과 내부 역할 관리를 담당한다. */
 @Service
 public class CommunityMembershipService {
+    private static final Logger log = LoggerFactory.getLogger(CommunityMembershipService.class);
     private static final Duration NEW_COMMUNITY_WINDOW = Duration.ofHours(1);
 
     private final CommunityAccessService access;
@@ -42,6 +47,10 @@ public class CommunityMembershipService {
     private final UserExternalAccountRepository externalAccounts;
     private final DiscordGuildService discordGuilds;
     private final DiscordMemberService discordMembers;
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     public CommunityMembershipService(
             CommunityAccessService access,
@@ -120,6 +129,7 @@ public class CommunityMembershipService {
             discardNewUnconnectedSource(sourceMembership, targetCommunityId);
             return CommunityJoinResponse.from(joined);
         } catch (DataIntegrityViolationException exception) {
+            CommunityOperationLogging.integrityFailure(log, monitoring, "communityOAuthJoin", targetCommunityId, userId, exception);
             throw new AlreadyCommunityMemberException(targetCommunityId);
         }
     }
@@ -139,8 +149,10 @@ public class CommunityMembershipService {
                 if (guild.isPresent() && discordMembers.containsUser(guild.get(), discordUserId)) {
                     discovered.add(DiscoverableCommunityResponse.from(connection));
                 }
-            } catch (RuntimeException ignored) {
+            } catch (RuntimeException exception) {
                 // 한 Discord 서버의 일시적 조회 실패가 다른 가입 후보 조회를 막지 않게 한다.
+                log.warn("Discord community discovery partially failed. communityId={}, discordGuildId={}, userId={}, discordUserId={}",
+                        communityId, connection.getDiscordGuildId(), userId, discordUserId, exception);
             }
         }
         return List.copyOf(discovered);
@@ -171,6 +183,7 @@ public class CommunityMembershipService {
                     connection.getCommunity(), user, CommunityUserRole.MEMBER
             )));
         } catch (DataIntegrityViolationException exception) {
+            CommunityOperationLogging.integrityFailure(log, monitoring, "communityDiscoveryJoin", communityId, userId, exception);
             throw new AlreadyCommunityMemberException(communityId);
         }
     }

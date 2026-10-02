@@ -15,7 +15,7 @@ public class MonitoringEventWriter {
 
     public MonitoringEventWriter(MonitoringEventRepository events) { this.events = events; }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 3)
     public void write(MonitoringSeverity severity, MonitoringCategory category, MonitoringEventCode eventCode,
                       String message, Long communityId, Long userId, String referenceId,
                       Map<String, Object> metadata, Instant occurredAt) {

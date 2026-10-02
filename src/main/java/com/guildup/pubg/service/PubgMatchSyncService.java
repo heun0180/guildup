@@ -7,11 +7,15 @@ import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.LogContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessException;
+import jakarta.persistence.PersistenceException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClientResponseException;
@@ -63,6 +67,10 @@ public class PubgMatchSyncService {
         List<String> accounts = List.copyOf(new LinkedHashSet<>(accountIds));
         progress.stage("PLAYER_SYNC", 0, accounts.size(), "PUBG 계정의 최신 경기 목록을 확인하고 있습니다.");
         List<PubgPlayer> loadedPlayers = accounts.isEmpty() ? List.of() : players.findByAccountIdsFresh(shard, accounts);
+        Set<String> loadedAccountIds = loadedPlayers.stream().map(PubgPlayer::accountId).collect(java.util.stream.Collectors.toSet());
+        long missingAccounts = accounts.stream().filter(account -> !loadedAccountIds.contains(account)).count();
+        if (missingAccounts > 0) log.warn("PUBG player batch omitted requested accounts - stage=PLAYER_SYNC shard={} requestedAccounts={} missingAccounts={}",
+                shard, accounts.size(), missingAccounts);
         int playerCalls = (accounts.size() + 9) / 10;
         Set<String> discovered = loadedPlayers.stream().flatMap(player -> player.matchIds().stream())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
@@ -74,6 +82,9 @@ public class PubgMatchSyncService {
         observeTransaction("MATCH_FETCH");
         Map<String, PubgMatch> fetched = newIds.isEmpty() ? Map.of() : matches.findUniqueMatches(shard, newIds);
 
+        if (fetched.size() < newIds.size()) log.warn("PUBG match batch completed with missing matches - stage=MATCH_FETCH shard={} requestedMatches={} missingMatches={}",
+                shard, newIds.size(), newIds.size() - fetched.size());
+        progress.stage("MATCH_FACT_SAVE", 0, fetched.size(), "조회한 경기 원본을 저장하고 있습니다.");
         int insertedMatches = 0, insertedPlayers = 0;
         for (PubgMatch match : fetched.values()) {
             try {
@@ -82,7 +93,15 @@ public class PubgMatchSyncService {
                     insertedPlayers += match.teams().stream().mapToInt(team -> team.participants().size()).sum();
                 }
             } catch (DataIntegrityViolationException race) {
-                log.info("PUBG match was inserted concurrently - matchId={}", match.matchId());
+                if (concurrentMatchInsert(race)) {
+                    log.debug("PUBG match was inserted concurrently - matchId={} shard={}", match.matchId(), shard);
+                } else {
+                    log.error("PUBG match fact save failed - matchId={} shard={} stage=MATCH_FACT_SAVE", match.matchId(), shard, race);
+                    if (monitoring != null) monitoring.recordError(MonitoringCategory.DATABASE,
+                            MonitoringEventCode.DATABASE_ERROR, "PUBG match fact save failed", null, null,
+                            "matchId=" + match.matchId(), Map.of("matchId", match.matchId(), "stage", "MATCH_FACT_SAVE",
+                                    "exceptionClass", race.getClass().getSimpleName()));
+                }
             }
         }
 
@@ -124,13 +143,13 @@ public class PubgMatchSyncService {
             return total;
         }
         CompletionService<TelemetryOutcome> completions = new ExecutorCompletionService<>(telemetryExecutor);
-        values.forEach(match -> completions.submit(() -> {
+        values.forEach(match -> completions.submit(LogContext.wrapCallable(() -> {
             try {
                 return TelemetryOutcome.success(match.matchId(), fetchTelemetryOnce(match));
             } catch (RuntimeException exception) {
                 return TelemetryOutcome.failure(match.matchId(), exception);
             }
-        }));
+        })));
         for (int completed = 1; completed <= values.size(); completed++) {
             try {
                 TelemetryOutcome outcome = completions.take().get();
@@ -165,8 +184,20 @@ public class PubgMatchSyncService {
             Map<String, PlayerMatchFacts> parsed;
             try {
                 // parser는 Match의 전체 participant fact를 만든다. community 관련 값은 조회 시점에 재구성한다.
-                parsed = facts.facts(match, Set.of());
-                PubgMatchFactWriter.StoredCounts result = writer.saveTelemetry(match.matchId(), parsed);
+                try (var ignored = LogContext.scope(Map.of("matchId", match.matchId(), "stage", "TELEMETRY_FETCH"))) {
+                    try { parsed = facts.facts(match, Set.of()); }
+                    catch (RuntimeException failure) {
+                        throw new TelemetryStageFailure(causedBy(failure, PubgApiException.class)
+                                && !causedBy(failure, org.springframework.http.converter.HttpMessageConversionException.class)
+                                && !causedBy(failure, org.springframework.web.client.UnknownContentTypeException.class)
+                                ? "TELEMETRY_FETCH" : "TELEMETRY_PARSE", failure);
+                    }
+                }
+                PubgMatchFactWriter.StoredCounts result;
+                try (var ignored = LogContext.scope(Map.of("matchId", match.matchId(), "stage", "TELEMETRY_FACT_SAVE"))) {
+                    try { result = writer.saveTelemetry(match.matchId(), parsed); }
+                    catch (RuntimeException failure) { throw new TelemetryStageFailure("TELEMETRY_FACT_SAVE", failure); }
+                }
                 mine.complete(null);
                 return result;
             } finally {
@@ -196,20 +227,33 @@ public class PubgMatchSyncService {
 
     private void logTelemetryFailure(String matchId, RuntimeException exception) {
         Throwable root = rootCause(exception);
-        log.warn("PUBG telemetry fetch failed - matchId={} exceptionClass={} rootCause={} httpStatus={} " +
-                        "reason={} attempt=1 timestamp={}", matchId, exception.getClass().getName(),
-                root.getClass().getName(), httpStatus(exception), safeReason(root), Instant.now());
+        String stage = telemetryStage(exception);
+        boolean databaseFailure = "TELEMETRY_FACT_SAVE".equals(stage)
+                || causedBy(exception, DataAccessException.class) || causedBy(exception, PersistenceException.class);
+        if (databaseFailure) log.error("PUBG telemetry fact persistence failed - matchId={} stage={} httpStatus={}",
+                matchId, stage, httpStatus(exception), exception);
+        else log.warn("PUBG telemetry match failed; remaining matches continue - matchId={} stage={} exceptionClass={} httpStatus={}",
+                matchId, stage, root.getClass().getSimpleName(), httpStatus(exception), exception);
         if (monitoring == null) return;
         Integer status = responseStatus(exception);
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("endpoint", "TELEMETRY");
         metadata.put("matchId", matchId);
+        metadata.put("stage", stage);
         if (status != null) metadata.put("status", status);
         metadata.put("exceptionClass", root.getClass().getSimpleName());
+        if (databaseFailure) {
+            monitoring.recordError(MonitoringCategory.DATABASE, MonitoringEventCode.DATABASE_ERROR,
+                    "PUBG telemetry fact persistence failed", null, null, "matchId=" + matchId, metadata);
+            return;
+        }
         if (status != null && status == 429) {
             monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_RATE_LIMIT,
                     "PUBG Telemetry rate limit reached", null, null, "matchId=" + matchId, metadata);
-        } else if (causedBy(exception, ResourceAccessException.class)) {
+        } else if (causedBy(exception, ResourceAccessException.class)
+                || causedBy(exception, java.net.http.HttpTimeoutException.class)
+                || causedBy(exception, java.net.SocketTimeoutException.class)
+                || causedBy(exception, java.util.concurrent.TimeoutException.class)) {
             monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_TIMEOUT,
                     "PUBG Telemetry request timed out", null, null, "matchId=" + matchId, metadata);
         } else if (status != null && status >= 500) {
@@ -221,6 +265,28 @@ public class PubgMatchSyncService {
         }
         monitoring.recordError(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_FAILED,
                 "PUBG Telemetry request failed", null, null, "matchId=" + matchId, metadata);
+    }
+
+    private String telemetryStage(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof TelemetryStageFailure staged) return staged.stage;
+        return "TELEMETRY_FETCH";
+    }
+
+    private boolean concurrentMatchInsert(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException constraint
+                    && "uk_pubg_matches_match_id".equalsIgnoreCase(constraint.getConstraintName())) return true;
+        }
+        return false;
+    }
+
+    private static final class TelemetryStageFailure extends RuntimeException {
+        private final String stage;
+        private TelemetryStageFailure(String stage, RuntimeException cause) {
+            super("PUBG telemetry processing failed at " + stage, cause);
+            this.stage = stage;
+        }
     }
 
     private Integer responseStatus(Throwable value) {
@@ -257,14 +323,6 @@ public class PubgMatchSyncService {
             current = current.getCause();
         }
         return "NONE";
-    }
-
-    private String safeReason(Throwable value) {
-        String message = value.getMessage();
-        if (message == null || message.isBlank()) return value.getClass().getSimpleName();
-        String sanitized = message.replaceAll("https?://\\S+", "[telemetry-url]")
-                .replaceAll("(?i)(authorization|api[-_ ]?key)[:= ]+\\S+", "$1=[redacted]");
-        return sanitized.length() <= 300 ? sanitized : sanitized.substring(0, 300);
     }
 
     @PreDestroy

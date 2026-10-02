@@ -6,6 +6,7 @@ import com.guildup.community.service.CommunityScoreService;
 import com.guildup.killcompetition.domain.*;
 import com.guildup.killcompetition.repository.*;
 import com.guildup.pubg.support.PubgGameSupport;
+import com.guildup.pubg.exception.PubgApiException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -136,7 +137,9 @@ public class KillCompetitionSettlementStore {
     public boolean recordFinalFailure(Long communityId, SettlementWork work, RuntimeException failure) {
         return competitions.findForUpdate(communityId, work.competitionId()).map(competition -> {
             if (!competition.ownsFinalizationClaim(work.finalizationClaimToken())) return false;
-            competition.recordResultFailure(failure.getMessage(), clock.instant());
+            String message = failure instanceof PubgApiException pubg && pubg.getReason() != null
+                    ? pubg.getReason() : "최종 결과 집계에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+            competition.recordResultFailure(message, clock.instant());
             return true;
         }).orElse(false);
     }

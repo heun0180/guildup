@@ -13,6 +13,7 @@ public class BingoAggregationTaskConfig {
         executor.setMaxPoolSize(2);
         executor.setQueueCapacity(20);
         executor.setThreadNamePrefix("bingo-aggregation-");
+        executor.setTaskDecorator(com.guildup.monitoring.logging.LogContext::wrap);
         executor.initialize();
         return executor;
     }

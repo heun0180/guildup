@@ -129,6 +129,7 @@ public class CommunityDiscordDmService {
             }
 
             String displayName = memberService.getDisplayName(member);
+            long deliveryStarted = System.nanoTime();
             try {
                 directMessageClient.send(discordUserId, validated.message());
                 results.add(DiscordDmResult.success(discordUserId, displayName));
@@ -137,15 +138,30 @@ public class CommunityDiscordDmService {
                         ? DiscordDmFailureReason.DM_NOT_AVAILABLE
                         : DiscordDmFailureReason.DISCORD_API_ERROR;
                 results.add(DiscordDmResult.failure(discordUserId, displayName, reason));
-                log.warn("Discord DM delivery failed - communityId: {}, guildId: {}, userId: {}, reason: {}",
-                        communityId, connection.getDiscordGuildId(), discordUserId, reason);
-                if (reason == DiscordDmFailureReason.DISCORD_API_ERROR && monitoring != null)
-                    monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_API_FAILED,
+                Integer status = directMessageClient.responseStatus(exception);
+                if (reason == DiscordDmFailureReason.DM_NOT_AVAILABLE) {
+                    log.warn("Discord DM unavailable. communityId={}, discordGuildId={}, discordUserId={}, reason={}",
+                            communityId, connection.getDiscordGuildId(), discordUserId, reason);
+                } else {
+                    (Integer.valueOf(429).equals(status) ? log.atWarn() : log.atError()).setCause(exception).log(
+                            "Discord DM delivery failed. communityId={}, discordGuildId={}, userId={}, discordUserId={}, status={}, elapsedMs={}",
+                            communityId, connection.getDiscordGuildId(), userId, discordUserId, status,
+                            (System.nanoTime() - deliveryStarted) / 1_000_000);
+                }
+                if (reason == DiscordDmFailureReason.DISCORD_API_ERROR && monitoring != null) {
+                    Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+                    metadata.put("discordGuildId", connection.getDiscordGuildId());
+                    metadata.put("discordUserId", discordUserId);
+                    metadata.put("exceptionClass", exception.getClass().getSimpleName());
+                    if (status != null) metadata.put("status", status);
+                    if (Integer.valueOf(429).equals(status)) {
+                        monitoring.recordWarn(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_RATE_LIMIT,
+                                "Discord DM rate limit reached", communityId, userId,
+                                "discordGuildId=" + connection.getDiscordGuildId(), metadata);
+                    } else monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_API_FAILED,
                             "Discord DM delivery failed", communityId, userId,
-                            "discordGuildId=" + connection.getDiscordGuildId(), Map.of(
-                                    "discordGuildId", connection.getDiscordGuildId(),
-                                    "discordUserId", discordUserId,
-                                    "exceptionClass", exception.getClass().getSimpleName()));
+                            "discordGuildId=" + connection.getDiscordGuildId(), metadata);
+                }
             }
         }
 

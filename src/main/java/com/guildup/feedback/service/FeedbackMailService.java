@@ -1,6 +1,7 @@
 package com.guildup.feedback.service;
 
 import com.guildup.feedback.exception.FeedbackMailException;
+import com.guildup.monitoring.logging.FailureLogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,7 @@ public class FeedbackMailService {
     }
 
     public void send(FeedbackMailMessage feedback) {
+        long started = System.nanoTime();
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(sender);
@@ -32,8 +34,11 @@ public class FeedbackMailService {
             message.setText(feedback.body());
             mailSender.send(message);
         } catch (MailException | IllegalArgumentException exception) {
-            log.error("GuildUp feedback email delivery failed", exception);
-            throw new FeedbackMailException(exception);
+            log.error("Feedback email delivery failed. jobName=feedbackEmail, elapsedMs={}",
+                    (System.nanoTime() - started) / 1_000_000, exception);
+            FeedbackMailException failure = new FeedbackMailException(exception);
+            FailureLogContext.markLogged(failure);
+            throw failure;
         }
     }
 }

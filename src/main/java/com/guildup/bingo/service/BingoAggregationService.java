@@ -71,6 +71,7 @@ public class BingoAggregationService {
                 match -> telemetryRequired(prepared, match), prepared.excludeBotCombatStats(), listener);
         listener.stage("SAVE_FACTS", sync.dbMatchesInserted(), sync.newMatchIds(), "PUBG 경기 데이터를 저장했습니다.");
 
+        listener.stage("FACT_QUERY", 0, 0, "저장된 경기 Fact를 조회하고 있습니다.");
         List<PubgMatchFactQueryService.StoredMatchFacts> stored = pubgFacts.findBetween(
                 prepared.startsAt(), prepared.endsExclusive(), prepared.communityAccounts());
         if (prepared.excludeBotCombatStats() && stored.stream().anyMatch(match -> !match.telemetryLoaded()
@@ -79,6 +80,7 @@ public class BingoAggregationService {
         }
         List<PubgMatchFactQueryService.StoredMatchFacts> facts = stored.stream()
                 .filter(PubgMatchFactQueryService.StoredMatchFacts::telemetryLoaded).toList();
+        listener.stage("PROCESSED_MATCH_QUERY", 0, 0, "기존 집계 이력을 확인하고 있습니다.");
         List<String> legacyProcessedIds = participantId == null
                 ? processed.findDistinctMatchIdsByEventId(bingoId)
                 : processed.findMatchIds(bingoId, participantId);

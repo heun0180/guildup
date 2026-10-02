@@ -98,18 +98,25 @@ export default function MembersPage() {
 
   useEffect(() => {
     if (!communityValid) return;
+    let cancelled = false;
     Promise.all([
       api(`/api/communities/${encodeURIComponent(communityId)}/member-role-settings`)
-        .then((settings) => setMemberRolesConfigured(settings.roles.length > 0))
+        .then((settings) => { if (!cancelled) setMemberRolesConfigured(settings.roles.length > 0); })
         .catch((error) => {
-          if (!redirectToLogin(error) && error.status !== 404) setMemberRolesConfigured(null);
+          if (cancelled || redirectToLogin(error)) return;
+          if (error.status === 404) { setMemberRolesConfigured(false); return; }
+          setMemberRolesConfigured(null);
+          setMessage("Discord 역할 설정 상태를 확인하지 못했습니다. 클랜원 목록은 계속 확인할 수 있습니다.");
         }),
       (gameApi ? api(`${gameApi}/nickname-rule/status`) : Promise.resolve({ configured: false }))
-        .then((status) => setNicknameRuleConfigured(status.configured))
+        .then((status) => { if (!cancelled) setNicknameRuleConfigured(status.configured); })
         .catch((error) => {
-          if (!redirectToLogin(error)) setNicknameRuleConfigured(false);
+          if (cancelled || redirectToLogin(error)) return;
+          setNicknameRuleConfigured(null);
+          setMessage("인게임 닉네임 설정 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.");
         }),
     ]);
+    return () => { cancelled = true; };
   }, [communityId, communityValid, gameApi]);
 
   async function addMember(event) {

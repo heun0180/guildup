@@ -5,6 +5,7 @@ import com.guildup.community.exception.DiscordGuildAlreadyConnectedException;
 import com.guildup.community.exception.DiscordCommunityConnectionConflictException;
 import com.guildup.community.exception.AlreadyCommunityMemberException;
 import com.guildup.community.repository.DiscordCommunityConnectionRepository;
+import com.guildup.monitoring.logging.FailureLogContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,9 +26,10 @@ public class DiscordOAuthExceptionHandler {
             DiscordOAuthConfigurationException exception
     ) {
         HttpStatus status = HttpStatus.SERVICE_UNAVAILABLE;
+        FailureLogContext.capture(exception);
         return ResponseEntity.status(status).body(new DiscordOAuthErrorResponse(
                 status.value(),
-                exception.getMessage()
+                "Discord 인증을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."
         ));
     }
     @ExceptionHandler(DiscordGuildAlreadyConnectedException.class)

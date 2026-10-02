@@ -800,7 +800,8 @@ class KillCompetitionFlowTests {
                 failedWork.communityId(), failedWork, new IllegalStateException("final save failed"))).isTrue();
         assertThat(competitionRepository.findById(started.id())).get().satisfies(failed -> {
             assertThat(failed.getStatus().name()).isEqualTo("RESULT_PENDING");
-            assertThat(failed.getResultLastError()).isEqualTo("final save failed");
+            assertThat(failed.getResultLastError()).isEqualTo("최종 결과 집계에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+                    .doesNotContain("final save failed");
             assertThat(failed.getFinalizationClaimToken()).isNull();
             assertThat(failed.getFinalizationStartedAt()).isNotNull();
         });

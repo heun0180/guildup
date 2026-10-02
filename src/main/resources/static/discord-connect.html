@@ -197,6 +197,7 @@
     </section>
 </main>
 
+<script src="/community-ui.js"></script>
 <script>
     // 현재 주소 예: /discord-connect.html?communityId=1&oauthResult=...
     // communityId는 연결 대상이며 oauthResult는 Discord 콜백 완료 후 발급되는 임시 결과 ID다.
@@ -325,15 +326,14 @@
     // 콜백 URL의 oauthResult를 사용해 서버에 임시 저장된 사용자/서버 정보를 가져온다.
     async function loadOAuthResult() {
         try {
-            const response = await fetch(
+            const result = await api(
                 `/api/communities/${encodeURIComponent(communityId)}/discord/oauth/results/${encodeURIComponent(oauthResult)}`
             );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            renderResult(await response.json());
+            renderResult(result);
             // 결과를 한 번 읽은 뒤 주소창에서 임시 ID를 제거해 새로고침에 의한 재조회를 막는다.
             history.replaceState({}, "", `/discord-connect.html?communityId=${encodeURIComponent(communityId)}`);
         } catch (error) {
-            showError("Discord 인증 결과가 만료되었거나 올바르지 않습니다. 다시 연결해 주세요.");
+            showError(error.status === 404 ? "Discord 인증 결과가 만료되었거나 올바르지 않습니다. 다시 연결해 주세요." : error.message);
         }
     }
 
@@ -347,24 +347,6 @@
 
     document.getElementById("restart-oauth").href =
         `/api/communities/${encodeURIComponent(communityId)}/discord/oauth/authorize`;
-
-    // 예상 가능한 오류만 공개된 서버 메시지로 표시하고, 내부 오류는 노출하지 않는다.
-    async function installationError(response) {
-        const messages = {
-            401: "로그인이 만료되었습니다. 다시 로그인해 주세요.",
-            403: "이 커뮤니티에 접근할 권한이 없습니다.",
-            404: "Discord 인증 결과 또는 설치 정보가 만료되었습니다. Discord 인증 다시 시작을 눌러주세요.",
-            400: "설치 요청 정보가 올바르지 않습니다. Discord 인증 다시 시작을 눌러주세요.",
-            409: "Discord 연결 상태가 충돌합니다. 커뮤니티 대시보드에서 연결 상태를 확인해 주세요.",
-            503: "Discord 설정이 완료되지 않았습니다. 서버 설정을 확인해 주세요."
-        };
-        let message = messages[response.status] || `요청을 처리하지 못했습니다. (HTTP ${response.status})`;
-        if (response.status === 409 || response.status === 503) {
-            const body = await response.json().catch(() => null);
-            if (body && typeof body.message === "string") message = body.message;
-        }
-        return new Error(message);
-    }
 
     // 2단계: 선택한 서버에 봇이 이미 있는지 확인하고, 없으면 Discord 봇 초대 창을 연다.
     installButton.addEventListener("click", async () => {
@@ -383,7 +365,7 @@
 
         try {
             // OAuth에서 검증된 결과 ID와 사용자가 고른 서버 ID를 백엔드에 전달한다.
-            const response = await fetch(
+            const result = await api(
                 `/api/communities/${encodeURIComponent(communityId)}/discord/bot-install/authorize`,
                 {
                     method: "POST",
@@ -391,8 +373,6 @@
                     body: JSON.stringify({oauthResultId: oauthResult, guildId: selectedGuild.id})
                 }
             );
-            if (!response.ok) throw await installationError(response);
-            const result = await response.json();
             // JDA에서 봇을 이미 찾았다면 백엔드가 즉시 연결을 저장한 상태다.
             if (result.alreadyInstalled) {
                 if (installWindow) installWindow.close();
@@ -427,15 +407,14 @@
         clearMessage();
 
         try {
-            const response = await fetch("/api/discord/bot-install/confirm", {
+            const result = await api("/api/discord/bot-install/confirm", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({installToken})
             });
-            if (!response.ok) throw await installationError(response);
             // 설치 토큰은 서버에서도 제거되므로 성공 후 브라우저 상태에서도 비운다.
             installToken = null;
-            renderCompletion(await response.json());
+            renderCompletion(result);
         } catch (error) {
             showError(error.message || "설치 확인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
         } finally {

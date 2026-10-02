@@ -7,6 +7,8 @@ import com.guildup.pubg.service.PubgMatchFactProvider;
 import com.guildup.pubg.support.PubgAiBotSupport;
 import com.guildup.bingo.service.BingoAggregationMetrics;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.*;
@@ -15,6 +17,7 @@ import java.util.*;
 /** 공식 Match 통계와 Telemetry event를 한 번 순회해 공통 PlayerMatchFacts로 변환한다. */
 @Service
 public class PubgBingoFactService implements PubgMatchFactProvider {
+    private static final Logger log = LoggerFactory.getLogger(PubgBingoFactService.class);
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
     private static final int MAX_CACHE_SIZE = 2_000;
     private final PubgTelemetryClient telemetry;
@@ -68,7 +71,14 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         boolean telemetryLoaded = events != null && events.isArray();
         if (telemetryRequired && !telemetryLoaded)
             throw new IllegalStateException("Telemetry 원본이 없습니다: " + match.matchId());
-        if (events != null && events.isArray()) events.forEach(event -> accept(event, mutable));
+        if (events != null && events.isArray()) {
+            int invalidTimestamps = 0;
+            for (JsonNode event : events) if (accept(event, mutable)) invalidTimestamps++;
+            if (invalidTimestamps > 0) log.warn("PUBG telemetry contains invalid timestamps; existing evidence fallback used - matchId={} stage=TELEMETRY_PARSE invalidTimestampCount={}",
+                    match.matchId(), invalidTimestamps);
+        } else {
+            log.warn("PUBG telemetry unavailable; Match statistics fallback used - matchId={} stage=TELEMETRY_PARSE", match.matchId());
+        }
         Map<String, PlayerMatchFacts> result = new LinkedHashMap<>();
         mutable.forEach((account, facts) -> result.put(account, facts.freeze()));
         Map<String, PlayerMatchFacts> immutable = Map.copyOf(result);
@@ -80,8 +90,10 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         return immutable;
     }
 
-    private void accept(JsonNode event, Map<String, MutableFacts> facts) {
-        String type = text(event, "_T"); Instant at = instant(text(event, "_D"));
+    private boolean accept(JsonNode event, Map<String, MutableFacts> facts) {
+        String type = text(event, "_T");
+        String rawTimestamp = text(event, "_D");
+        Instant at = instant(rawTimestamp);
         switch (type) {
             case "LogPlayerKill" -> acceptKill(event, facts, at, false);
             case "LogPlayerKillV2" -> { acceptKill(event, facts, at, true); acceptGameResult(event.path("victimGameResult"), facts); }
@@ -117,6 +129,7 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
             case "LogMatchEnd" -> event.path("gameResultOnFinished").path("results").forEach(result -> acceptGameResult(result, facts));
             default -> { }
         }
+        return rawTimestamp != null && at == null;
     }
 
     private void acceptKill(JsonNode event, Map<String, MutableFacts> facts, Instant at, boolean version2) {
@@ -284,7 +297,8 @@ public class PubgBingoFactService implements PubgMatchFactProvider {
         return BingoItemCatalog.canonicalId(id == null ? text(value, "damageCauserName") : id);
     }
     private String text(JsonNode node, String field) { JsonNode v = node.path(field); return v.isMissingNode() || v.isNull() ? null : v.asText(); }
-    private Instant instant(String value) { try { return value == null ? null : Instant.parse(value); } catch (RuntimeException ignored) { return null; } }
+    // Invalid timestamps retain the existing fallback and are reported once per match by facts().
+    private Instant instant(String value) { try { return value == null ? null : Instant.parse(value); } catch (DateTimeException ignored) { return null; } }
 
     private static final class MutableFacts {
         final PubgMatch match; final Map<String, BigDecimal> metrics = new LinkedHashMap<>();

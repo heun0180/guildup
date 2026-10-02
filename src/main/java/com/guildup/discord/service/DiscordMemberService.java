@@ -4,6 +4,13 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.guildup.monitoring.logging.FailureLogContext;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 
 import java.time.Duration;
 import java.util.List;
@@ -13,12 +20,17 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Discord 서버 멤버 조회, 역할 필터링, 표시 이름 결정을 담당한다. */
 @Service
 public class DiscordMemberService {
+    private static final Logger log = LoggerFactory.getLogger(DiscordMemberService.class);
 
     private static final long MEMBER_SNAPSHOT_TTL_NANOS = Duration.ofSeconds(30).toNanos();
     private static final int MAX_MEMBER_SNAPSHOTS = 100;
 
     private final Map<Guild, MemberSnapshot> memberSnapshots = new ConcurrentHashMap<>();
     private final Map<Guild, Object> guildLoadLocks = new ConcurrentHashMap<>();
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     /** 기능이 요청한 Discord 서버의 멤버만 온디맨드로 조회하고 짧게 재사용한다. */
     public List<Member> getMembers(Guild guild) {
@@ -37,7 +49,7 @@ public class DiscordMemberService {
                 return cached.members();
             }
 
-            List<Member> members = List.copyOf(guild.loadMembers().get());
+            List<Member> members = loadMembers(guild, "MEMBER_SNAPSHOT");
             memberSnapshots.put(guild, new MemberSnapshot(members, System.nanoTime()));
             pruneMemberSnapshots(System.nanoTime());
             return members;
@@ -46,7 +58,44 @@ public class DiscordMemberService {
 
     /** 전체 정합성 확인은 관리 화면의 30초 snapshot을 보관하거나 재사용하지 않고 즉시 해제한다. */
     public List<Member> loadMembersForReconciliation(Guild guild) {
-        return List.copyOf(guild.loadMembers().get());
+        return loadMembers(guild, "RECONCILIATION_MEMBERS");
+    }
+
+    private List<Member> loadMembers(Guild guild, String operation) {
+        long started = System.nanoTime();
+        try {
+            return List.copyOf(guild.loadMembers().get());
+        } catch (RuntimeException exception) {
+            boolean rateLimit = isRateLimit(exception);
+            (rateLimit ? log.atWarn() : log.atError()).setCause(exception).log(
+                    "Discord member lookup failed. discordGuildId={}, operation={}, failureType={}, elapsedMs={}",
+                    guild.getId(), operation, rateLimit ? "RATE_LIMIT" : exception.getClass().getSimpleName(),
+                    (System.nanoTime() - started) / 1_000_000);
+            if (!rateLimit) FailureLogContext.markLogged(exception);
+            if (monitoring != null) {
+                var metadata = new java.util.LinkedHashMap<String, Object>();
+                metadata.put("discordGuildId", guild.getId());
+                metadata.put("operation", operation);
+                metadata.put("exceptionClass", exception.getClass().getSimpleName());
+                if (rateLimit) monitoring.recordWarn(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_RATE_LIMIT,
+                        "Discord member lookup rate limited", null, null, "discordGuildId=" + guild.getId(), metadata);
+                else monitoring.recordError(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_MEMBER_LOOKUP_FAILED,
+                        "Discord member lookup failed", null, null, "discordGuildId=" + guild.getId(), metadata);
+            }
+            throw exception;
+        }
+    }
+
+    private boolean isRateLimit(Throwable failure) {
+        Throwable current = failure;
+        for (int depth = 0; current != null && depth < 16; depth++) {
+            if (current instanceof net.dv8tion.jda.api.exceptions.RateLimitedException) return true;
+            if (current instanceof net.dv8tion.jda.api.exceptions.ErrorResponseException response
+                    && response.getResponse() != null && response.getResponse().code == 429) return true;
+            if (current.getCause() == current) break;
+            current = current.getCause();
+        }
+        return false;
     }
 
     /** 서버의 전체 멤버 중 봇을 제외한 실제 사용자만 반환한다. */

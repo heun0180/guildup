@@ -7,12 +7,15 @@ import com.guildup.monitoring.service.MonitoringEventService;
 import com.guildup.pubg.exception.PubgApiException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
 public class CommunityMemberActivitySyncService {
+    private static final Logger log = LoggerFactory.getLogger(CommunityMemberActivitySyncService.class);
 
     private final CommunityActivitySyncCoordinator coordinator;
     private final CommunityMemberActivitySyncWorker worker;
@@ -38,7 +41,19 @@ public class CommunityMemberActivitySyncService {
             worker.synchronize(communityGameId);
         } catch (RuntimeException exception) {
             recordFailure(userId, communityId, communityGameId, started, exception);
-            coordinator.fail(communityGameId);
+            try {
+                coordinator.fail(communityGameId);
+            } catch (RuntimeException stateUpdateFailure) {
+                // 진단을 위한 실패 상태 갱신이 원래 PUBG/계산/저장 실패를 덮어쓰지 않게 한다.
+                if (stateUpdateFailure != exception) exception.addSuppressed(stateUpdateFailure);
+                log.error("Community activity failure state could not be saved. communityId={}, communityGameId={}, userId={}",
+                        communityId, communityGameId, userId, stateUpdateFailure);
+                monitoring.recordError(MonitoringCategory.DATABASE, MonitoringEventCode.DATABASE_ERROR,
+                        "Community activity failure state update failed", communityId, userId,
+                        "communityGameId=" + communityGameId, Map.of(
+                                "stage", "FAILURE_STATE_SAVE", "communityGameId", communityGameId,
+                                "exceptionClass", stateUpdateFailure.getClass().getSimpleName()));
+            }
             throw exception;
         }
         return activityService.getActivities(userId, communityId, communityGameId);

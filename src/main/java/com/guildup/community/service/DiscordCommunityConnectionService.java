@@ -11,13 +11,22 @@ import com.guildup.community.repository.DiscordCommunityConnectionRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.guildup.monitoring.service.MonitoringEventService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** GuildUp 커뮤니티와 Discord 서버 간 1:1 연결의 조회와 생성을 담당한다. */
 @Service
 public class DiscordCommunityConnectionService {
+    private static final Logger log = LoggerFactory.getLogger(DiscordCommunityConnectionService.class);
 
     private final CommunityRepository communityRepository;
     private final DiscordCommunityConnectionRepository connectionRepository;
+    private MonitoringEventService monitoring;
+
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
     public DiscordCommunityConnectionService(
             CommunityRepository communityRepository,
@@ -67,8 +76,12 @@ public class DiscordCommunityConnectionService {
         connection.updateGuild(normalizedGuildId, discordGuildName);
         try {
             // flush까지 이 메서드 안에서 수행해 DB UNIQUE 위반을 비즈니스 예외로 변환한다.
-            return connectionRepository.saveAndFlush(connection);
+            DiscordCommunityConnection saved = connectionRepository.saveAndFlush(connection);
+            CommunityOperationLogging.afterCommit(() -> log.info(
+                    "Discord community connected. communityId={}, discordGuildId={}", communityId, normalizedGuildId));
+            return saved;
         } catch (DataIntegrityViolationException exception) {
+            CommunityOperationLogging.integrityFailure(log, monitoring, "discordCommunityConnect", communityId, null, exception);
             throw translateConstraintViolation(exception, normalizedGuildId, communityId);
         }
     }

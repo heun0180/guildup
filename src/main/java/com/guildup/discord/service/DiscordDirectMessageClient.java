@@ -2,6 +2,7 @@ package com.guildup.discord.service;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.exceptions.ErrorResponseException;
+import net.dv8tion.jda.api.exceptions.RateLimitedException;
 import net.dv8tion.jda.api.requests.ErrorResponse;
 import org.springframework.stereotype.Component;
 
@@ -34,6 +35,16 @@ public class DiscordDirectMessageClient {
         return exception.getErrorResponse() == ErrorResponse.CANNOT_SEND_TO_USER
                 || exception.getErrorResponse() == ErrorResponse.INVALID_DM_ACTION
                 || exception.getErrorResponse() == ErrorResponse.EXPLICIT_CONTENT_CANNOT_SEND_TO_RECIPIENT;
+    }
+
+    /** 응답 본문/토큰을 출력하지 않고 운영 로그에 필요한 Discord 상태만 추출한다. */
+    public Integer responseStatus(Throwable throwable) {
+        Throwable cause = unwrap(throwable);
+        if (cause instanceof RateLimitedException) return 429;
+        if (cause instanceof ErrorResponseException exception && exception.getResponse() != null) {
+            return exception.getResponse().code;
+        }
+        return null;
     }
 
     private Throwable unwrap(Throwable throwable) {

@@ -2,6 +2,8 @@ package com.guildup.bingo.service;
 
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
+import com.guildup.monitoring.logging.LogContext;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -41,13 +43,17 @@ public class BingoAggregationRuntimeProbe {
     }
 
     public ScheduledFuture<?> start(Long bingoId) {
+        if (!log.isDebugEnabled()) return null;
         sample("BEFORE", bingoId);
-        return sampler.scheduleAtFixedRate(() -> sample("RUNNING", bingoId), 0, 1, TimeUnit.SECONDS);
+        return sampler.scheduleAtFixedRate(LogContext.wrap(() -> {
+            try { sample("RUNNING", bingoId); }
+            catch (RuntimeException failure) { log.debug("Bingo resource sampling unavailable - bingoEventId={}", bingoId, failure); }
+        }), 0, 5, TimeUnit.SECONDS);
     }
 
     public void stop(Long bingoId, ScheduledFuture<?> sampling) {
         if (sampling != null) sampling.cancel(false);
-        sample("AFTER", bingoId);
+        if (log.isDebugEnabled()) sample("AFTER", bingoId);
     }
 
     private void sample(String phase, Long bingoId) {
@@ -56,11 +62,11 @@ public class BingoAggregationRuntimeProbe {
         int idle = pool == null ? -1 : pool.getIdleConnections();
         int pending = pool == null ? -1 : pool.getThreadsAwaitingConnection();
         int total = pool == null ? -1 : pool.getTotalConnections();
-        log.info("[BINGO_POOL] phase={} bingoId={} active={} idle={} pending={} total={} maximumPoolSize={}",
+        log.debug("[BINGO_POOL] phase={} bingoId={} active={} idle={} pending={} total={} maximumPoolSize={}",
                 phase, bingoId, active, idle, pending, total, dataSource.getMaximumPoolSize());
 
         long[] tomcat = tomcatThreads();
-        log.info("[BINGO_THREADS] phase={} bingoId={} tomcatCurrentThreadsBusyApprox={} tomcatCurrentThreadCount={} "
+        log.debug("[BINGO_THREADS] phase={} bingoId={} tomcatCurrentThreadsBusyApprox={} tomcatCurrentThreadCount={} "
                         + "executorActive={} executorPoolSize={} executorQueueSize={}",
                 phase, bingoId, tomcat[0], tomcat[1], executor.getActiveCount(), executor.getPoolSize(),
                 executor.getThreadPoolExecutor().getQueue().size());
@@ -73,7 +79,7 @@ public class BingoAggregationRuntimeProbe {
         List<GarbageCollectorMXBean> collectors = ManagementFactory.getGarbageCollectorMXBeans();
         long gcCount = collectors.stream().mapToLong(value -> Math.max(0, value.getCollectionCount())).sum();
         long gcTimeMs = collectors.stream().mapToLong(value -> Math.max(0, value.getCollectionTime())).sum();
-        log.info("[BINGO_RESOURCE] phase={} bingoId={} processCpu={} heapUsed={} heapMax={} gcCount={} gcTimeMs={}",
+        log.debug("[BINGO_RESOURCE] phase={} bingoId={} processCpu={} heapUsed={} heapMax={} gcCount={} gcTimeMs={}",
                 phase, bingoId, processCpu, heap.getUsed(), heap.getMax(), gcCount, gcTimeMs);
     }
 
@@ -87,10 +93,14 @@ public class BingoAggregationRuntimeProbe {
                     ((Number) server.getAttribute(name, "currentThreadsBusy")).longValue(),
                     ((Number) server.getAttribute(name, "currentThreadCount")).longValue()
             };
-        } catch (Exception ignored) {
+        } catch (Exception failure) {
+            log.debug("Bingo Tomcat JMX probe unavailable; using thread sample", failure);
             return tomcatThreadsFromStacks();
         }
     }
+
+    @PreDestroy
+    void shutdownSampler() { sampler.shutdownNow(); }
 
     private long[] tomcatThreadsFromStacks() {
         Map<Thread, StackTraceElement[]> allThreads = Thread.getAllStackTraces();

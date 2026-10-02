@@ -34,7 +34,10 @@ async function loadDashboard() {
         renderDashboardAttendance(await api(`/api/communities/${encodeURIComponent(id)}/attendance/me`));
     } catch (error) {
         document.getElementById("dashboard-attendance-title").textContent = "오늘 출석 체크";
-        document.getElementById("dashboard-attendance-description").textContent = "로그인한 Discord 계정과 클랜원 정보가 연결되면 출석할 수 있습니다.";
+        document.getElementById("dashboard-attendance-description").textContent = error.status === 409
+            ? "로그인한 Discord 계정과 클랜원 정보가 연결되면 출석할 수 있습니다."
+            : "출석 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.";
+        if (error.status !== 409) showError(error);
         document.getElementById("dashboard-attendance-button").hidden = true;
     }
     document.getElementById("dashboard-attendance").hidden = false;

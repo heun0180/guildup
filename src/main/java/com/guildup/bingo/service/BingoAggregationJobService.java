@@ -8,6 +8,8 @@ import com.guildup.pubg.service.PubgMatchSyncService;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.LogContext;
+import com.guildup.monitoring.logging.FailureLogContext;
 import org.springframework.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,8 +106,8 @@ public class BingoAggregationJobService {
             put(key, communityId, communityGameId, queued);
         }
         try {
-            executor.execute(() -> run(key, userId, communityId, communityGameId, bingoId,
-                    participantId, queued.requestedAt()));
+            executor.execute(LogContext.wrap(() -> run(key, userId, communityId, communityGameId, bingoId,
+                    participantId, queued.requestedAt())));
         } catch (RuntimeException exception) {
             BingoAggregationJobResponse failed = failed(bingoId, queued.requestedAt(), null,
                     "집계 작업을 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
@@ -134,15 +136,39 @@ public class BingoAggregationJobService {
 
     private void run(JobKey key, Long userId, Long communityId, Long communityGameId, Long bingoId,
                      Long participantId, Instant requestedAt) {
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put("jobName", "BINGO_AGGREGATION");
+        context.put("stage", "PREPARE_PARTICIPANTS");
+        context.put("userId", userId.toString());
+        context.put("communityId", communityId.toString());
+        context.put("bingoEventId", bingoId.toString());
+        if (participantId != null) context.put("participantId", participantId.toString());
+        try (var ignored = LogContext.scope(context)) {
+            runWithContext(key, userId, communityId, communityGameId, bingoId, participantId, requestedAt);
+        }
+    }
+
+    private void runWithContext(JobKey key, Long userId, Long communityId, Long communityGameId, Long bingoId,
+                     Long participantId, Instant requestedAt) {
         Instant startedAt = clock.instant();
-        ScheduledFuture<?> sampling = runtimeProbe.start(bingoId);
+        ScheduledFuture<?> sampling = null;
+        String[] currentStage = {"PREPARE_PARTICIPANTS"};
+        log.info("Bingo aggregation started - scope={} bingoEventId={} participantId={} communityId={} userId={}",
+                key.scope(), bingoId, participantId, communityId, userId);
         put(key, communityId, communityGameId, new BingoAggregationJobResponse(bingoId, "RUNNING",
                 requestedAt, startedAt, null, null, null, null, "PUBG 경기 기록을 조회하고 있습니다."));
         try {
-            PubgMatchSyncService.ProgressListener progress = (stage, completed, total, message) ->
-                    put(key, communityId, communityGameId,
-                    new BingoAggregationJobResponse(bingoId, "RUNNING", requestedAt, startedAt,
-                            null, null, null, null, message, stage, completed, total));
+            try { sampling = runtimeProbe.start(bingoId); }
+            catch (RuntimeException observerFailure) {
+                log.warn("Bingo resource observation failed - bingoEventId={} stage=PROBE_START", bingoId, observerFailure);
+            }
+            PubgMatchSyncService.ProgressListener progress = (stage, completed, total, message) -> {
+                currentStage[0] = stage;
+                LogContext.put("stage", stage);
+                put(key, communityId, communityGameId,
+                        new BingoAggregationJobResponse(bingoId, "RUNNING", requestedAt, startedAt,
+                                null, null, null, null, message, stage, completed, total));
+            };
             BingoAggregationResponse result = participantId == null
                     ? aggregation.aggregate(userId, communityId, bingoId, progress)
                     : aggregation.aggregatePersonal(userId, communityId, bingoId, progress);
@@ -155,12 +181,20 @@ public class BingoAggregationJobService {
                     startedAt, clock.instant(), result.processedMatches(), result.updatedParticipants(),
                     result.aggregatedAt(), message, "COMPLETED", null, null, result.telemetryFailures()));
             long elapsedMs = Duration.between(startedAt, clock.instant()).toMillis();
+            if (warnings) log.warn("Bingo aggregation completed with partial failures - bingoEventId={} communityId={} telemetryFailures={} elapsedMs={}",
+                    bingoId, communityId, result.telemetryFailures(), elapsedMs);
+            else log.info("Bingo aggregation completed - bingoEventId={} communityId={} processedMatches={} updatedParticipants={} elapsedMs={}",
+                    bingoId, communityId, result.processedMatches(), result.updatedParticipants(), elapsedMs);
             if (result.telemetryFailures() > 0 && monitoring != null) {
                 monitoring.recordWarn(MonitoringCategory.BINGO, MonitoringEventCode.BINGO_PARTIAL_FAILURE,
                         "Bingo aggregation completed with telemetry failures", communityId, userId,
                         "bingoEventId=" + bingoId, Map.of("bingoEventId", bingoId,
                                 "telemetryFailures", result.telemetryFailures(),
                                 "processedMatches", result.processedMatches(), "elapsedMs", elapsedMs));
+            }
+            if (elapsedMs >= slowThreshold.toMillis()) {
+                log.warn("Bingo aggregation exceeded slow threshold - bingoEventId={} communityId={} elapsedMs={} thresholdMs={}",
+                        bingoId, communityId, elapsedMs, slowThreshold.toMillis());
             }
             if (monitoring != null && elapsedMs >= slowThreshold.toMillis()) {
                 monitoring.recordWarn(MonitoringCategory.BINGO, MonitoringEventCode.BINGO_SLOW_AGGREGATION,
@@ -177,13 +211,20 @@ public class BingoAggregationJobService {
                         key.scope(), bingoId, participantId, communityId,
                         ((ResponseStatusException) exception).getStatusCode().value());
             } else {
-                log.error("Bingo aggregation job failed - scope={}, bingoId={}, participantId={}, communityId={}",
-                        key.scope(), bingoId, participantId, communityId, exception);
+                if (!FailureLogContext.isLogged(exception)) {
+                    log.error("Bingo aggregation job failed - scope={} bingoEventId={} participantId={} communityId={} userId={} stage={} elapsedMs={}",
+                            key.scope(), bingoId, participantId, communityId, userId, currentStage[0],
+                            Duration.between(startedAt, clock.instant()).toMillis(), exception);
+                    FailureLogContext.markLogged(exception);
+                }
                 recordFailure(key, userId, communityId, bingoId, participantId,
                         Duration.between(startedAt, clock.instant()).toMillis(), exception);
             }
         } finally {
-            runtimeProbe.stop(bingoId, sampling);
+            try { runtimeProbe.stop(bingoId, sampling); }
+            catch (RuntimeException observerFailure) {
+                log.warn("Bingo resource observation failed - bingoEventId={} stage=PROBE_STOP", bingoId, observerFailure);
+            }
         }
     }
 

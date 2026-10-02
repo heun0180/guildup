@@ -17,6 +17,8 @@ import net.dv8tion.jda.api.entities.Guild;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
@@ -26,6 +28,7 @@ import java.util.Map;
  */
 @Service
 public class DiscordBotInstallService {
+    private static final Logger log = LoggerFactory.getLogger(DiscordBotInstallService.class);
 
     private static final String DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
     // Discord 설치 직후 JDA 캐시에 서버가 반영되는 데 걸리는 시간을 고려한 재시도 설정이다.
@@ -159,15 +162,21 @@ public class DiscordBotInstallService {
      * 봇 설치 직후 발생할 수 있는 JDA 캐시 반영 지연을 고려해 서버 존재 여부를 재확인한다.
      */
     private Guild awaitGuild(Long communityId, String guildId) {
+        long started = System.nanoTime();
         for (int attempt = 1; attempt <= guildCheckAttempts; attempt++) {
             Guild guild = discordGuildService.findGuildById(guildId).orElse(null);
             if (guild != null) {
                 return guild;
             }
             if (attempt < guildCheckAttempts) {
+                log.debug("Discord bot installation awaiting guild cache. communityId={}, discordGuildId={}, retryCount={}",
+                        communityId, guildId, attempt);
                 waitBeforeRetry(guildId);
             }
         }
+        log.warn("Discord bot installation could not be verified after retries. communityId={}, discordGuildId={}, retryCount={}, elapsedMs={}",
+                communityId, guildId, Math.max(0, guildCheckAttempts - 1),
+                (System.nanoTime() - started) / 1_000_000);
         if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
                 MonitoringEventCode.DISCORD_GUILD_CONNECTION_FAILED,
                 "Discord guild was not visible to JDA after installation retries", communityId, null,
@@ -182,6 +191,7 @@ public class DiscordBotInstallService {
             Thread.sleep(guildCheckDelayMillis);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            log.warn("Discord bot installation wait interrupted. discordGuildId={}", guildId, exception);
             throw new DiscordBotNotInstalledException(guildId);
         }
     }

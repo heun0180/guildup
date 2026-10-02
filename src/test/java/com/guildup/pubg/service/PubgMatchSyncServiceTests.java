@@ -163,6 +163,20 @@ class PubgMatchSyncServiceTests {
         verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
     }
 
+    @Test void wrappedHttpJsonFailureIsReportedAsParsingRatherThanFetching() {
+        var monitoring = mock(com.guildup.monitoring.service.MonitoringEventService.class);
+        sync.configureMonitoring(monitoring);
+        var result = runTenTelemetryTasksWithFailure(new PubgApiException("invalid telemetry response",
+                new org.springframework.http.converter.HttpMessageConversionException("invalid JSON")));
+
+        assertThat(result.telemetryFailures()).isEqualTo(1);
+        verify(writer, times(9)).saveTelemetry(anyString(), anyMap());
+        verify(monitoring).recordError(eq(com.guildup.monitoring.domain.MonitoringCategory.PUBG_API),
+                eq(com.guildup.monitoring.domain.MonitoringEventCode.PUBG_API_FAILED), anyString(),
+                isNull(), isNull(), eq("matchId=M0"),
+                argThat(metadata -> "TELEMETRY_PARSE".equals(metadata.get("stage"))));
+    }
+
     @Test void failedStoredMatchRetriesTelemetryWithoutCallingMatchApiAgain() {
         PubgMatch stored = match("retry");
         when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
@@ -244,6 +258,39 @@ class PubgMatchSyncServiceTests {
 
         assertThat(result.dbMatchesInserted()).isZero();
         assertThat(result.telemetryFailures()).isZero();
+    }
+
+    @Test void factSaveFailureHasDatabaseHistoryAndStackWhileOtherMatchesStillComplete() {
+        var monitoring = mock(com.guildup.monitoring.service.MonitoringEventService.class);
+        sync.configureMonitoring(monitoring);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PubgMatchSyncService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        when(players.findByAccountIdsFresh("kakao", List.of("account-a"))).thenReturn(
+                List.of(new PubgPlayer("account-a", "A", List.of("bad", "good"))));
+        when(query.existingMatchIds(anyCollection())).thenReturn(Set.of("bad", "good"));
+        when(query.findTelemetryMissing(anyCollection())).thenReturn(List.of(match("bad"), match("good")));
+        when(facts.facts(any(), anySet())).thenAnswer(invocation -> {
+            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("req-telemetry-test");
+            PubgMatch value = invocation.getArgument(0);
+            return Map.of("account-a", fact(value.matchId()));
+        });
+        when(writer.saveTelemetry(eq("bad"), anyMap())).thenThrow(new DataIntegrityViolationException("fact constraint"));
+        when(writer.saveTelemetry(eq("good"), anyMap())).thenReturn(new PubgMatchFactWriter.StoredCounts(1, 1));
+        try {
+            org.slf4j.MDC.put("requestId", "req-telemetry-test");
+            var result = sync.sync("kakao", List.of("account-a"), value -> true, PubgMatchSyncService.ProgressListener.noop());
+            assertThat(result.telemetryFailures()).isEqualTo(1);
+            verify(writer).saveTelemetry(eq("good"), anyMap());
+            verify(monitoring).recordError(eq(com.guildup.monitoring.domain.MonitoringCategory.DATABASE),
+                    eq(com.guildup.monitoring.domain.MonitoringEventCode.DATABASE_ERROR), anyString(), isNull(), isNull(),
+                    eq("matchId=bad"), argThat(metadata -> "TELEMETRY_FACT_SAVE".equals(metadata.get("stage"))));
+            assertThat(appender.list).filteredOn(event -> event.getLevel() == ch.qos.logback.classic.Level.ERROR)
+                    .singleElement().satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).contains("matchId=bad", "stage=TELEMETRY_FACT_SAVE");
+                        assertThat(event.getThrowableProxy()).isNotNull();
+                    });
+        } finally { org.slf4j.MDC.clear(); logger.detachAppender(appender); appender.stop(); }
     }
 
     private PubgMatchSyncService.SyncResult runTenTelemetryTasksWithFailure(RuntimeException failure) {

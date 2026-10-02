@@ -18,6 +18,9 @@ import java.util.List;
 
 @Service
 public class MonitoringStatusService {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MonitoringStatusService.class);
+    private final java.util.concurrent.atomic.AtomicLong lastDiskFailure = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong lastDatabaseFailure = new java.util.concurrent.atomic.AtomicLong();
     private final MonitoringEventRepository events;
     private final MeterRegistry meterRegistry;
     private final DataSource dataSource;
@@ -65,8 +68,8 @@ public class MonitoringStatusService {
             FileStore store = Files.getFileStore(Path.of(".").toAbsolutePath());
             diskTotal = store.getTotalSpace();
             diskUsed = Math.max(0, diskTotal - store.getUsableSpace());
-        } catch (Exception ignored) {
-            // 상태 API 자체는 디스크 metric 조회 실패로 실패하지 않는다.
+        } catch (Exception failure) {
+            if (shouldLog(lastDiskFailure)) log.warn("Server disk metric unavailable - jobName=monitoringStatus stage=DISK_METRIC", failure);
         }
         Double cpu = metric("process.cpu.usage");
         if (cpu == null) cpu = metric("system.cpu.usage");
@@ -76,10 +79,20 @@ public class MonitoringStatusService {
 
     private String databaseStatus() {
         try (var connection = dataSource.getConnection()) {
-            return connection.isValid(2) ? "UP" : "DOWN";
+            boolean valid = connection.isValid(2);
+            if (!valid && shouldLog(lastDatabaseFailure)) log.error("Database health check failed - stage=CONNECTION_VALIDATION");
+            return valid ? "UP" : "DOWN";
         } catch (Exception exception) {
+            if (shouldLog(lastDatabaseFailure)) log.error("Database health check failed - stage=CONNECTION_VALIDATION", exception);
             return "DOWN";
         }
+    }
+
+    private boolean shouldLog(java.util.concurrent.atomic.AtomicLong last) {
+        long now = System.nanoTime();
+        long previous = last.get();
+        return (previous == 0 || now - previous > java.util.concurrent.TimeUnit.MINUTES.toNanos(1))
+                && last.compareAndSet(previous, now);
     }
 
     private Double metric(String name) {

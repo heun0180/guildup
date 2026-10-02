@@ -11,11 +11,18 @@ import com.guildup.community.service.CommunityGameAccessService;
 import com.guildup.killcompetition.domain.*;
 import com.guildup.killcompetition.repository.KillCompetitionRepository;
 import com.guildup.killcompetition.service.KillCompetitionWinnerResolver;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.*;
 import com.guildup.pubg.support.PubgGameSupport;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.guildup.pubg.exception.PubgApiException;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -35,6 +42,7 @@ import java.util.stream.Collectors;
  */
 @Service
 public class TemporaryBingoRebuildService {
+    private static final Logger log = LoggerFactory.getLogger(TemporaryBingoRebuildService.class);
     private static final Duration PREVIEW_TTL = Duration.ofMinutes(30);
     private static final Set<BingoMissionType> TELEMETRY_REQUIRED = EnumSet.of(
             BingoMissionType.LONG_DISTANCE_KILL, BingoMissionType.WEAPON_KILLS,
@@ -59,6 +67,7 @@ public class TemporaryBingoRebuildService {
     private final CommunityGameAccessService gameAccess;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private MonitoringEventService monitoring;
     private final ConcurrentMap<Long, ReentrantLock> eventLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, PreviewSnapshot> previews = new ConcurrentHashMap<>();
 
@@ -81,6 +90,9 @@ public class TemporaryBingoRebuildService {
         this.transactions = new TransactionTemplate(transactionManager); this.clock = clock;
     }
 
+    @Autowired
+    void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
+
     public TemporaryBingoRebuildResponse preview(Long userId, Long communityId, Long communityGameId) {
         CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.BINGO);
         BingoEvent event = requireOnlyActive(communityId, communityGameId);
@@ -90,7 +102,7 @@ public class TemporaryBingoRebuildService {
             removeExpiredPreviews();
             BuildResult result = calculate(event, communityId, communityGameId,
                     PubgGameSupport.requireShard(game.getGameType()));
-            if (!result.failures().isEmpty()) return failed(event, result.failures());
+            if (!result.failures().isEmpty()) return failed(event, userId, communityId, communityGameId, "PREVIEW", result);
             String token = UUID.randomUUID().toString();
             PreviewSnapshot snapshot = result.snapshot(token, clock.instant().plus(PREVIEW_TTL));
             previews.put(token, snapshot);
@@ -115,7 +127,7 @@ public class TemporaryBingoRebuildService {
             BingoEvent active = requireOnlyActive(communityId, communityGameId);
             BuildResult recalculated = calculate(active, communityId, communityGameId,
                     PubgGameSupport.requireShard(game.getGameType()));
-            if (!recalculated.failures().isEmpty()) return failed(active, recalculated.failures());
+            if (!recalculated.failures().isEmpty()) return failed(active, userId, communityId, communityGameId, "APPLY", recalculated);
             PreviewSnapshot current = recalculated.snapshot(snapshot.token(), snapshot.expiresAt());
             if (!sameRepairPlan(snapshot, current))
                 conflict("미리보기 이후 원본 경기 또는 계산 결과가 변경되었습니다. 다시 검증해 주세요.");
@@ -139,27 +151,32 @@ public class TemporaryBingoRebuildService {
         Map<Long, CommunityMemberAccount> accountByMember = currentAccounts.stream().collect(Collectors.toMap(
                 account -> account.getCommunityMember().getId(), Function.identity(), (left, right) -> left));
         List<TemporaryBingoRebuildResponse.Failure> failures = new ArrayList<>();
+        Set<FailureDiagnostic> diagnostics = new LinkedHashSet<>();
         Map<Long, AccountSnapshot> accounts = new LinkedHashMap<>();
         for (BingoParticipant participant : participantRows) {
             CommunityMember member = participant.getCommunityMember();
             CommunityMemberAccount account = member == null ? null : accountByMember.get(member.getId());
             if (account == null || blank(account.getExternalUserId())) {
+                diagnostics.add(diagnostic("PARTICIPANT_ACCOUNT", null));
                 failures.add(failure(participant, null, "현재 연결된 PUBG accountId가 없습니다."));
             } else {
                 accounts.put(participant.getId(), new AccountSnapshot(account.getExternalUserId(),
                         account.getExternalUsername(), member.getId(), participant.getEligibleFrom()));
             }
         }
-        if (!failures.isEmpty()) return new BuildResult(null, failures);
+        if (!failures.isEmpty()) return new BuildResult(null, failures, diagnostics);
 
         List<PubgPlayer> loadedPlayers;
         try {
             loadedPlayers = players.findByAccountIdsFresh(shard,
                     accounts.values().stream().map(AccountSnapshot::accountId).toList());
         } catch (RuntimeException exception) {
+            diagnostics.add(diagnostic("PLAYER_FETCH", exception));
+            log.error("Bingo rebuild failed - bingoEventId={} communityId={} stage=PLAYER_FETCH participantCount={}",
+                    event.getId(), communityId, participantRows.size(), exception);
             participantRows.forEach(participant -> failures.add(failure(participant, null,
                     "Player API 조회 실패: " + reason(exception))));
-            return new BuildResult(null, failures);
+            return new BuildResult(null, failures, diagnostics);
         }
         Map<String, PubgPlayer> playerByAccount = loadedPlayers.stream().collect(Collectors.toMap(
                 PubgPlayer::accountId, Function.identity(), (left, right) -> left));
@@ -169,6 +186,7 @@ public class TemporaryBingoRebuildService {
             AccountSnapshot account = accounts.get(participant.getId());
             PubgPlayer player = playerByAccount.get(account.accountId());
             if (player == null) {
+                diagnostics.add(diagnostic("PLAYER_RESPONSE", null));
                 failures.add(failure(participant, null, "Player API 응답에 현재 accountId가 없습니다."));
                 continue;
             }
@@ -179,7 +197,7 @@ public class TemporaryBingoRebuildService {
             union.addAll(player.matchIds());
             candidates.put(participant.getId(), union);
         }
-        if (!failures.isEmpty()) return new BuildResult(null, failures);
+        if (!failures.isEmpty()) return new BuildResult(null, failures, diagnostics);
 
         Map<String, Set<Long>> participantIdsByMatch = new LinkedHashMap<>();
         candidates.forEach((participantId, ids) -> ids.forEach(matchId ->
@@ -188,15 +206,20 @@ public class TemporaryBingoRebuildService {
         for (Map.Entry<String, Set<Long>> entry : participantIdsByMatch.entrySet()) {
             try {
                 PubgMatch match = matches.findUniqueMatchesFresh(shard, List.of(entry.getKey())).get(entry.getKey());
-                if (match == null) entry.getValue().forEach(id -> failures.add(failure(participant(id, participantRows),
-                        entry.getKey(), "Match 원본을 다시 조회할 수 없습니다.")));
-                else loadedMatches.put(entry.getKey(), match);
+                if (match == null) {
+                    diagnostics.add(diagnostic("MATCH_RESPONSE", null));
+                    entry.getValue().forEach(id -> failures.add(failure(participant(id, participantRows),
+                            entry.getKey(), "Match 원본을 다시 조회할 수 없습니다.")));
+                } else loadedMatches.put(entry.getKey(), match);
             } catch (RuntimeException exception) {
+                diagnostics.add(diagnostic("MATCH_FETCH", exception));
+                log.error("Bingo rebuild failed - bingoEventId={} communityId={} stage=MATCH_FETCH matchId={}",
+                        event.getId(), communityId, entry.getKey(), exception);
                 entry.getValue().forEach(id -> failures.add(failure(participant(id, participantRows),
                         entry.getKey(), "Match API 조회 실패: " + reason(exception))));
             }
         }
-        if (!failures.isEmpty()) return new BuildResult(null, failures);
+        if (!failures.isEmpty()) return new BuildResult(null, failures, diagnostics);
 
         Set<String> communityAccounts = currentAccounts.stream()
                 .filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
@@ -227,6 +250,7 @@ public class TemporaryBingoRebuildService {
                     .filter(id -> !processedByParticipant.getOrDefault(id, Set.of()).contains(match.matchId()))
                     .collect(Collectors.toCollection(LinkedHashSet::new));
             if (!notProcessed.isEmpty()) {
+                diagnostics.add(diagnostic("PROCESSED_MATCH_VALIDATION", null));
                 notProcessed.forEach(id -> failures.add(failure(participant(id, participantRows), match.matchId(),
                         "아직 일반 집계되지 않은 최신 Match입니다. 일반 집계를 먼저 실행한 뒤 다시 검증해 주세요.")));
                 continue;
@@ -236,6 +260,10 @@ public class TemporaryBingoRebuildService {
                 matchFacts = requireTelemetry ? facts.factsRequired(match, communityAccounts)
                         : facts.facts(match, communityAccounts);
             } catch (RuntimeException exception) {
+                String stage = telemetryFailureStage(exception);
+                diagnostics.add(diagnostic(stage, exception));
+                log.error("Bingo rebuild failed - bingoEventId={} communityId={} stage={} matchId={}",
+                        event.getId(), communityId, stage, match.matchId(), exception);
                 eligibleParticipants.forEach(id -> failures.add(failure(participant(id, participantRows), match.matchId(),
                         "Telemetry 조회 실패: " + reason(exception))));
                 continue;
@@ -244,6 +272,7 @@ public class TemporaryBingoRebuildService {
                 AccountSnapshot account = accounts.get(participantId);
                 PlayerMatchFacts playerFacts = matchFacts.get(account.accountId());
                 if (playerFacts == null) {
+                    diagnostics.add(diagnostic("PARTICIPANT_FACT", null));
                     failures.add(failure(participant(participantId, participantRows), match.matchId(),
                             "Match 참가자 원본에 현재 accountId가 없습니다."));
                     continue;
@@ -257,7 +286,7 @@ public class TemporaryBingoRebuildService {
                 countedMatches.add(match.matchId());
             }
         }
-        if (!failures.isEmpty()) return new BuildResult(null, failures);
+        if (!failures.isEmpty()) return new BuildResult(null, failures, diagnostics);
 
         List<KillCompetition> relevantCompetitions = competitions.findByCommunityGameIdOrderByCreatedAtDesc(
                         communityGameId).stream()
@@ -306,7 +335,7 @@ public class TemporaryBingoRebuildService {
                 communityGameId, event.getTitle(), calculatedAt, null,
                 event.getLastAggregatedAt(), eventFingerprint(event), List.copyOf(competitionFingerprint),
                 snapshots, countedMatches.size(), changed);
-        return new BuildResult(snapshot, List.of());
+        return new BuildResult(snapshot, List.of(), Set.of());
     }
 
     private TemporaryBingoRebuildResponse applySnapshot(PreviewSnapshot snapshot) {
@@ -468,11 +497,66 @@ public class TemporaryBingoRebuildService {
                 snapshot.changedCount(), rows, List.of());
     }
 
-    private TemporaryBingoRebuildResponse failed(BingoEvent event,
-                                                  List<TemporaryBingoRebuildResponse.Failure> failures) {
-        return new TemporaryBingoRebuildResponse("REBUILD_FAILED", null, event.getId(), event.getTitle(),
+    private TemporaryBingoRebuildResponse failed(BingoEvent event, Long userId, Long communityId,
+                                               Long communityGameId, String operation, BuildResult result) {
+        TemporaryBingoRebuildResponse response = new TemporaryBingoRebuildResponse("REBUILD_FAILED", null, event.getId(), event.getTitle(),
                 clock.instant(), participants.findByEventIdOrderByIdAsc(event.getId()).size(), 0, 0,
-                List.of(), List.copyOf(failures));
+                List.of(), List.copyOf(result.failures()));
+        recordRebuildFailure(event.getId(), userId, communityId, communityGameId, operation, result);
+        return response;
+    }
+
+    private void recordRebuildFailure(Long eventId, Long userId, Long communityId,
+                                      Long communityGameId, String operation, BuildResult result) {
+        List<String> stages = result.diagnostics().stream().map(FailureDiagnostic::stage).distinct().sorted().toList();
+        boolean operationalFailure = result.diagnostics().stream().anyMatch(value -> value.exceptionClass() != null);
+        if (!operationalFailure) log.warn("Bingo rebuild validation failed - bingoEventId={} communityId={} operation={} failureStages={} failureCount={}",
+                eventId, communityId, operation, stages, result.failures().size());
+        if (monitoring == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("jobName", "BINGO_REBUILD");
+        metadata.put("bingoEventId", eventId);
+        metadata.put("communityGameId", communityGameId);
+        metadata.put("operation", operation);
+        metadata.put("stage", stages.size() == 1 ? stages.getFirst() : "MULTIPLE_FAILURE_STAGES");
+        metadata.put("failureStages", stages);
+        metadata.put("failureCount", result.failures().size());
+        metadata.put("matchIds", result.failures().stream().map(TemporaryBingoRebuildResponse.Failure::matchId)
+                .filter(Objects::nonNull).distinct().limit(10).toList());
+        metadata.put("exceptionClasses", result.diagnostics().stream().map(FailureDiagnostic::exceptionClass)
+                .filter(Objects::nonNull).distinct().sorted().toList());
+        metadata.put("upstreamStatuses", result.diagnostics().stream().map(FailureDiagnostic::httpStatus)
+                .filter(Objects::nonNull).distinct().sorted().toList());
+        try {
+            if (operationalFailure) monitoring.recordError(MonitoringCategory.BINGO, MonitoringEventCode.BINGO_AGGREGATION_FAILED,
+                    "Bingo rebuild failed", communityId, userId, "bingoEventId=" + eventId, metadata);
+            else monitoring.recordWarn(MonitoringCategory.BINGO, MonitoringEventCode.BINGO_AGGREGATION_FAILED,
+                    "Bingo rebuild validation failed", communityId, userId, "bingoEventId=" + eventId, metadata);
+        } catch (RuntimeException observerFailure) {
+            log.warn("Bingo rebuild monitoring unavailable - bingoEventId={} communityId={} operation={}",
+                    eventId, communityId, operation, observerFailure);
+        }
+    }
+
+    private FailureDiagnostic diagnostic(String stage, RuntimeException exception) {
+        Integer status = null;
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof PubgApiException pubg && pubg.getUpstreamStatus() != null) {
+                status = pubg.getUpstreamStatus();
+                break;
+            }
+        }
+        return new FailureDiagnostic(stage, exception == null ? null : exception.getClass().getSimpleName(), status);
+    }
+
+    private String telemetryFailureStage(Throwable exception) {
+        boolean pubgFailure = false;
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof org.springframework.http.converter.HttpMessageConversionException
+                    || cause instanceof org.springframework.web.client.UnknownContentTypeException) return "TELEMETRY_PARSE";
+            if (cause instanceof PubgApiException) pubgFailure = true;
+        }
+        return pubgFailure ? "TELEMETRY_FETCH" : "TELEMETRY_PARSE";
     }
 
     private TemporaryBingoRebuildResponse.Failure failure(BingoParticipant participant, String matchId, String reason) {
@@ -496,8 +580,8 @@ public class TemporaryBingoRebuildService {
                 + "|clanPlayRequired=" + event.isClanPlayRequired();
     }
     private String reason(RuntimeException exception) {
-        String message = exception.getMessage();
-        return blank(message) ? exception.getClass().getSimpleName() : message;
+        if (exception instanceof PubgApiException pubg && pubg.getReason() != null) return pubg.getReason();
+        return "데이터 처리 중 오류가 발생했습니다. 관리자에게 문의해 주세요.";
     }
     private boolean blank(String value) { return value == null || value.isBlank(); }
     private void removeExpiredPreviews() {
@@ -573,8 +657,10 @@ public class TemporaryBingoRebuildService {
                                    List<String> competitionFingerprint,
                                    List<ParticipantSnapshot> participants,
                                    int matchCount, int changedCount) {}
+    private record FailureDiagnostic(String stage, String exceptionClass, Integer httpStatus) {}
     private record BuildResult(PreviewSnapshot snapshot,
-                               List<TemporaryBingoRebuildResponse.Failure> failures) {
+                               List<TemporaryBingoRebuildResponse.Failure> failures,
+                               Set<FailureDiagnostic> diagnostics) {
         PreviewSnapshot snapshot(String token, Instant expiresAt) {
             return new PreviewSnapshot(token, snapshot.eventId(), snapshot.communityId(), snapshot.communityGameId(),
                     snapshot.eventTitle(), snapshot.calculatedAt(), expiresAt, snapshot.lastAggregatedAt(),

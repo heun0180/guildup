@@ -48,4 +48,11 @@ class DiscordOAuthPropertiesTests {
 
         assertThatCode(properties::validate).doesNotThrowAnyException();
     }
+
+    @Test
+    void recordStringRepresentationNeverContainsClientSecret() {
+        var properties = new DiscordOAuthProperties("client-id", SECRET, REDIRECT_URI);
+        org.assertj.core.api.Assertions.assertThat(properties.toString())
+                .contains("[REDACTED]").doesNotContain(SECRET);
+    }
 }

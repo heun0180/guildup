@@ -9,4 +9,9 @@ public record DiscordAccessTokenResponse(
         @JsonProperty("expires_in") long expiresIn,
         String scope
 ) {
+    @Override
+    public String toString() {
+        return "DiscordAccessTokenResponse[accessToken=[REDACTED], tokenType=" + tokenType
+                + ", expiresIn=" + expiresIn + ", scope=" + scope + "]";
+    }
 }

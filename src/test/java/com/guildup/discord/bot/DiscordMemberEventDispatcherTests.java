@@ -13,6 +13,33 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DiscordMemberEventDispatcherTests {
 
     @Test
+    void failedTaskIsRecordedAndNextEventStillRunsWithItsOwnContext() {
+        var dispatcher = new DiscordMemberEventDispatcher(Runnable::run);
+        var monitoring = org.mockito.Mockito.mock(com.guildup.monitoring.service.MonitoringEventService.class);
+        dispatcher.configureMonitoring(monitoring);
+        List<String> contexts = new java.util.ArrayList<>();
+        org.slf4j.MDC.put("requestId", "origin-request");
+        try {
+            dispatcher.dispatch("guild", "user-a", () -> {
+                contexts.add(org.slf4j.MDC.get("discordUserId"));
+                throw new IllegalStateException("event failure");
+            });
+            dispatcher.dispatch("guild", "user-b", () -> contexts.add(org.slf4j.MDC.get("discordUserId")));
+            assertThat(contexts).containsExactly("user-a", "user-b");
+            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("origin-request");
+            assertThat(org.slf4j.MDC.get("discordUserId")).isNull();
+            org.mockito.Mockito.verify(monitoring).recordError(
+                    org.mockito.ArgumentMatchers.eq(com.guildup.monitoring.domain.MonitoringCategory.DISCORD),
+                    org.mockito.ArgumentMatchers.eq(com.guildup.monitoring.domain.MonitoringEventCode.DISCORD_MEMBER_LOOKUP_FAILED),
+                    org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.isNull(),
+                    org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.argThat(metadata -> "EXECUTE".equals(metadata.get("stage"))));
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+    }
+
+    @Test
     void rapidEventsForSameGuildUserKeepArrivalOrder() throws Exception {
         ThreadPoolTaskExecutor executor = executor(4);
         DiscordMemberEventDispatcher dispatcher = new DiscordMemberEventDispatcher(executor);

@@ -304,6 +304,7 @@
     </section>
 </main>
 
+<script src="/community-ui.js"></script>
 <script>
     // URL 파라미터에 따라 일반 커뮤니티 멤버 모드 또는 Discord 역할 보기 모드를 결정한다.
     const params = new URLSearchParams(window.location.search);
@@ -411,14 +412,9 @@
         }
 
         try {
-            const response = await fetch(
+            const members = await api(
                 `${discordRolesBaseUrl()}/${encodeURIComponent(role.id)}/members`
             );
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const members = await response.json();
             // 빠르게 탭을 바꾼 경우 늦게 도착한 이전 요청이 최신 화면을 덮지 않게 한다.
             if (selectedRoleId === role.id) {
                 renderDiscordMembers(role, members);
@@ -426,7 +422,7 @@
         } catch (error) {
             if (selectedRoleId === role.id) {
                 memberCount.textContent = "멤버 정보를 불러오지 못했습니다.";
-                showError("선택한 Discord 역할의 멤버 목록 요청에 실패했습니다.");
+                showError(error.message || "선택한 Discord 역할의 멤버 목록 요청에 실패했습니다.");
             }
         }
     }
@@ -437,12 +433,7 @@
         memberCount.textContent = "역할을 불러오는 중...";
 
         try {
-            const response = await fetch(discordRolesBaseUrl());
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            const roles = await response.json();
+            const roles = await api(discordRolesBaseUrl());
             roleTabs.replaceChildren();
             roleTabs.hidden = roles.length === 0;
 
@@ -469,7 +460,7 @@
             await selectRole(roles[0]);
         } catch (error) {
             memberCount.textContent = "Discord 역할을 불러오지 못했습니다.";
-            showError("Discord 서버 연결과 Guild ID를 확인해 주세요.");
+            showError(error.message || "Discord 서버 연결과 Guild ID를 확인해 주세요.");
         }
     }
 
@@ -479,18 +470,13 @@
         memberCount.textContent = "불러오는 중...";
 
         try {
-            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members`);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
-            renderMembers(await response.json());
+            renderMembers(await api(`/api/communities/${encodeURIComponent(communityId)}/members`));
             return true;
         } catch (error) {
             memberCount.textContent = "클랜원 정보를 불러오지 못했습니다.";
             memberList.replaceChildren();
             emptyState.hidden = true;
-            showError("클랜원 목록 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+            showError(error.message || "클랜원 목록 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
             return false;
         }
     }
@@ -512,7 +498,7 @@
         addButton.textContent = "추가 중...";
 
         try {
-            const response = await fetch(`/api/communities/${encodeURIComponent(communityId)}/members`, {
+            await api(`/api/communities/${encodeURIComponent(communityId)}/members`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json"
@@ -520,15 +506,11 @@
                 body: JSON.stringify({nickname})
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-
             nicknameInput.value = "";
             await loadMembers();
             nicknameInput.focus();
         } catch (error) {
-            showError("클랜원 추가에 실패했습니다. Community ID를 확인해 주세요.");
+            showError(error.message || "클랜원 추가에 실패했습니다. Community ID를 확인해 주세요.");
         } finally {
             addButton.disabled = false;
             addButton.textContent = "추가";

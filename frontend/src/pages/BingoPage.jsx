@@ -45,6 +45,7 @@ export default function BingoPage() {
   const [items,setItems]=useState([]), [selected,setSelected]=useState(null), [loading,setLoading]=useState(true), [catalog,setCatalog]=useState(EMPTY_CATALOG);
   const [currentType,setCurrentType]=useState("NONE");
   const [message,setMessage]=useState(""), [editing,setEditing]=useState(false), [cellModal,setCellModal]=useState(null);
+  const [catalogWarning,setCatalogWarning]=useState("");
   const [editingId,setEditingId]=useState(null);
   const [viewedBoard,setViewedBoard]=useState(null);
   const [aggregationJob,setAggregationJob]=useState(null);
@@ -53,10 +54,14 @@ export default function BingoPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setMessage("");
+    setCatalogWarning("");
     try {
       // The catalog only enriches the mission editor. A rolling deployment or
       // a backend process that has not restarted yet must not break bingo view.
-      const catalogRequest=api(`${bingoApi}/catalog`).catch(()=>EMPTY_CATALOG);
+      const catalogRequest=api(`${bingoApi}/catalog`).catch(error=>{
+        if(!redirectToLogin(error))setCatalogWarning("미션 선택 정보를 불러오지 못했습니다. 빙고판은 확인할 수 있지만 일부 미션 편집 정보가 제한됩니다.");
+        return EMPTY_CATALOG;
+      });
       if (managing) {
         const [catalogData,bingos]=await Promise.all([catalogRequest,api(bingoApi)]);
         setCatalog(catalogData); setItems(bingos);
@@ -205,6 +210,7 @@ export default function BingoPage() {
     <div className="dashboard-content bingo-content">
       <div className="page-heading bingo-heading"><div><p className="eyebrow">PUBG Bingo</p><h1>{managing?"빙고 관리":"빙고"}</h1></div><div className="page-heading-actions"><HelpLink href="/help/pubg/bingo" />{admin&&!editing&&(managing?<div className="bingo-heading-actions"><button className="secondary-button" onClick={()=>moveTo(null)}>내 빙고판</button><button onClick={startCreate}><Icon name="plus"/>빙고 생성</button></div>:<button onClick={()=>moveTo("manage")}>빙고 관리</button>)}</div></div>
       {message&&<p className="message" role="alert">{message}</p>}
+      {catalogWarning&&managing&&<p className="message" role="status">{catalogWarning}</p>}
       {loading?<section className="panel page-state">빙고를 불러오는 중입니다.</section>:editing?<BingoEditor form={form} setForm={setForm} resize={resize} save={save} cancel={()=>setEditing(false)} editCell={setCellModal}/>:!managing&&currentScreen==="SCHEDULED"&&selected?<ScheduledBingo bingo={selected} showCell={showCell}/>:selected?<><BingoDetail bingo={selected} viewedBoard={viewedBoard} admin={admin&&managing} aggregate={aggregate} aggregationJob={aggregationJob} aggregateMe={aggregateMe} personalAggregationJob={personalAggregationJob} remove={remove} edit={startEdit} back={managing?()=>setSelected(null):null} showCell={showCell} viewParticipant={viewParticipant}/>{admin&&managing&&selected.status==="ACTIVE"&&<TemporaryBingoRebuildPanel bingoApi={bingoApi} onApplied={()=>open(selected.id)}/>}</>:managing?<>
         <BingoSection title="현재 진행 중인 빙고" empty="진행 중인 빙고가 없습니다." items={groups.active} open={open}/>
         <BingoSection title="예정된 빙고" empty="예정된 빙고가 없습니다." items={groups.scheduled} open={open}/>

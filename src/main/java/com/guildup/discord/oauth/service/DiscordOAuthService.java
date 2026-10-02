@@ -13,6 +13,9 @@ import com.guildup.discord.oauth.dto.DiscordOAuthUserResponse;
 import com.guildup.discord.oauth.store.DiscordOAuthSessionStore;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.UriComponentsBuilder;
+import com.guildup.monitoring.logging.LogContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigInteger;
 import java.util.Comparator;
@@ -24,6 +27,7 @@ import java.util.List;
  */
 @Service
 public class DiscordOAuthService {
+    private static final Logger log = LoggerFactory.getLogger(DiscordOAuthService.class);
 
     private static final String DISCORD_AUTHORIZE_URL = "https://discord.com/oauth2/authorize";
     // Discord 권한 비트 필드에서 Administrator는 3번 비트다.
@@ -76,28 +80,30 @@ public class DiscordOAuthService {
         properties.validate();
         // state는 저장소에서 꺼내는 즉시 삭제되므로 동일 콜백을 다시 사용할 수 없다.
         Long communityId = sessionStore.consumeState(state);
+        try (var ignored = LogContext.scope(java.util.Map.of("communityId", communityId, "jobName", "discordCommunityOAuth"))) {
 
-        // 브라우저에는 액세스 토큰을 전달하지 않고 백엔드가 Discord API를 직접 호출한다.
-        DiscordAccessTokenResponse token = discordApiClient.exchangeCode(code);
-        DiscordApiUser user = discordApiClient.getCurrentUser(token.accessToken());
-        List<DiscordManageableGuildResponse> guilds = discordApiClient
-                .getCurrentUserGuilds(token.accessToken()).stream()
-                // 사용자가 연결을 관리할 수 있는 서버만 선택 화면에 노출한다.
-                .filter(this::isManageable)
-                .map(this::toGuildResponse)
-                .sorted(Comparator.comparing(
-                        DiscordManageableGuildResponse::name,
-                        String.CASE_INSENSITIVE_ORDER
-                ))
-                .toList();
+            // 브라우저에는 액세스 토큰을 전달하지 않고 백엔드가 Discord API를 직접 호출한다.
+            DiscordAccessTokenResponse token = discordApiClient.exchangeCode(code);
+            DiscordApiUser user = discordApiClient.getCurrentUser(token.accessToken());
+            List<DiscordManageableGuildResponse> guilds = discordApiClient
+                    .getCurrentUserGuilds(token.accessToken()).stream()
+                    // 사용자가 연결을 관리할 수 있는 서버만 선택 화면에 노출한다.
+                    .filter(this::isManageable)
+                    .map(this::toGuildResponse)
+                    .sorted(Comparator.comparing(
+                            DiscordManageableGuildResponse::name,
+                            String.CASE_INSENSITIVE_ORDER
+                    ))
+                    .toList();
 
-        // 사용자/서버 원본 대신 화면에 필요한 값만 변환해 짧은 시간 동안 보관한다.
-        DiscordOAuthResultResponse result = new DiscordOAuthResultResponse(
-                toUserResponse(user),
-                guilds
-        );
-        String resultId = sessionStore.saveResult(communityId, result);
-        return new OAuthCompletion(communityId, resultId);
+            // 사용자/서버 원본 대신 화면에 필요한 값만 변환해 짧은 시간 동안 보관한다.
+            DiscordOAuthResultResponse result = new DiscordOAuthResultResponse(
+                    toUserResponse(user),
+                    guilds
+            );
+            String resultId = sessionStore.saveResult(communityId, result);
+            return new OAuthCompletion(communityId, resultId);
+        }
     }
 
     /** 콜백 후 발급된 결과 ID로 화면 표시용 OAuth 결과를 조회한다. */
@@ -117,6 +123,7 @@ public class DiscordOAuthService {
                     || permissions.and(MANAGE_GUILD).signum() != 0;
             // 권한 값이 없거나 숫자로 해석할 수 없으면 안전하게 관리 불가로 처리한다.
         } catch (NullPointerException | NumberFormatException exception) {
+            log.warn("Discord guild permissions could not be parsed; guild excluded. discordGuildId={}", guild.id(), exception);
             return false;
         }
     }

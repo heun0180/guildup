@@ -43,7 +43,11 @@ public class DiscordVoiceRecoveryService {
         Instant recoveredAt = clock.instant();
         connectionRepository.findAllWithCommunity().forEach(connection -> {
             Guild guild = jda.getGuildById(connection.getDiscordGuildId());
-            if (guild == null) return;
+            if (guild == null) {
+                log.warn("Discord voice recovery skipped an unavailable guild. jobName=discordVoiceRecovery, communityId={}, discordGuildId={}",
+                        connection.getCommunity().getId(), connection.getDiscordGuildId());
+                return;
+            }
 
             Map<String, GuildVoiceState> currentStates = guild.getVoiceStates().stream()
                     .filter(state -> state.inAudioChannel() && !state.getMember().getUser().isBot())

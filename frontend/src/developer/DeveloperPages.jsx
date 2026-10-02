@@ -29,16 +29,23 @@ function formatDate(value) {
 
 function CopyId({ value, label }) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   if (value === null || value === undefined || value === "") return <span>-</span>;
   async function copy(event) {
     event.preventDefault();
     event.stopPropagation();
-    await navigator.clipboard.writeText(String(value));
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
+    try {
+      await navigator.clipboard.writeText(String(value));
+      setCopied(true);
+      setCopyError(false);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopyError(true);
+    }
   }
   return <span className="developer-id"><code title={String(value)}>{value}</code>
-    <button type="button" onClick={copy} aria-label={`${label || "ID"} 복사`}>{copied ? "복사됨" : "복사"}</button>
+    <button type="button" onClick={copy} aria-label={`${label || "ID"} 복사`}
+      title={copyError ? "클립보드 권한을 확인하거나 ID를 직접 선택해 복사해 주세요." : undefined}>{copyError ? "복사 실패" : copied ? "복사됨" : "복사"}</button>
   </span>;
 }
 

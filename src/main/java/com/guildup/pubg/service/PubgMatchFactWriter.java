@@ -52,7 +52,8 @@ public class PubgMatchFactWriter {
 
     @Transactional
     public StoredCounts saveTelemetry(String matchId, Map<String, PlayerMatchFacts> facts) {
-        PubgStoredMatch stored = matches.findForUpdateByMatchId(matchId).orElseThrow();
+        PubgStoredMatch stored = matches.findForUpdateByMatchId(matchId).orElseThrow(() ->
+                new IllegalStateException("PUBG source match missing during telemetry fact save: matchId=" + matchId));
         if (!stored.needsTelemetryFactUpgrade()) return new StoredCounts(0, 0);
         Instant now = clock.instant();
         Map<String, PubgStoredMatchPlayer> players = stored.getPlayers().stream().collect(

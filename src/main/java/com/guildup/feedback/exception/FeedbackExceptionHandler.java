@@ -16,10 +16,11 @@ public class FeedbackExceptionHandler {
 
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<ErrorResponse> handleStatus(ResponseStatusException exception) {
+        if (exception.getStatusCode().value() >= 500) com.guildup.monitoring.logging.FailureLogContext.capture(exception);
         String message = switch (exception.getStatusCode().value()) {
             case 401 -> "로그인 후 이용해 주세요.";
             case 403 -> "해당 커뮤니티의 멤버만 문의를 보낼 수 있습니다.";
-            default -> exception.getReason();
+            default -> exception.getStatusCode().value() >= 500 ? "서버 처리 중 오류가 발생했습니다." : exception.getReason();
         };
         return ResponseEntity.status(exception.getStatusCode()).body(new ErrorResponse(message));
     }
@@ -37,6 +38,7 @@ public class FeedbackExceptionHandler {
 
     @ExceptionHandler(FeedbackMailException.class)
     public ResponseEntity<ErrorResponse> handleMailFailure(FeedbackMailException exception) {
+        com.guildup.monitoring.logging.FailureLogContext.capture(exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ErrorResponse("문의 전송에 실패했습니다."));
     }

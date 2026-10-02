@@ -84,6 +84,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <systemPropertyVariables>
+                        <!-- Existing flow tests assert persisted events synchronously. Async isolation has dedicated tests. -->
+                        <monitoring.events.async>false</monitoring.events.async>
+                    </systemPropertyVariables>
                     <!-- Java 21 환경에서 Mockito의 동적 self-attach에 의존하지 않는다. -->
                     <argLine>-javaagent:"${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>
                 </configuration>

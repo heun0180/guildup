@@ -12,10 +12,13 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** JDA 캐시를 통해 봇이 참여한 Discord 서버를 조회한다. */
 @Service
 public class DiscordGuildService {
+    private static final Logger log = LoggerFactory.getLogger(DiscordGuildService.class);
 
     private final JDA jda;
     private MonitoringEventService monitoring;
@@ -35,6 +38,7 @@ public class DiscordGuildService {
     /** 서버 ID로 Discord 서버를 찾고 없으면 404 예외를 발생시킨다. */
     public Guild getGuildById(String guildId) {
         return findGuildById(guildId).orElseThrow(() -> {
+            log.warn("Discord guild unavailable in JDA cache. discordGuildId={}", guildId);
             if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
                     MonitoringEventCode.DISCORD_GUILD_CONNECTION_FAILED,
                     "Discord guild is not available to JDA", null, null,

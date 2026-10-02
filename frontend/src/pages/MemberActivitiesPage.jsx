@@ -122,8 +122,12 @@ export default function MemberActivitiesPage() {
       if (!redirectToLogin(error)) {
         if (error.status === 409 || error.status === 429) {
           const latest = await api(`${gameApi}/activities`)
-            .catch(() => null);
+            .catch((statusError) => {
+              if (!redirectToLogin(statusError)) setMessage("활동 조회 상태를 확인하지 못했습니다. 잠시 후 페이지를 다시 열어 주세요.");
+              return null;
+            });
           if (latest) setActivities(latest);
+          else return;
         }
         setMessage(error.status === 409
           ? "이미 활동 정보를 조회 중입니다."

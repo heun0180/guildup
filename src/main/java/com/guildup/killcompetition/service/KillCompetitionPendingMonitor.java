@@ -8,6 +8,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -15,6 +17,7 @@ import java.util.Map;
 
 @Component
 public class KillCompetitionPendingMonitor {
+    private static final Logger log = LoggerFactory.getLogger(KillCompetitionPendingMonitor.class);
     private static final Duration STALE_AFTER = Duration.ofHours(1);
     private static final Duration DEDUPLICATION_WINDOW = Duration.ofHours(12);
     private final KillCompetitionRepository competitions;
@@ -37,6 +40,9 @@ public class KillCompetitionPendingMonitor {
                     String reference = "killCompetitionId=" + competition.getId();
                     if (monitoring.wasRecordedRecently(MonitoringEventCode.KILL_COMPETITION_RESULT_PENDING_STALE,
                             reference, DEDUPLICATION_WINDOW)) return;
+                    log.warn("Kill competition RESULT_PENDING exceeded threshold - jobName=KILL_COMPETITION_PENDING_MONITOR killCompetitionId={} communityId={} pendingSeconds={}",
+                            competition.getId(), competition.getCommunity().getId(),
+                            Duration.between(competition.getResultRequestedAt(), now).toSeconds());
                     monitoring.recordWarn(MonitoringCategory.KILL_COMPETITION,
                             MonitoringEventCode.KILL_COMPETITION_RESULT_PENDING_STALE,
                             "Kill competition has remained RESULT_PENDING for over one hour",

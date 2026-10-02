@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
 import SiteFooter from "../components/SiteFooter.jsx";
+import { api } from "../api/http.js";
 
 export default function LoginPage() {
   const [message, setMessage] = useState(() => {
@@ -12,12 +13,11 @@ export default function LoginPage() {
   });
 
   useEffect(() => {
-    fetch("/api/auth/me", { credentials: "same-origin" })
-      .then((response) => {
-        if (response.ok) window.location.replace("/communities.html");
-        else if (response.status !== 401) throw new Error("로그인 상태를 확인하지 못했습니다.");
-      })
-      .catch((error) => setMessage(error.message));
+    let cancelled = false;
+    api("/api/auth/me")
+      .then(() => { if (!cancelled) window.location.replace("/communities.html"); })
+      .catch((error) => { if (!cancelled && error.status !== 401) setMessage(error.message); });
+    return () => { cancelled = true; };
   }, []);
 
   return (

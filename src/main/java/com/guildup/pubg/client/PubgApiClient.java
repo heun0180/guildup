@@ -17,6 +17,7 @@ import com.guildup.pubg.model.PubgSeasonStats;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.monitoring.logging.LogContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,7 +126,7 @@ public class PubgApiClient {
     }
 
     public PubgMatch getMatch(String shard, String matchId) {
-        try {
+        try (var ignored = LogContext.scope(Map.of("shard", shard, "matchId", matchId))) {
             PubgMatchApiResponse response = requestBody("MATCH", false, () -> restClient.get()
                     .uri("/shards/{shard}/matches/{matchId}", shard, matchId)
                     .headers(this::setHeaders)
@@ -162,7 +163,7 @@ public class PubgApiClient {
     }
 
     public List<PubgSeason> getSeasons(String shard) {
-        try {
+        try (var ignored = LogContext.scope(Map.of("shard", shard))) {
             PubgSeasonsApiResponse response = requestBody("SEASON", () -> restClient.get()
                     .uri("/shards/{shard}/seasons", shard)
                     .headers(this::setHeaders)
@@ -183,7 +184,7 @@ public class PubgApiClient {
 
     /** 한 번의 호출로 플레이어의 해당 시즌 전체 게임 모드를 합산한다. */
     public PubgSeasonStats getPlayerSeasonStats(String shard, String accountId, String seasonId) {
-        try {
+        try (var ignored = LogContext.scope(Map.of("shard", shard, "pubgPlayerId", accountId, "seasonId", seasonId))) {
             PubgPlayerSeasonApiResponse response = requestBody("PLAYER_SEASON", () -> restClient.get()
                     .uri("/shards/{shard}/players/{accountId}/seasons/{seasonId}",
                             shard, accountId, seasonId)
@@ -221,7 +222,7 @@ public class PubgApiClient {
         }
         Map<String, PubgSeasonStats> result = new LinkedHashMap<>();
         accountIds.forEach(accountId -> result.put(accountId, PubgSeasonStats.empty(accountId)));
-        try {
+        try (var ignored = LogContext.scope(Map.of("shard", shard, "batchSize", accountIds.size(), "seasonId", seasonId))) {
             PubgPlayersSeasonApiResponse response = requestBody("PLAYER_SEASON_BATCH", () -> restClient.get()
                     .uri(builder -> builder
                             .path("/shards/{shard}/seasons/{seasonId}/gameMode/{gameMode}/players")
@@ -253,7 +254,7 @@ public class PubgApiClient {
         if (values.size() > MAX_PLAYERS_PER_REQUEST) {
             throw new IllegalArgumentException("PUBG Players API는 요청당 최대 10명을 지원합니다.");
         }
-        try {
+        try (var ignored = LogContext.scope(Map.of("shard", shard, "batchSize", values.size()))) {
             String endpoint = "filter[playerNames]".equals(filter)
                     ? "PLAYER_BY_NAME" : "PLAYER_BY_ACCOUNT_ID";
             PubgPlayersApiResponse response = requestBody(endpoint, () -> restClient.get()
@@ -292,6 +293,13 @@ public class PubgApiClient {
     }
 
     private <T> T requestBody(String endpoint, boolean governed, Supplier<ResponseEntity<T>> request) {
+        try (var ignored = LogContext.scope(Map.of("endpoint", endpoint, "httpMethod", "GET"))) {
+            return requestWithRetries(endpoint, governed, request);
+        }
+    }
+
+    private <T> T requestWithRetries(String endpoint, boolean governed, Supplier<ResponseEntity<T>> request) {
+        long startedNanos = System.nanoTime();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             if (governed) requestGovernor.acquire();
             try {
@@ -303,12 +311,12 @@ public class PubgApiClient {
                 recordWarn(MonitoringEventCode.PUBG_API_RATE_LIMIT, "PUBG API rate limit reached",
                         endpoint, 429, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.error(
+                    log.warn(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempts={}, "
                                     + "limit={}, remaining={}, reset={}, retryAfter={}",
                             endpoint, attempt, header(headers, "X-RateLimit-Limit"),
                             header(headers, "X-RateLimit-Remaining"), header(headers, "X-RateLimit-Reset"),
-                            header(headers, HttpHeaders.RETRY_AFTER)
+                            header(headers, HttpHeaders.RETRY_AFTER), exception
                     );
                     recordFailure(endpoint, "RATE_LIMIT", 429, attempt);
                     throw rateLimitException(exception);
@@ -327,16 +335,20 @@ public class PubgApiClient {
             } catch (RestClientResponseException exception) {
                 int status = exception.getStatusCode().value();
                 if (!isTransientStatus(exception.getStatusCode())) {
-                    if (status != 404) recordWarn(MonitoringEventCode.PUBG_API_CLIENT_ERROR,
-                            "PUBG API client error", endpoint, status, attempt, null);
+                    if (status != 404) {
+                        log.warn("PUBG API request rejected - endpoint={} httpStatus={} retryCount={} elapsedMs={}",
+                                endpoint, status, attempt - 1, elapsedMs(startedNanos), exception);
+                        recordWarn(MonitoringEventCode.PUBG_API_CLIENT_ERROR,
+                                "PUBG API client error", endpoint, status, attempt, elapsedMs(startedNanos));
+                    }
                     throw exception;
                 }
                 recordWarn(MonitoringEventCode.PUBG_API_SERVER_ERROR, "PUBG API server error",
                         endpoint, status, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.error(
-                            "PUBG API retry exhausted - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempts={}",
-                            endpoint, exception.getStatusCode().value(), attempt
+                    log.warn(
+                            "PUBG API retry exhausted - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempts={}, elapsedMs={}",
+                            endpoint, exception.getStatusCode().value(), attempt, elapsedMs(startedNanos), exception
                     );
                     recordFailure(endpoint, "HTTP_5XX", status, attempt);
                     throw new PubgApiException(
@@ -356,9 +368,9 @@ public class PubgApiClient {
                 recordWarn(MonitoringEventCode.PUBG_API_TIMEOUT, "PUBG API request timed out",
                         endpoint, null, attempt, null);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.error(
-                            "PUBG API retry exhausted - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempts={}",
-                            endpoint, attempt
+                    log.warn(
+                            "PUBG API retry exhausted - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempts={}, elapsedMs={}",
+                            endpoint, attempt, elapsedMs(startedNanos), exception
                     );
                     recordFailure(endpoint, "TIMEOUT", null, attempt);
                     throw new PubgApiException(
@@ -373,10 +385,17 @@ public class PubgApiClient {
                 );
                 recordRetry(endpoint, "TIMEOUT", null, attempt + 1, waitMillis);
                 waitBeforeRetry(waitMillis);
+            } catch (RestClientException exception) {
+                log.warn("PUBG API response processing failed - endpoint={} stage=RESPONSE_PARSE retryCount={} elapsedMs={}",
+                        endpoint, attempt - 1, elapsedMs(startedNanos), exception);
+                recordFailure(endpoint, "RESPONSE_PARSE", null, attempt);
+                throw exception;
             }
         }
         throw new IllegalStateException("unreachable");
     }
+
+    private long elapsedMs(long startedNanos) { return (System.nanoTime() - startedNanos) / 1_000_000; }
 
     private void recordRetry(String endpoint, String reason, Integer status, int retryCount, long waitMillis) {
         if (monitoring == null) return;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
+import LiveLogsPanel from "./LiveLogsPanel.jsx";
 
 const CATEGORIES = ["SYSTEM", "HTTP", "PUBG_API", "BINGO", "KILL_COMPETITION", "DISCORD", "DATABASE"];
 
@@ -73,28 +74,37 @@ export default function MonitoringPage() {
     return params.toString();
   }, [applied, page]);
 
-  const refresh = useCallback(async (quiet = false) => {
+  const refresh = useCallback(async (quiet = false, signal) => {
     if (!quiet) setLoading(true);
     try {
       const [nextSummary, nextEvents] = await Promise.all([
-        api("/api/developer/monitoring/summary"),
-        api(`/api/developer/monitoring/events?${query}`),
+        api("/api/developer/monitoring/summary", { signal }),
+        api(`/api/developer/monitoring/events?${query}`, { signal }),
       ]);
+      if (signal?.aborted) return;
       setSummary(nextSummary);
       setEvents(nextEvents);
       setError("");
     } catch (failure) {
-      if (!redirectToLogin(failure)) setError(failure.message);
+      if (failure.name !== "AbortError" && !signal?.aborted && !redirectToLogin(failure)) setError(failure.message);
     } finally {
-      if (!quiet) setLoading(false);
+      if (!quiet && !signal?.aborted) setLoading(false);
     }
   }, [query]);
 
   useEffect(() => {
     let active = true;
-    refresh();
-    const timer = window.setInterval(() => { if (active && !document.hidden) refresh(true); }, 30000);
-    return () => { active = false; window.clearInterval(timer); };
+    let refreshing = false;
+    const controller = new AbortController();
+    async function run(quiet = false) {
+      if (!active || refreshing) return;
+      refreshing = true;
+      try { await refresh(quiet, controller.signal); }
+      finally { refreshing = false; }
+    }
+    run();
+    const timer = window.setInterval(() => { if (!document.hidden) run(true); }, 30000);
+    return () => { active = false; controller.abort(); window.clearInterval(timer); };
   }, [refresh]);
 
   async function openDetail(id) {
@@ -157,6 +167,7 @@ export default function MonitoringPage() {
         <button className="secondary-button" disabled={page + 1 >= events.totalPages} onClick={() => setPage(page + 1)}>다음</button>
       </nav>}
     </section>
+    <LiveLogsPanel />
     <EventDetail event={detail} onClose={() => setDetail(null)} />
   </div>;
 }

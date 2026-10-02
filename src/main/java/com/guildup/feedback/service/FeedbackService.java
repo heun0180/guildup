@@ -3,6 +3,7 @@ package com.guildup.feedback.service;
 import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.community.domain.CommunityUser;
 import com.guildup.community.exception.CommunityNotFoundException;
+import com.guildup.monitoring.logging.LogContext;
 import com.guildup.community.repository.CommunityRepository;
 import com.guildup.community.service.CommunityAccessService;
 import com.guildup.feedback.dto.FeedbackRequest;
@@ -101,7 +102,9 @@ public class FeedbackService {
                 membership.getUser().getNickname(), userId, membership.getRole(),
                 discordNickname, discordUserId, receivedAt, title, content);
 
-        mailService.send(new FeedbackMailMessage(subject, body));
+        try (var ignored = LogContext.scope(java.util.Map.of("communityId", communityId, "userId", userId))) {
+            mailService.send(new FeedbackMailMessage(subject, body));
+        }
         return new FeedbackResponse("소중한 의견 감사합니다. 개발자에게 전달되었습니다.");
     }
 

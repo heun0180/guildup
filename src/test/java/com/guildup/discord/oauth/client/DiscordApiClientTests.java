@@ -15,8 +15,45 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import com.guildup.monitoring.logging.FailureLogContext;
 
 class DiscordApiClientTests {
+
+    @Test
+    void failedOAuthCallHasEndpointTraceAndSingleErrorOwnership() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        DiscordApiClient client = new DiscordApiClient(builder.build(), new DiscordOAuthProperties(
+                "client-id", "secret", "http://localhost/callback"));
+        server.expect(requestTo("https://discord.com/api/oauth2/token"))
+                .andRespond(withStatus(org.springframework.http.HttpStatus.BAD_GATEWAY));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(DiscordApiClient.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThatThrownBy(() -> client.exchangeCode("code"))
+                    .isInstanceOf(org.springframework.web.client.RestClientResponseException.class)
+                    .satisfies(failure -> assertThat(FailureLogContext.isLogged(failure)).isTrue());
+            assertThat(appender.list).hasSize(1);
+            assertThat(appender.list.getFirst().getLevel()).isEqualTo(ch.qos.logback.classic.Level.ERROR);
+            assertThat(appender.list.getFirst().getThrowableProxy()).isNotNull();
+            assertThat(appender.list.getFirst().getFormattedMessage()).contains("OAUTH_TOKEN", "POST", "502", "elapsedMs=")
+                    .doesNotContain("client-secret");
+            server.verify();
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void tokenStringRepresentationIsRedacted() {
+        var response = new DiscordAccessTokenResponse("never-log-this-token", "Bearer", 1, "identify");
+        assertThat(response.toString()).contains("[REDACTED]").doesNotContain("never-log-this-token");
+    }
 
     @Test
     void mapsDiscordAccessTokenResponse() {

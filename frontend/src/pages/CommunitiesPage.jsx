@@ -25,6 +25,9 @@ export default function CommunitiesPage() {
       if (memberships.status === "rejected") throw memberships.reason;
       setCommunities(memberships.value);
       setDiscoverable(candidates.status === "fulfilled" ? candidates.value : []);
+      if (candidates.status === "rejected" && !redirectToLogin(candidates.reason)) {
+        setMessage("내 커뮤니티는 확인했지만 Discord 가입 가능 목록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
+      }
     } catch (error) {
       if (!redirectToLogin(error)) setMessage(error.message);
     } finally {

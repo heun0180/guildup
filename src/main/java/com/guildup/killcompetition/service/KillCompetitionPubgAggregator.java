@@ -5,6 +5,7 @@ import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.PubgMatchService;
 import com.guildup.pubg.service.PubgPlayerService;
 import org.springframework.stereotype.Service;
+import com.guildup.monitoring.logging.LogContext;
 
 import java.time.Instant;
 import java.util.*;
@@ -30,16 +31,34 @@ public class KillCompetitionPubgAggregator {
                                                   Instant endExclusive, List<PlayerInput> inputs) {
         Map<String, PlayerInput> inputByAccount = inputs.stream().collect(Collectors.toMap(
                 PlayerInput::accountId, Function.identity(), (first, ignored) -> first, LinkedHashMap::new));
-        List<PubgPlayer> loadedPlayers = players.findByAccountIdsFresh(shard, inputByAccount.keySet().stream().toList());
+        List<PubgPlayer> loadedPlayers;
+        try (var ignored = LogContext.scope(Map.of("stage", "PLAYER_FETCH", "shard", shard))) {
+            try { loadedPlayers = players.findByAccountIdsFresh(shard, inputByAccount.keySet().stream().toList()); }
+            catch (RuntimeException failure) {
+                throw contextualFailure("PLAYER_FETCH", failure);
+            }
+        }
         Set<String> loadedIds = loadedPlayers.stream().map(PubgPlayer::accountId).collect(Collectors.toSet());
         if (!loadedIds.containsAll(inputByAccount.keySet())) {
-            throw new PubgApiException("일부 참가자의 PUBG 계정을 조회하지 못해 정산을 중단했습니다.");
+            Set<String> missing = new LinkedHashSet<>(inputByAccount.keySet()); missing.removeAll(loadedIds);
+            throw new PubgApiException("일부 참가자의 PUBG 계정을 조회하지 못해 정산을 중단했습니다.",
+                    new IllegalStateException("Kill competition player response incomplete: stage=PLAYER_FETCH requested="
+                            + inputByAccount.size() + ", missingParticipantIds=" + missing.stream()
+                            .map(accountId -> inputByAccount.get(accountId).participantId()).toList()));
         }
         Set<String> matchIds = loadedPlayers.stream().flatMap(player -> player.matchIds().stream())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, PubgMatch> loadedMatches = matches.findUniqueMatchesFresh(shard, matchIds);
+        Map<String, PubgMatch> loadedMatches;
+        try (var ignored = LogContext.scope(Map.of("stage", "MATCH_FETCH", "shard", shard))) {
+            try { loadedMatches = matches.findUniqueMatchesFresh(shard, matchIds); }
+            catch (RuntimeException failure) {
+                throw contextualFailure("MATCH_FETCH", failure);
+            }
+        }
         if (!loadedMatches.keySet().containsAll(matchIds)) {
-            throw new PubgApiException("일부 PUBG 경기 데이터를 조회하지 못해 정산을 중단했습니다.");
+            Set<String> missing = new LinkedHashSet<>(matchIds); missing.removeAll(loadedMatches.keySet());
+            throw new PubgApiException("일부 PUBG 경기 데이터를 조회하지 못해 정산을 중단했습니다.",
+                    new IllegalStateException("Kill competition match response incomplete: stage=MATCH_FETCH missingMatchIds=" + missing));
         }
         Map<Long, Integer> kills = new LinkedHashMap<>();
         Map<Long, Integer> counts = new LinkedHashMap<>();
@@ -63,5 +82,12 @@ public class KillCompetitionPubgAggregator {
         inputs.forEach(input -> totals.put(input.participantId(),
                 new KillCompetitionKillSnapshot.PlayerTotal(kills.get(input.participantId()), counts.get(input.participantId()))));
         return new KillCompetitionKillSnapshot(Map.copyOf(totals), List.copyOf(rows));
+    }
+
+    private RuntimeException contextualFailure(String stage, RuntimeException failure) {
+        IllegalStateException context = new IllegalStateException("Kill competition PUBG processing failed: stage=" + stage, failure);
+        if (failure instanceof PubgApiException pubg) return new PubgApiException(pubg.getErrorCode(), pubg.getReason(),
+                context, pubg.getUpstreamStatus(), pubg.isRetryable());
+        return context;
     }
 }

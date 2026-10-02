@@ -32,7 +32,7 @@ class DiscordOAuthExceptionHandlerTests {
                 .andExpect(content().contentTypeCompatibleWith("application/json"))
                 .andExpect(jsonPath("$.status").value(503))
                 .andExpect(jsonPath("$.message").value(
-                        "Discord OAuth 설정이 완료되지 않았습니다. DISCORD_CLIENT_ID를 확인해주세요."
+                        "Discord 인증을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요."
                 ));
     }
 }

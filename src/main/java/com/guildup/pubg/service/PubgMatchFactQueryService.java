@@ -98,6 +98,15 @@ public class PubgMatchFactQueryService {
 
     private StoredMatchFacts toFacts(PubgStoredMatch match, Set<String> communityAccounts,
                                      List<com.guildup.pubg.domain.PubgStoredMatchKill> storedKills) {
+        try {
+            return decodeFacts(match, communityAccounts, storedKills);
+        } catch (RuntimeException failure) {
+            throw new IllegalStateException("PUBG stored fact decoding failed: stage=FACT_QUERY matchId=" + match.getMatchId(), failure);
+        }
+    }
+
+    private StoredMatchFacts decodeFacts(PubgStoredMatch match, Set<String> communityAccounts,
+                                        List<com.guildup.pubg.domain.PubgStoredMatchKill> storedKills) {
         Map<Integer, Set<String>> accountsByTeam = match.getPlayers().stream().collect(Collectors.groupingBy(
                 PubgStoredMatchPlayer::getTeamNumber, Collectors.mapping(PubgStoredMatchPlayer::getAccountId, Collectors.toSet())));
         Map<String, PlayerMatchFacts> facts = new LinkedHashMap<>();

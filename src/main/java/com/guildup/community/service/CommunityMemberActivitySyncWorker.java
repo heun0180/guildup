@@ -26,6 +26,7 @@ import com.guildup.community.service.nickname.NicknameRuleCandidate;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
 import com.guildup.pubg.exception.PubgApiException;
+import com.guildup.monitoring.logging.FailureLogContext;
 import com.guildup.pubg.service.PubgMatchService;
 import com.guildup.pubg.service.PubgPlayerService;
 import com.guildup.pubg.support.PubgGameSupport;
@@ -176,13 +177,14 @@ public class CommunityMemberActivitySyncWorker {
         } catch (RuntimeException exception) {
             boolean clientRejection = exception instanceof ResponseStatusException response
                     && !(exception instanceof PubgApiException) && response.getStatusCode().is4xxClientError();
-            (clientRejection ? log.atWarn() : log.atError()).log(
+            (clientRejection ? log.atDebug() : log.atError()).setCause(exception).log(
                     "PUBG activity sync failed - communityId={}, communityGameId={}, stage={}, status={}, "
                             + "exception={}, durationMs={}",
                     communityId, communityGameId, stage, status(exception),
                     exception.getClass().getSimpleName(),
                     elapsedMillis(startedAtNanos)
             );
+            if (!clientRejection) FailureLogContext.markLogged(exception);
             throw exception;
         }
     }

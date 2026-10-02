@@ -11,12 +11,18 @@ import com.guildup.community.repository.*;
 import com.guildup.discord.bot.DiscordBot;
 import com.guildup.killcompetition.domain.*;
 import com.guildup.killcompetition.repository.KillCompetitionRepository;
+import com.guildup.monitoring.domain.MonitoringCategory;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.pubg.exception.PubgApiErrorCode;
+import com.guildup.pubg.exception.PubgApiException;
 import com.guildup.pubg.model.*;
 import com.guildup.pubg.service.*;
 import com.guildup.user.domain.*;
 import com.guildup.user.repository.*;
 import net.dv8tion.jda.api.JDA;
 import org.junit.jupiter.api.*;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.*;
 import org.springframework.context.annotation.*;
@@ -61,6 +67,7 @@ class TemporaryBingoRebuildFlowTests {
     @MockitoBean PubgPlayerService pubgPlayers;
     @MockitoBean PubgMatchService pubgMatches;
     @MockitoBean PubgBingoFactService factService;
+    @MockitoBean MonitoringEventService monitoring;
     @MockitoBean JDA jda;
     @MockitoBean DiscordBot bot;
 
@@ -71,7 +78,7 @@ class TemporaryBingoRebuildFlowTests {
 
     @BeforeEach
     void setUp() {
-        reset(pubgPlayers, pubgMatches, factService);
+        reset(pubgPlayers, pubgMatches, factService, monitoring);
         clock.set(Instant.parse("2026-09-24T03:00:00Z"));
         int id = IDS.incrementAndGet();
         community = communities.save(new Community("재집계-" + id));
@@ -168,6 +175,12 @@ class TemporaryBingoRebuildFlowTests {
             assertThat(failure.reason()).contains("Match 원본");
         });
         assertThat(value(participant, BingoMissionType.LONG_DISTANCE_KILL)).isEqualByComparingTo("5");
+        ArgumentCaptor<Map> metadata = ArgumentCaptor.forClass(Map.class);
+        verify(monitoring).recordWarn(eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED),
+                anyString(), eq(community.getId()), eq(owner.getId()), anyString(), metadata.capture());
+        assertThat(metadata.getValue()).containsEntry("stage", "MATCH_RESPONSE");
+        verify(monitoring, never()).recordError(eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED),
+                anyString(), anyLong(), anyLong(), anyString(), anyMap());
     }
 
     @Test
@@ -185,9 +198,84 @@ class TemporaryBingoRebuildFlowTests {
         assertThat(result.status()).isEqualTo("REBUILD_FAILED");
         assertThat(result.failures()).singleElement().satisfies(failure -> {
             assertThat(failure.matchId()).isEqualTo("M1");
-            assertThat(failure.reason()).contains("telemetry unavailable");
+            assertThat(failure.reason()).contains("데이터 처리 중 오류가 발생했습니다.")
+                    .doesNotContain("telemetry unavailable");
         });
         assertThat(value(participant, BingoMissionType.WEAPON_KILLS)).isEqualByComparingTo("2");
+        ArgumentCaptor<Map> metadata = ArgumentCaptor.forClass(Map.class);
+        verify(monitoring).recordError(eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED),
+                anyString(), eq(community.getId()), eq(owner.getId()), anyString(), metadata.capture());
+        assertThat(metadata.getValue()).containsEntry("stage", "TELEMETRY_PARSE").containsEntry("operation", "PREVIEW");
+        verify(pubgPlayers, times(1)).findByAccountIdsFresh(eq("kakao"), anyList());
+        verify(pubgMatches, times(1)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(factService, times(1)).factsRequired(any(), anySet());
+    }
+
+    @Test
+    void severalTelemetryFailuresRecordOneHistoryEventWithFetchAndParseStages() {
+        BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        setOldProgress(participant, BingoMissionType.WEAPON_KILLS, 2, false);
+        saveProcessed(event, participant, "M1", 1); saveProcessed(event, participant, "M2", 2);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "Apple", List.of("M1", "M2"))));
+        when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenAnswer(invocation -> {
+            String id = ((List<String>) invocation.getArgument(1)).getFirst();
+            return Map.of(id, match(id, "M1".equals(id) ? 1 : 2));
+        });
+        when(factService.factsRequired(any(), anySet())).thenAnswer(invocation -> {
+            PubgMatch match = invocation.getArgument(0);
+            if ("M1".equals(match.matchId())) throw new PubgApiException(PubgApiErrorCode.PUBG_RATE_LIMITED,
+                    "PUBG 요청 한도에 도달했습니다.", new IllegalStateException("upstream failure"), 429, false);
+            throw new PubgApiException("PUBG Telemetry를 불러오지 못했습니다.",
+                    new org.springframework.http.converter.HttpMessageConversionException("invalid telemetry response"));
+        });
+
+        TemporaryBingoRebuildResponse result = rebuild.preview(owner.getId(), community.getId(), game.getId());
+
+        assertThat(result.status()).isEqualTo("REBUILD_FAILED");
+        assertThat(result.failures()).hasSize(2);
+        assertThat(value(participant, BingoMissionType.WEAPON_KILLS)).isEqualByComparingTo("2");
+        assertThat(processed.findMatchIds(event.getId(), participant.getId())).containsExactlyInAnyOrder("M1", "M2");
+        ArgumentCaptor<Map> metadata = ArgumentCaptor.forClass(Map.class);
+        verify(monitoring, times(1)).recordError(eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED),
+                anyString(), eq(community.getId()), eq(owner.getId()), anyString(), metadata.capture());
+        assertThat(metadata.getValue()).containsEntry("failureStages", List.of("TELEMETRY_FETCH", "TELEMETRY_PARSE"))
+                .containsEntry("upstreamStatuses", List.of(429)).containsEntry("failureCount", 2);
+        verify(pubgPlayers, times(1)).findByAccountIdsFresh(eq("kakao"), anyList());
+        verify(pubgMatches, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(factService, times(2)).factsRequired(any(), anySet());
+        verifyNoMoreInteractions(pubgPlayers, pubgMatches, factService);
+    }
+
+    @Test
+    void failedApplyKeepsProgressAndReturnsFailureWhenMonitoringIsUnavailable() {
+        BingoEvent event = createEvent(); BingoParticipant participant = participant(event);
+        setOldProgress(participant, BingoMissionType.WEAPON_KILLS, 2, false);
+        saveProcessed(event, participant, "M1", 1);
+        when(pubgPlayers.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
+                new PubgPlayer("account-a", "Apple", List.of("M1"))));
+        when(pubgMatches.findUniqueMatchesFresh(eq("kakao"), anyList())).thenReturn(Map.of("M1", match("M1", 1)));
+        when(factService.factsRequired(any(), anySet())).thenReturn(Map.of("account-a", facts("M1", match("M1", 1).playedAt())));
+        TemporaryBingoRebuildResponse preview = rebuild.preview(owner.getId(), community.getId(), game.getId());
+        assertThat(preview.status()).isEqualTo("REBUILD_PREVIEW_READY");
+        when(factService.factsRequired(any(), anySet())).thenThrow(new PubgApiException(PubgApiErrorCode.PUBG_TIMEOUT,
+                "PUBG 응답 시간이 초과되었습니다.", new IllegalStateException("upstream timeout"), null, false));
+        doThrow(new IllegalStateException("monitoring unavailable")).when(monitoring).recordError(
+                eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED), anyString(),
+                anyLong(), anyLong(), anyString(), anyMap());
+
+        TemporaryBingoRebuildResponse result = rebuild.apply(owner.getId(), community.getId(), game.getId(), preview.previewToken());
+
+        assertThat(result.status()).isEqualTo("REBUILD_FAILED");
+        assertThat(result.failures()).singleElement().satisfies(failure -> assertThat(failure.reason()).contains("PUBG 응답 시간이 초과"));
+        assertThat(value(participant, BingoMissionType.WEAPON_KILLS)).isEqualByComparingTo("2");
+        ArgumentCaptor<Map> metadata = ArgumentCaptor.forClass(Map.class);
+        verify(monitoring, times(1)).recordError(eq(MonitoringCategory.BINGO), eq(MonitoringEventCode.BINGO_AGGREGATION_FAILED),
+                anyString(), eq(community.getId()), eq(owner.getId()), anyString(), metadata.capture());
+        assertThat(metadata.getValue()).containsEntry("stage", "TELEMETRY_FETCH").containsEntry("operation", "APPLY");
+        verify(pubgPlayers, times(2)).findByAccountIdsFresh(eq("kakao"), anyList());
+        verify(pubgMatches, times(2)).findUniqueMatchesFresh(eq("kakao"), anyList());
+        verify(factService, times(2)).factsRequired(any(), anySet());
     }
 
     @Test
