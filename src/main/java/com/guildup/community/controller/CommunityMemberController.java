@@ -10,6 +10,7 @@ import com.guildup.user.auth.service.CurrentUserSession;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** GuildUp이 자체 관리하는 커뮤니티 클랜원의 수동 등록과 목록 조회 API를 제공한다. */
+/** GuildUp이 자체 관리하는 커뮤니티 클랜원의 수동 등록, 삭제와 목록 조회 API를 제공한다. */
 @RestController
 @RequestMapping("/api/communities/{communityId}/members")
 public class CommunityMemberController {
@@ -52,6 +53,17 @@ public class CommunityMemberController {
     @GetMapping
     public List<CommunityMemberResponse> getMembers(@PathVariable Long communityId, HttpSession session) {
         return communityMemberService.getMembers(CurrentUserSession.requireUserId(session), communityId);
+    }
+
+    /** 수동 등록 클랜원을 목록에서 삭제하고 204 No Content를 반환한다. */
+    @DeleteMapping("/{memberId}")
+    public ResponseEntity<Void> deleteMember(
+            @PathVariable Long communityId,
+            @PathVariable Long memberId,
+            HttpSession session
+    ) {
+        communityMemberService.deleteMember(CurrentUserSession.requireUserId(session), communityId, memberId);
+        return ResponseEntity.noContent().build();
     }
 
     /** 설정된 Discord 역할을 기준으로 GuildUp 클랜원을 동기화한다. */

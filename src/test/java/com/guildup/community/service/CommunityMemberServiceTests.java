@@ -10,6 +10,7 @@ import com.guildup.community.repository.CommunityMemberAccountRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Clock;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,7 +24,7 @@ class CommunityMemberServiceTests {
     private final CommunityMemberAccountRepository accountRepository = mock(CommunityMemberAccountRepository.class);
     private final CommunityAccessService accessService = mock(CommunityAccessService.class);
     private final CommunityMemberService communityMemberService =
-            new CommunityMemberService(communityMemberRepository, accountRepository, accessService);
+            new CommunityMemberService(communityMemberRepository, accountRepository, accessService, Clock.systemUTC());
 
     @Test
     void addsManualMemberWithoutExternalAccountData() {

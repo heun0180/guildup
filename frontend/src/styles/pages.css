@@ -666,6 +666,14 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .community-member-table th:nth-child(2) { width: 19%; }
 .community-member-table th:nth-child(3) { width: 20%; }
 .community-member-table th:nth-child(4) { width: 22%; }
+.community-member-table.has-member-actions { min-width: 1000px; }
+.community-member-table.has-member-actions th:first-child { width: 22%; }
+.community-member-table.has-member-actions th:nth-child(2) { width: 17%; }
+.community-member-table.has-member-actions th:nth-child(3) { width: 18%; }
+.community-member-table.has-member-actions th:nth-child(4) { width: 19%; }
+.community-member-table.has-member-actions th:nth-child(5) { width: 12%; }
+.community-member-table.has-member-actions th:nth-child(6) { width: 12%; }
+.member-actions-cell .secondary-button { margin-top: 0; white-space: nowrap; }
 .activity-content { max-width: 1080px; }
 .activity-sync-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; padding: 22px 24px; }
 .activity-sync-copy { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 28px; }

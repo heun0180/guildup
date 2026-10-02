@@ -104,7 +104,7 @@ public class CommunityMember {
         this.updatedAt = synchronizedAt;
     }
 
-    /** 이미 LEFT인 행은 그대로 두고 ACTIVE 행만 LEFT로 전환한다. */
+    /** 역할 해제나 수동 삭제 시 이미 LEFT인 행은 그대로 두고 ACTIVE 행만 LEFT로 전환한다. */
     public boolean markLeft(Instant synchronizedAt) {
         if (status == CommunityMemberStatus.LEFT) {
             return false;

@@ -28,6 +28,7 @@ export default function MembersPage() {
   const [nickname, setNickname] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deletingMemberId, setDeletingMemberId] = useState(null);
   const [nicknameSyncing, setNicknameSyncing] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: null, direction: "asc" });
@@ -140,6 +141,25 @@ export default function MembersPage() {
     }
   }
 
+  async function deleteMember(member) {
+    if (!canManage || roleMode || member.discordUserId || deletingMemberId !== null || saving || nicknameSyncing) return;
+    if (!window.confirm(`${member.nickname} 클랜원을 목록에서 삭제하시겠습니까?`)) return;
+    setDeletingMemberId(member.id);
+    setMessage("");
+    setSuccess("");
+    try {
+      await api(`/api/communities/${encodeURIComponent(communityId)}/members/${encodeURIComponent(member.id)}`, {
+        method: "DELETE",
+      });
+      setMembers((current) => current.filter((item) => item.id !== member.id));
+      setSuccess(`${member.nickname} 클랜원을 삭제했습니다.`);
+    } catch (error) {
+      handleError(error, error.message || "클랜원 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setDeletingMemberId(null);
+    }
+  }
+
   async function syncGameNicknames() {
     if (!communityValid || nicknameSyncing) return;
     setNicknameSyncing(true);
@@ -221,7 +241,7 @@ export default function MembersPage() {
             </div>
             {!roleMode && canManage && <div className="members-heading-actions">
               {nicknameRuleConfigured
-                ? <button className="secondary-button" type="button" disabled={nicknameSyncing}
+                ? <button className="secondary-button" type="button" disabled={nicknameSyncing || deletingMemberId !== null}
                           onClick={syncGameNicknames}>
                   <Icon name="game" size={17} />{nicknameSyncing ? "닉네임 동기화 중..." : "인게임 닉네임 동기화"}
                 </button>
@@ -289,7 +309,7 @@ export default function MembersPage() {
             <div className="add-member-controls">
               <input id="nickname" placeholder="추가할 클랜원 닉네임" aria-describedby="add-member-help"
                      autoComplete="off" required value={nickname} onChange={(event) => setNickname(event.target.value)} />
-              <button type="submit" disabled={saving}><Icon name="plus" size={17} />{saving ? "추가 중..." : "클랜원 추가"}</button>
+              <button type="submit" disabled={saving || deletingMemberId !== null}><Icon name="plus" size={17} />{saving ? "추가 중..." : "클랜원 추가"}</button>
             </div>
           </form>}
           {message && <p className="message padded-message" role="alert">{message}</p>}
@@ -300,7 +320,7 @@ export default function MembersPage() {
               : "@everyone을 제외한 역할이 없습니다."
             : memberRolesConfigured ? "현재 ACTIVE 상태인 클랜원이 없습니다." : "등록된 클랜원이 없습니다."}</p>}
           {!loading && members.length > 0 && <div className="member-table-wrap">
-            <table className={`member-table${roleMode ? "" : " community-member-table"}`}>
+            <table className={`member-table${roleMode ? "" : " community-member-table"}${!roleMode && canManage ? " has-member-actions" : ""}`}>
               <thead><tr>{roleMode ? <>
                 <th>멤버</th><th>Discord 계정</th><th>역할</th>
               </> : <>
@@ -309,15 +329,26 @@ export default function MembersPage() {
                 {sortableHeader("gameNickname", "인게임 닉네임")}
                 {sortableHeader("discordJoinedAt", "Discord 가입일")}
                 {sortableHeader("status", "상태")}
+                {canManage && <th>관리</th>}
               </>}</tr></thead>
               <tbody>{filteredMembers.map((member) => {
                 const name = roleMode ? member.displayName : member.discordDisplayName || member.nickname;
                 return <tr key={member.id ?? member.discordUserId ?? `${name}-${member.username ?? ""}`}>
                   <td><span className="member-identity"><Avatar src={roleMode ? member.avatarUrl : undefined} name={name} /><strong>{name}</strong></span></td>
-                  <td className="secondary-cell">{roleMode ? `@${member.username}` : member.discordUsername ? `@${member.discordUsername}` : "수동 등록"}</td>
+                  <td className="secondary-cell">{roleMode ? `@${member.username}` : member.discordUserId ? member.discordUsername ? `@${member.discordUsername}` : "-" : "수동 등록"}</td>
                   {!roleMode && <td className={member.gameNickname ? "" : "secondary-cell"}>{member.gameNickname || "-"}</td>}
                   <td>{roleMode ? <span className="table-badge">{selectedRole?.name}</span> : <span className="secondary-cell">{formatJoinedAt(member.discordJoinedAt)}</span>}</td>
                   {!roleMode && <td><span className="table-badge">{member.status}</span></td>}
+                  {!roleMode && canManage && <td className="member-actions-cell">
+                    {!member.discordUserId
+                      ? <button className="secondary-button danger-text" type="button"
+                          aria-label={`${member.nickname} 클랜원 삭제`}
+                          disabled={deletingMemberId !== null || saving || nicknameSyncing}
+                          onClick={() => deleteMember(member)}>
+                        {deletingMemberId === member.id ? "삭제 중..." : "삭제"}
+                      </button>
+                      : <span className="secondary-cell">-</span>}
+                  </td>}
                 </tr>;
               })}</tbody>
             </table>
