@@ -376,7 +376,10 @@ function Roster({ detail }) {
 function Standings({ title, standings, winners = false }) {
   return <section className="panel kill-standings"><div className="kill-section-heading"><h2>{title}</h2>{winners && <span>우승자 +3점 · 일일 한도 적용</span>}</div>
     <ol>{standings.map((row) => <li key={`${row.participantId || "team"}-${row.teamId || row.name}`} className={row.winner ? "is-winner" : ""}>
-      <span className="kill-rank">{row.rank}위</span><strong>{row.name}</strong>{row.winner && <em>우승</em>}<span>{row.kills}킬 · 등수 +{row.placementPoints}</span><b>{row.points}점</b></li>)}</ol></section>;
+      <span className="kill-rank">{row.rank}위</span>
+      <div className="kill-standing-name"><strong>{row.name}</strong>{row.winner && <em>우승</em>}</div>
+      <span className="kill-standing-stats">{row.kills}킬 · 등수 +{row.placementPoints}</span>
+      <b className="kill-standing-points">{row.points}점</b></li>)}</ol></section>;
 }
 
 function MatchEvidence({ matches }) {

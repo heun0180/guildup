@@ -1063,13 +1063,14 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .kill-team-card p:last-child { border-bottom: 0; }
 .kill-team-card p > strong { font-size: .8rem; }
 .kill-standings ol { margin: 0; padding: 0; list-style: none; }
-.kill-standings li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 54px; border-top: 1px solid var(--color-border); }
-.kill-standings li.is-winner { margin: 0 -10px; border: 0; border-radius: 9px; padding: 0 10px; background: var(--color-primary-soft); }
-.kill-rank { color: var(--color-text-secondary); font-size: .78rem; font-weight: 800; }
-.kill-standings li > strong { font-size: .85rem; }
-.kill-standings li em { border-radius: 999px; padding: 3px 8px; background: #fff; color: var(--color-primary-dark); font-size: .68rem; font-style: normal; font-weight: 800; }
-.kill-standings li > span:not(.kill-rank) { color: var(--color-text-secondary); font-size: .74rem; }
-.kill-standings li > b { min-width: 52px; color: var(--color-primary-dark); text-align: right; font-size: .9rem; }
+.kill-standings li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto auto; align-items: center; gap: 10px; min-height: 54px; border-top: 1px solid var(--color-border); padding: 10px 0; }
+.kill-standings li.is-winner { margin: 0 -10px; border: 0; border-radius: 9px; padding: 10px; background: var(--color-primary-soft); }
+.kill-rank { color: var(--color-text-secondary); font-size: .78rem; font-weight: 800; white-space: nowrap; }
+.kill-standing-name { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.kill-standing-name strong { min-width: 0; overflow-wrap: anywhere; font-size: .85rem; }
+.kill-standing-name em { flex: 0 0 auto; border-radius: 999px; padding: 3px 8px; background: #fff; color: var(--color-primary-dark); font-size: .68rem; font-style: normal; font-weight: 800; white-space: nowrap; }
+.kill-standing-stats { color: var(--color-text-secondary); font-size: .74rem; white-space: nowrap; }
+.kill-standing-points { min-width: 52px; color: var(--color-primary-dark); text-align: right; font-size: .9rem; white-space: nowrap; }
 .kill-match-evidence details { border-top: 1px solid var(--color-border); }
 .kill-match-evidence summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 2px; cursor: pointer; font-size: .78rem; }
 .kill-match-evidence code { overflow: hidden; color: var(--color-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
@@ -1120,6 +1121,12 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
   .kill-nickname-guide { max-width: none; text-align: left; }
   .kill-team-builder .kill-section-heading { align-items: stretch; flex-direction: column; }
   .kill-team-builder .kill-section-heading label { flex-basis: auto; }
+  .kill-standings .kill-section-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .kill-standings li { grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-areas: "rank name points" ". stats points"; gap: 4px 8px; }
+  .kill-standings .kill-rank { grid-area: rank; }
+  .kill-standing-name { grid-area: name; }
+  .kill-standing-stats { grid-area: stats; white-space: normal; overflow-wrap: anywhere; }
+  .kill-standing-points { grid-area: points; }
   .kill-assignment-list label { grid-template-columns: minmax(0, 1fr) 110px; }
   .kill-match-evidence summary { align-items: flex-start; flex-direction: column; gap: 3px; }
   .kill-placement-grid { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
