@@ -8,6 +8,7 @@ import com.guildup.community.dto.DiscoverableCommunityResponse;
 import com.guildup.community.exception.AlreadyCommunityMemberException;
 import com.guildup.community.exception.DiscordCommunityConnectionNotFoundException;
 import com.guildup.community.repository.CommunityRepository;
+import com.guildup.community.repository.CommunityDeletionStore;
 import com.guildup.community.repository.CommunityUserRepository;
 import com.guildup.community.repository.DiscordCommunityConnectionRepository;
 import com.guildup.discord.oauth.dto.CommunityJoinResponse;
@@ -44,6 +45,7 @@ public class CommunityMembershipService {
     private final CommunityUserRepository memberships;
     private final UserRepository users;
     private final CommunityRepository communities;
+    private final CommunityDeletionStore deletionStore;
     private final UserExternalAccountRepository externalAccounts;
     private final DiscordGuildService discordGuilds;
     private final DiscordMemberService discordMembers;
@@ -59,6 +61,7 @@ public class CommunityMembershipService {
             CommunityUserRepository memberships,
             UserRepository users,
             CommunityRepository communities,
+            CommunityDeletionStore deletionStore,
             UserExternalAccountRepository externalAccounts,
             DiscordGuildService discordGuilds,
             DiscordMemberService discordMembers
@@ -69,6 +72,7 @@ public class CommunityMembershipService {
         this.memberships = memberships;
         this.users = users;
         this.communities = communities;
+        this.deletionStore = deletionStore;
         this.externalAccounts = externalAccounts;
         this.discordGuilds = discordGuilds;
         this.discordMembers = discordMembers;
@@ -122,16 +126,17 @@ public class CommunityMembershipService {
         }
         var user = users.findById(userId).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
+        CommunityUser joined;
         try {
-            CommunityUser joined = memberships.saveAndFlush(new CommunityUser(
+            joined = memberships.saveAndFlush(new CommunityUser(
                     connection.getCommunity(), user, CommunityUserRole.MEMBER
             ));
-            discardNewUnconnectedSource(sourceMembership, targetCommunityId);
-            return CommunityJoinResponse.from(joined);
         } catch (DataIntegrityViolationException exception) {
             CommunityOperationLogging.integrityFailure(log, monitoring, "communityOAuthJoin", targetCommunityId, userId, exception);
             throw new AlreadyCommunityMemberException(targetCommunityId);
         }
+        if (discardSourceCommunity) discardNewUnconnectedSource(sourceMembership, targetCommunityId);
+        return CommunityJoinResponse.from(joined);
     }
 
     /** 현재 Discord 계정이 실제로 속한 서버와 연결된, 아직 가입하지 않은 Community를 찾는다. */
@@ -226,15 +231,17 @@ public class CommunityMembershipService {
 
     /** 방금 만든 빈 연결용 Community만 정리해 중복 시도 뒤 고아 Community가 남지 않게 한다. */
     private void discardNewUnconnectedSource(CommunityUser sourceMembership, Long targetCommunityId) {
-        var source = sourceMembership.getCommunity();
-        if (source.getId().equals(targetCommunityId)
-                || sourceMembership.getRole() != CommunityUserRole.OWNER
+        Long sourceId = sourceMembership.getCommunity().getId();
+        if (sourceId.equals(targetCommunityId) || sourceMembership.getRole() != CommunityUserRole.OWNER) return;
+        var source = communities.findForUpdate(sourceId).orElse(null);
+        if (source == null
                 || memberships.countByCommunityId(source.getId()) != 1
                 || connections.findByCommunityId(source.getId()).isPresent()
                 || source.getCreatedAt().isBefore(Instant.now().minus(NEW_COMMUNITY_WINDOW))) {
             return;
         }
-        communities.delete(source);
         communities.flush();
+        if (deletionStore.hasCommunityContent(sourceId)) return;
+        deletionStore.deleteCommunityData(sourceId);
     }
 }

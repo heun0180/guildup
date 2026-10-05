@@ -35,6 +35,8 @@ public class KillCompetitionSchemaMigration implements ApplicationRunner {
             ALTER TABLE pubg_kill_competition_match_results ADD COLUMN IF NOT EXISTS kill_points INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE pubg_kill_competition_match_results ADD COLUMN IF NOT EXISTS placement_points INTEGER NOT NULL DEFAULT 0;
             ALTER TABLE pubg_kill_competition_match_results ADD COLUMN IF NOT EXISTS total_points INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE pubg_kill_competition_teams ADD COLUMN IF NOT EXISTS interim_placement_points INTEGER;
+            ALTER TABLE pubg_kill_competition_teams ADD COLUMN IF NOT EXISTS final_placement_points INTEGER;
             UPDATE pubg_kill_competition_participants participant
             SET interim_points = participant.interim_kills * competition.kill_point
             FROM pubg_kill_competitions competition

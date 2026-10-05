@@ -47,6 +47,7 @@ public class KillCompetitionMatchResult {
     public int getPlacementPoints() { return placementPoints; }
     public int getTotalPoints() { return legacyScoreRow() ? kills : totalPoints; }
     private boolean legacyScoreRow() {
-        return placement == null && kills > 0 && killPoints == 0 && placementPoints == 0 && totalPoints == 0;
+        return placement == null && kills > 0 && killPoints == 0 && placementPoints == 0 && totalPoints == 0
+                && competition.getKillPoint() == 1 && !competition.isPlacementPointEnabled();
     }
 }

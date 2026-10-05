@@ -19,6 +19,8 @@ import com.guildup.user.domain.*;
 import com.guildup.user.repository.*;
 import net.dv8tion.jda.api.JDA;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -141,15 +143,16 @@ class BingoKillCompetitionFlowTests {
         assertThat(processedSources.count()).isZero();
     }
 
-    @Test
-    void completedTeamResultCountsEveryWinningTeamMember() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void completedTeamResultCountsEveryWinningTeamMember(boolean placementEnabled) {
         Person fox = person(community, "Fox", CommunityUserRole.MEMBER);
         Person cheese = person(community, "Cheese", CommunityUserRole.MEMBER);
         Person jeolmi = person(community, "Jeolmi", CommunityUserRole.MEMBER);
         Long bingoId = createActiveBingo(owner, BigDecimal.ONE, clock.instant().plus(Duration.ofHours(4)));
         var created = competitions.create(owner.user().getId(), community.getId(), game.getId(),
                 new KillCompetitionCreateRequest("팀 킬내기", KillCompetitionGameMode.DUO,
-                        clock.instant().plus(Duration.ofMinutes(30))));
+                        clock.instant().plus(Duration.ofMinutes(30)), 1, placementEnabled, 10, 7, 5, 2, 1));
         List<Person> people = List.of(owner, fox, cheese, jeolmi);
         people.forEach(person -> participation.join(person.user().getId(), community.getId(), created.id()));
         var ready = competitions.closeRecruitment(owner.user().getId(), community.getId(), created.id());
@@ -162,7 +165,12 @@ class BingoKillCompetitionFlowTests {
                         new KillCompetitionTeamRequest.TeamAssignment(ids.get(3), 2))));
         var started = competitions.start(owner.user().getId(), community.getId(), created.id());
         clock.set(started.endsAt().plusSeconds(1));
-        mockKills(Map.of(owner.accountId(), 2, fox.accountId(), 1, cheese.accountId(), 8, jeolmi.accountId(), 7));
+        Map<Long, Integer> kills = Map.of(ids.get(0), 2, ids.get(1), 1, ids.get(2), 8, ids.get(3), 7);
+        // Duplicating the first team's +10 bonus would incorrectly make its 3 kills beat the 15-kill team.
+        when(aggregator.aggregate(anyString(), any(), any(), anyList())).thenReturn(new KillCompetitionKillSnapshot(
+                Map.of(), started.participants().stream().map(p -> new KillCompetitionKillSnapshot.MatchKill(
+                        p.participantId(), "team-bonus", started.startedAt().plusSeconds(1), kills.get(p.participantId()),
+                        p.teamId().equals(started.teams().getFirst().teamId()) ? 1 : 20)).toList()));
         finalizeAndPublish(started.id());
 
         assertProgress(bingoId, owner, BigDecimal.ZERO, false);

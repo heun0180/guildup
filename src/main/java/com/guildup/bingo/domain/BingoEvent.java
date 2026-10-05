@@ -12,6 +12,8 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.LinkedHashSet;
 
 @Entity
 @Table(name = "pubg_bingo_events", indexes = {
@@ -45,6 +47,12 @@ public class BingoEvent {
     @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt;
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     @Version private long version;
+    /** Player API의 최근 경기 목록에서 빠져도 미수집 Match를 다시 조회한다. */
+    @ElementCollection
+    @OnDelete(action = OnDeleteAction.CASCADE)
+    @CollectionTable(name = "pubg_bingo_pending_matches", joinColumns = @JoinColumn(name = "bingo_event_id"))
+    @Column(name = "match_id", nullable = false)
+    private Set<String> pendingMatchIds = new LinkedHashSet<>();
     @OneToMany(mappedBy = "event", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("position asc") private List<BingoCell> cells = new ArrayList<>();
 
@@ -91,6 +99,11 @@ public class BingoEvent {
     public void aggregated(Instant now) { lastAggregatedAt = now; updatedAt = now; }
     public void complete(Instant now) { status = BingoStatus.COMPLETED; completedAt = now; updatedAt = now; }
     public void cancel(Instant now) { status = BingoStatus.CANCELLED; updatedAt = now; }
+    public void replacePendingMatches(Set<String> matchIds) {
+        pendingMatchIds.clear(); pendingMatchIds.addAll(matchIds);
+    }
+    public Set<String> getPendingMatchIds() { return Set.copyOf(pendingMatchIds); }
+    public long getVersion() { return version; }
 
     public Long getId() { return id; }
     public Community getCommunity() { return community; }

@@ -170,6 +170,7 @@ function CompetitionList({ items, loading, showCreate, setShowCreate, createComp
       <fieldset className="kill-score-settings"><legend>점수 설정</legend>
         <label className="kill-point-row"><span>킬 1회</span><input name="killPoint" type="number" min="0" max="100" step="1" defaultValue="1" required /><span>점</span></label>
         <label className="kill-checkbox-row"><input name="placementPointEnabled" type="checkbox" checked={placementEnabled} onChange={(event) => setPlacementEnabled(event.target.checked)} /><span>등수 점수 사용</span></label>
+        <p>DUO·SQUAD의 등수 점수는 경기마다 팀당 한 번 적용됩니다.</p>
         {placementEnabled && <div className="kill-placement-grid">
           {placementPointFields.map(([label, key]) =>
             <label key={key}><span>{label}</span><input name={key} type="number" min="0" max="100" step="1" required value={placementPoints[key]} onChange={(event) => setPlacementPoints((old) => ({ ...old, [key]: event.target.value }))} /></label>)}
@@ -311,6 +312,7 @@ function ScoreSettings({ detail, editable, busy, mutate }) {
   return <section className="panel kill-score-panel">
     <div className="kill-section-heading"><div><h2>점수 설정</h2><p>1킬당 {detail.killPoint}점 · 등수 점수 {detail.placementPointEnabled ? "사용" : "미사용"}</p></div>
       {editable && !editing && <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(true)}>점수 설정 수정</button>}</div>
+    {detail.gameMode !== "SOLO" && <p>팀 점수 = 팀원 킬 점수 합계 + 경기별 팀 등수 점수. 등수 점수는 팀당 한 번 적용됩니다.</p>}
     {!editing ? detail.placementPointEnabled && <div className="kill-score-summary">
       {placementPointFields.map(([label, key]) => <span key={key}>{label} +{detail[key]}</span>)}<span>그 외 0</span>
     </div> : <div className="kill-score-editor">
@@ -380,6 +382,8 @@ function Standings({ title, standings, winners = false }) {
 function MatchEvidence({ matches }) {
   return <section className="panel kill-match-evidence"><div className="kill-section-heading"><div><h2>최종 반영 경기</h2><p>경기 시작 시각을 기준으로 인정된 결과입니다.</p></div><span>{matches.length}경기</span></div>
     <div>{matches.map((match) => <details key={match.matchId}><summary><span>{formatDateTime(match.startedAt)}</span><code>{match.matchId}</code></summary>
+      {!!match.teams?.length && <ul>{match.teams.map((team) => <li key={team.teamId}><b>{team.name}</b>
+        <span>{team.kills}킬 · 팀 등수 점수 +{team.placementPoints}</span><strong>팀 총 {team.totalPoints}점</strong></li>)}</ul>}
       <ul>{match.players.map((player) => <li key={player.participantId}><span><b>{player.nickname}</b><small>{player.placement ? `${player.placement}위` : "등수 기록 없음"}</small></span>
-        <span>{player.kills}킬 · 킬 점수 {player.killPoints} · 등수 점수 +{player.placementPoints}</span><strong>총 {player.totalPoints}점</strong></li>)}</ul></details>)}</div></section>;
+        <span>{player.kills}킬 · 킬 점수 {player.killPoints}{!match.teams?.length && ` · 등수 점수 +${player.placementPoints}`}</span><strong>{match.teams?.length ? "개인" : "총"} {player.totalPoints}점</strong></li>)}</ul></details>)}</div></section>;
 }

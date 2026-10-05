@@ -25,12 +25,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -91,8 +89,9 @@ public class CommunityGameNicknameSyncService {
         List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
                 communityId, CommunityMemberStatus.ACTIVE
         );
-        Map<Long, CommunityMemberAccount> existingAccounts = accountRepository
-                .findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game)).stream()
+        List<CommunityMemberAccount> platformAccounts = accountRepository
+                .findByCommunityIdAndProviderAndPlatform(communityId, ExternalAccountProvider.PUBG, PubgGameSupport.requirePlatform(game));
+        Map<Long, CommunityMemberAccount> existingAccounts = platformAccounts.stream()
                 .filter(account -> account.getCommunityMember().getStatus() == CommunityMemberStatus.ACTIVE)
                 .collect(Collectors.toMap(
                         account -> account.getCommunityMember().getId(),
@@ -123,14 +122,20 @@ public class CommunityGameNicknameSyncService {
                         (first, ignored) -> first,
                         LinkedHashMap::new
                 ));
-        Set<String> claimedAccountIds = new LinkedHashSet<>();
+        Map<Long, PubgPlayer> verifiedPlayers = new LinkedHashMap<>();
+        extractedNames.forEach((memberId, name) -> {
+            PubgPlayer player = playersByName.get(normalize(name));
+            if (player != null) verifiedPlayers.put(memberId, player);
+        });
+        rejectConflictingAccounts(verifiedPlayers, platformAccounts);
+
+        List<CommunityMemberAccount> replacedAccounts = new ArrayList<>();
         List<CommunityMemberAccount> synchronizedAccounts = new ArrayList<>();
         int createdAccounts = 0;
         int updatedAccounts = 0;
         for (CommunityMember member : members) {
-            String extractedName = extractedNames.get(member.getId());
-            PubgPlayer player = extractedName == null ? null : playersByName.get(normalize(extractedName));
-            if (player == null || !claimedAccountIds.add(player.accountId())) continue;
+            PubgPlayer player = verifiedPlayers.get(member.getId());
+            if (player == null) continue;
 
             CommunityMemberAccount existing = existingAccounts.get(member.getId());
             if (existing == null) {
@@ -139,13 +144,15 @@ public class CommunityGameNicknameSyncService {
                     || !Objects.equals(existing.getExternalUsername(), player.name())) {
                 updatedAccounts++;
             }
+            if (existing != null) replacedAccounts.add(existing);
             synchronizedAccounts.add(new CommunityMemberAccount(
                     member, PubgGameSupport.requirePlatform(game), player.accountId(), player.name()
             ));
         }
 
-        if (!existingAccounts.isEmpty()) {
-            accountRepository.deleteAllInBatch(existingAccounts.values());
+        // 조회/추출 실패는 연결 해제가 아니다. 검증된 교체 대상만 제거한다.
+        if (!replacedAccounts.isEmpty()) {
+            accountRepository.deleteAllInBatch(replacedAccounts);
         }
         if (!synchronizedAccounts.isEmpty()) accountRepository.saveAll(synchronizedAccounts);
 
@@ -171,6 +178,27 @@ public class CommunityGameNicknameSyncService {
                 rule.getStrategyType(), rule.getDelimiterType(), rule.getSegmentIndex(),
                 rule.isFromEnd(), rule.getExpectedSegmentCount()
         );
+    }
+
+    private void rejectConflictingAccounts(Map<Long, PubgPlayer> verifiedPlayers,
+                                          List<CommunityMemberAccount> platformAccounts) {
+        Map<String, Long> requestedCounts = verifiedPlayers.values().stream()
+                .collect(Collectors.groupingBy(PubgPlayer::accountId, Collectors.counting()));
+        verifiedPlayers.values().removeIf(player -> requestedCounts.get(player.accountId()) > 1);
+
+        Map<String, Long> existingOwners = platformAccounts.stream().collect(Collectors.toMap(
+                CommunityMemberAccount::getExternalUserId,
+                account -> account.getCommunityMember().getId()));
+        // 실패/LEFT 멤버의 계정을 보존하면 그 계정을 요구하는 교체도 실패해야 한다.
+        // 연쇄 교체도 같은 규칙을 적용하고, 모두 검증된 계정 교환은 허용한다.
+        boolean removed;
+        do {
+            removed = verifiedPlayers.entrySet().removeIf(entry -> {
+                Long ownerId = existingOwners.get(entry.getValue().accountId());
+                return ownerId != null && !ownerId.equals(entry.getKey())
+                        && !verifiedPlayers.containsKey(ownerId);
+            });
+        } while (removed);
     }
 
     private String normalize(String value) {

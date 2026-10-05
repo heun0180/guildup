@@ -30,30 +30,36 @@ public class BingoAggregationCalculationService {
     private final BingoMatchPolicy matchPolicy;
     private final BingoProgressCompletionService completions;
     private final Clock clock;
+    private final BingoAggregationGuard guard;
 
     public BingoAggregationCalculationService(BingoEventRepository events, BingoParticipantRepository participants,
             BingoProgressRepository progress, BingoProcessedMatchRepository processed, BingoMissionEngine missions,
-            BingoMatchPolicy matchPolicy, BingoProgressCompletionService completions, Clock clock) {
+            BingoMatchPolicy matchPolicy, BingoProgressCompletionService completions, Clock clock, BingoAggregationGuard guard) {
         this.events = events; this.participants = participants; this.progress = progress; this.processed = processed;
         this.missions = missions; this.matchPolicy = matchPolicy; this.completions = completions; this.clock = clock;
+        this.guard = guard;
     }
 
     @Transactional
     public BingoAggregationResponse calculate(Long communityId, Long bingoId, List<StoredMatchFacts> storedFacts,
-                                               boolean completeRecalculation) {
+            boolean completeRecalculation, BingoAggregationPreparationService.PreparedAggregation prepared,
+            boolean collectionComplete, Set<String> pendingMatchIds) {
         BingoEvent event = events.findForUpdate(bingoId)
                 .filter(value -> value.getCommunity().getId().equals(communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
+        guard.verify(event, prepared, null);
         Instant now = clock.instant();
         List<StoredMatchFacts> eligibleMatches = storedFacts.stream()
                 .filter(fact -> fact.platform() == com.guildup.pubg.support.PubgGameSupport.requirePlatform(event.getCommunityGame()))
                 .filter(this::eligible)
+                .filter(fact -> !fact.startedAt().isBefore(event.getStartsAt())
+                        && fact.startedAt().isBefore(event.getMatchStartUpperBoundExclusive()))
                 .sorted(Comparator.comparing(StoredMatchFacts::startedAt).thenComparing(StoredMatchFacts::matchId)).toList();
         int processedCount = 0;
         Set<Long> updated = new LinkedHashSet<>();
 
         for (BingoParticipant snapshot : participants.findByEventIdOrderByIdAsc(event.getId())) {
-            if (snapshot.getPubgAccountId() == null) continue;
+            if (snapshot.getPubgAccountId() == null && !completeRecalculation) continue;
             BingoParticipant participant = participants.findForUpdate(snapshot.getId()).orElseThrow(() ->
                     new IllegalStateException("Bingo participant disappeared during calculation: bingoEventId="
                             + bingoId + ", participantId=" + snapshot.getId()));
@@ -63,7 +69,8 @@ public class BingoAggregationCalculationService {
             if (result.changed()) updated.add(participant.getId());
         }
         event.aggregated(now);
-        if (event.getStatus() == BingoStatus.SETTLING
+        event.replacePendingMatches(pendingMatchIds);
+        if (collectionComplete && completeRecalculation && event.getStatus() == BingoStatus.SETTLING
                 && !now.isBefore(event.getMatchStartUpperBoundExclusive().plus(BingoEvent.SETTLEMENT_GRACE))) event.complete(now);
         log.debug("Bingo DB calculation completed - eventId={}, mode={}, matches={}, participants={}", event.getId(),
                 completeRecalculation ? "FULL" : "SAFE_INCREMENTAL", eligibleMatches.size(), updated.size());
@@ -73,10 +80,12 @@ public class BingoAggregationCalculationService {
     /** 전체 집계와 같은 MissionEngine 경로를 한 참가자에만 적용한다. */
     @Transactional
     public BingoAggregationResponse calculateParticipant(Long communityId, Long bingoId, Long participantId,
-            List<StoredMatchFacts> storedFacts, boolean completeRecalculation) {
-        BingoEvent event = events.findWithCellsById(bingoId)
+            List<StoredMatchFacts> storedFacts, boolean completeRecalculation,
+            BingoAggregationPreparationService.PreparedAggregation prepared, Set<String> pendingMatchIds) {
+        BingoEvent event = events.findForUpdate(bingoId)
                 .filter(value -> value.getCommunity().getId().equals(communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
+        guard.verify(event, prepared, participantId);
         BingoParticipant participant = participants.findForUpdate(participantId)
                 .filter(value -> value.getEvent().getId().equals(event.getId()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고 참가자를 찾을 수 없습니다."));
@@ -84,9 +93,12 @@ public class BingoAggregationCalculationService {
         List<StoredMatchFacts> eligibleMatches = storedFacts.stream()
                 .filter(fact -> fact.platform() == com.guildup.pubg.support.PubgGameSupport.requirePlatform(event.getCommunityGame()))
                 .filter(this::eligible)
+                .filter(fact -> !fact.startedAt().isBefore(event.getStartsAt())
+                        && fact.startedAt().isBefore(event.getMatchStartUpperBoundExclusive()))
                 .sorted(Comparator.comparing(StoredMatchFacts::startedAt).thenComparing(StoredMatchFacts::matchId)).toList();
         ParticipantCalculation result = calculateLockedParticipant(
                 event, participant, eligibleMatches, completeRecalculation, now);
+        event.replacePendingMatches(pendingMatchIds);
         log.debug("Bingo participant calculation completed - eventId={}, participantId={}, mode={}, matches={}, changed={}",
                 event.getId(), participantId, completeRecalculation ? "FULL" : "SAFE_INCREMENTAL",
                 eligibleMatches.size(), result.changed());
@@ -101,7 +113,8 @@ public class BingoAggregationCalculationService {
         Set<String> alreadyProcessed = new HashSet<>(processed.findMatchIds(event.getId(), participant.getId()));
         List<StoredMatchFacts> participantMatches = eligibleMatches.stream()
                 .filter(match -> !match.startedAt().isBefore(participant.getEligibleFrom()))
-                .filter(match -> match.byAccount().containsKey(participant.getPubgAccountId())).toList();
+                .filter(match -> participant.getPubgAccountId() != null
+                        && match.byAccount().containsKey(participant.getPubgAccountId())).toList();
         boolean changed = false;
         boolean hasNewMatches = participantMatches.stream().anyMatch(match -> !alreadyProcessed.contains(match.matchId()));
         for (BingoProgress row : rows) {
@@ -132,6 +145,7 @@ public class BingoAggregationCalculationService {
                 boolean rowChanged = row.getCurrentValue().compareTo(outcome.value()) != 0
                         || row.getOccurrenceCount() != outcome.occurrences()
                         || row.isCompleted() != outcome.completed()
+                        || !Objects.equals(row.getCompletedAt(), outcome.completed() ? evidenceAt : null)
                         || !Objects.equals(row.getEvidenceMatchId(), evidenceMatchId)
                         || !Objects.equals(row.getEvidenceEventAt(), evidenceAt);
                 if (rowChanged) row.replaceSnapshot(outcome.value(), outcome.occurrences(), outcome.completed(), evidenceAt,
@@ -150,7 +164,8 @@ public class BingoAggregationCalculationService {
                 changed = true;
             }
         }
-        if (changed) completions.updateLines(event, participant, rows, now);
+        if (completeRecalculation) completions.rebuildLines(event, participant, rows, now);
+        else if (changed) completions.updateLines(event, participant, rows, now);
         participant.aggregated(now);
         return new ParticipantCalculation(processedCount, changed);
     }

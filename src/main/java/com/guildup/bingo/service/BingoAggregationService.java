@@ -67,8 +67,14 @@ public class BingoAggregationService {
         Set<String> accountIds = prepared.participants().stream().map(
                 BingoAggregationPreparationService.PreparedParticipant::accountId)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        listener.stage("PROCESSED_MATCH_QUERY", 0, 0, "기존 집계 이력을 확인하고 있습니다.");
+        List<String> legacyProcessedIds = participantId == null
+                ? processed.findDistinctMatchIdsByEventId(bingoId)
+                : processed.findMatchIds(bingoId, participantId);
+        Set<String> retryIds = new java.util.LinkedHashSet<>(prepared.pendingMatchIds());
+        retryIds.addAll(legacyProcessedIds);
         PubgMatchSyncService.SyncResult sync = pubgSync.sync(prepared.platform(), accountIds,
-                match -> telemetryRequired(prepared, match), prepared.excludeBotCombatStats(), listener);
+                match -> telemetryRequired(prepared, match), prepared.excludeBotCombatStats(), listener, retryIds);
         listener.stage("SAVE_FACTS", sync.dbMatchesInserted(), sync.newMatchIds(), "PUBG 경기 데이터를 저장했습니다.");
 
         listener.stage("FACT_QUERY", 0, 0, "저장된 경기 Fact를 조회하고 있습니다.");
@@ -81,23 +87,37 @@ public class BingoAggregationService {
         }
         List<PubgMatchFactQueryService.StoredMatchFacts> facts = stored.stream()
                 .filter(PubgMatchFactQueryService.StoredMatchFacts::telemetryLoaded).toList();
-        listener.stage("PROCESSED_MATCH_QUERY", 0, 0, "기존 집계 이력을 확인하고 있습니다.");
-        List<String> legacyProcessedIds = participantId == null
-                ? processed.findDistinctMatchIdsByEventId(bingoId)
-                : processed.findMatchIds(bingoId, participantId);
         Set<String> legacyIds = Set.copyOf(legacyProcessedIds);
         // An already-counted match awaiting Telemetry retry must not erase existing progress.
-        boolean completeRecalculation = pubgFacts.existingMatchIds(prepared.platform(), legacyProcessedIds).containsAll(legacyProcessedIds)
+        boolean legacyComplete = pubgFacts.existingMatchIds(prepared.platform(), legacyProcessedIds).containsAll(legacyProcessedIds)
                 && stored.stream().noneMatch(match -> legacyIds.contains(match.matchId()) && !match.telemetryLoaded());
+        List<PubgMatchSyncService.CollectionFailure> failures = new java.util.ArrayList<>(sync.failures());
+        stored.stream().filter(match -> !match.telemetryLoaded())
+                .filter(match -> failures.stream().noneMatch(failure -> failure.dataId().equals(match.matchId())))
+                .forEach(match -> failures.add(new PubgMatchSyncService.CollectionFailure(
+                        PubgMatchSyncService.FailureStage.FACT_GENERATION, match.matchId())));
+        boolean collectionComplete = failures.isEmpty();
+        boolean completeRecalculation = legacyComplete && collectionComplete;
         if (!completeRecalculation) {
-            log.warn("Bingo full recalculation deferred because legacy processed match facts are incomplete - eventId={}, legacyMatches={}",
-                    bingoId, legacyProcessedIds.size());
+            log.warn("Bingo full recalculation deferred because required facts are incomplete - eventId={} legacyComplete={} failures={}",
+                    bingoId, legacyComplete, failures);
+        }
+        if (!collectionComplete) {
+            log.warn("Bingo final settlement deferred - eventId={} failures={} incompleteTelemetry={}", bingoId,
+                    failures, stored.stream().filter(match -> !match.telemetryLoaded())
+                            .map(PubgMatchFactQueryService.StoredMatchFacts::matchId).toList());
+            listener.stage("COLLECTION_INCOMPLETE", failures.size(), failures.size(),
+                    "필요한 경기 데이터 수집이 끝나지 않아 최종 확정을 보류합니다: " + failures.stream()
+                            .map(PubgMatchSyncService.CollectionFailure::description)
+                            .collect(java.util.stream.Collectors.joining(", ")));
         }
         listener.stage("CALCULATE_BINGO", 0, facts.size(), "저장된 경기 데이터로 빙고를 계산하고 있습니다.");
         long calculationStarted = System.nanoTime();
         BingoAggregationResponse response = participantId == null
-                ? calculation.calculate(communityId, bingoId, facts, completeRecalculation)
-                : calculation.calculateParticipant(communityId, bingoId, participantId, facts, completeRecalculation);
+                ? calculation.calculate(communityId, bingoId, facts, completeRecalculation, prepared,
+                        collectionComplete, sync.pendingMatchIds())
+                : calculation.calculateParticipant(communityId, bingoId, participantId, facts, completeRecalculation,
+                        prepared, sync.pendingMatchIds());
         long calculationMs = elapsedMs(calculationStarted);
         long totalMs = elapsedMs(totalStarted);
         log.info("[BINGO_AGG_SUMMARY] eventId={} participants={} accounts={} playerCalls={} discoveredMatches={} " +
@@ -109,7 +129,7 @@ public class BingoAggregationService {
                 sync.matchApiCalls(), sync.matchFailures(), sync.telemetryApiCalls(), sync.telemetryFailures(),
                 sync.dbMatchesInserted(), sync.dbPlayerFactsInserted(), sync.dbKillFactsInserted(), calculationMs, totalMs);
         listener.stage("COMPLETED", facts.size(), facts.size(), "빙고 집계가 완료되었습니다.");
-        return response.withTelemetryFailures(sync.telemetryFailures());
+        return response.withCollectionFailures(sync.telemetryFailures(), failures);
     }
 
     private boolean relevant(BingoAggregationPreparationService.PreparedAggregation prepared,

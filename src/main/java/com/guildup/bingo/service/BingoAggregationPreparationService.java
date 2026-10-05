@@ -31,12 +31,14 @@ public class BingoAggregationPreparationService {
     private final CommunityAccessService access;
     private final BingoParticipantEnrollmentService enrollment;
     private final Clock clock;
+    private final BingoAggregationGuard guard;
 
     public BingoAggregationPreparationService(BingoEventRepository events, BingoParticipantRepository participants,
             CommunityMemberAccountRepository memberAccounts, CommunityAccessService access,
-            BingoParticipantEnrollmentService enrollment, Clock clock) {
+            BingoParticipantEnrollmentService enrollment, Clock clock, BingoAggregationGuard guard) {
         this.events = events; this.participants = participants; this.memberAccounts = memberAccounts;
         this.access = access; this.enrollment = enrollment; this.clock = clock;
+        this.guard = guard;
     }
 
     @Transactional
@@ -71,6 +73,7 @@ public class BingoAggregationPreparationService {
             participant.synchronizePubgAccount(account == null ? null : account.getExternalUserId(),
                     account == null ? null : account.getExternalUsername());
         });
+        BingoAggregationGuard.Snapshot snapshot = guard.claim(event);
         List<PreparedParticipant> connected = participantRows.stream().filter(value -> value.getPubgAccountId() != null)
                 .map(value -> new PreparedParticipant(value.getId(), value.getPubgAccountId(), value.getEligibleFrom())).toList();
         Set<String> communityAccounts = accounts.stream()
@@ -80,7 +83,8 @@ public class BingoAggregationPreparationService {
         connected.forEach(value -> communityAccounts.add(value.accountId()));
         return new PreparedAggregation(event.getId(), PubgGameSupport.requirePlatform(event.getCommunityGame()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), event.getStatus(),
-                event.isExcludeBotCombatStats(), List.copyOf(connected), Set.copyOf(communityAccounts), participantRows.size());
+                event.isExcludeBotCombatStats(), List.copyOf(connected), Set.copyOf(communityAccounts), participantRows.size(),
+                snapshot, event.getPendingMatchIds());
     }
 
     /** 요청값으로 participantId를 받지 않고 로그인 사용자의 참가자 행만 준비한다. */
@@ -88,10 +92,11 @@ public class BingoAggregationPreparationService {
     public PreparedAggregation preparePersonal(Long userId, Long communityId, Long bingoId) {
         access.requireCommunityMember(userId, communityId);
         Instant now = clock.instant();
-        BingoEvent event = events.findById(bingoId)
+        BingoEvent event = events.findForUpdate(bingoId)
                 .filter(value -> value.getCommunity().getId().equals(communityId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "빙고를 찾을 수 없습니다."));
-        BingoStatus effectiveStatus = effectiveStatus(event, now);
+        event.refreshStatus(now);
+        BingoStatus effectiveStatus = event.getStatus();
         requireAggregatable(effectiveStatus);
 
         BingoParticipant participant = participants.findByEventIdAndCommunityUserUserId(bingoId, userId)
@@ -114,11 +119,13 @@ public class BingoAggregationPreparationService {
 
         Set<String> communityAccounts = activeCommunityAccounts(communityId, event);
         communityAccounts.add(account.getExternalUserId());
+        BingoAggregationGuard.Snapshot snapshot = guard.claim(event);
         PreparedParticipant preparedParticipant = new PreparedParticipant(
                 participant.getId(), account.getExternalUserId(), participant.getEligibleFrom());
         return new PreparedAggregation(event.getId(), PubgGameSupport.requirePlatform(event.getCommunityGame()),
                 event.getStartsAt(), event.getMatchStartUpperBoundExclusive(), effectiveStatus,
-                event.isExcludeBotCombatStats(), List.of(preparedParticipant), Set.copyOf(communityAccounts), 1);
+                event.isExcludeBotCombatStats(), List.of(preparedParticipant), Set.copyOf(communityAccounts), 1,
+                snapshot, event.getPendingMatchIds());
     }
 
     /** 개인 Job key를 만들기 위한 가벼운 조회다. 쓰기 잠금을 사용하지 않는다. */
@@ -183,7 +190,8 @@ public class BingoAggregationPreparationService {
     public record PreparedAggregation(Long eventId, PubgPlatform platform, Instant startsAt, Instant endsExclusive,
                                       BingoStatus status, boolean excludeBotCombatStats,
                                       List<PreparedParticipant> participants,
-                                      Set<String> communityAccounts, int participantCount) {
+                                      Set<String> communityAccounts, int participantCount,
+                                      BingoAggregationGuard.Snapshot snapshot, Set<String> pendingMatchIds) {
         public String shard() { return platform.getShard(); }
     }
     public record PreparedParticipant(Long participantId, String accountId, Instant eligibleFrom) {}

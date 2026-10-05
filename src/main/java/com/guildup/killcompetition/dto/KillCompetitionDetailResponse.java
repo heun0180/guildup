@@ -33,7 +33,8 @@ public record KillCompetitionDetailResponse(
                        Integer finalKills, Integer finalPlacementPoints, Integer finalPoints) {}
     public record Standing(int rank, Long participantId, Long teamId, String name,
                            int kills, int placementPoints, int points, boolean winner) {}
-    public record Match(String matchId, Instant startedAt, List<MatchPlayer> players) {}
+    public record Match(String matchId, Instant startedAt, List<MatchPlayer> players, List<MatchTeam> teams) {}
+    public record MatchTeam(Long teamId, String name, int kills, int placementPoints, int totalPoints) {}
     public record MatchPlayer(Long participantId, String nickname, int kills, Integer placement,
                               int killPoints, int placementPoints, int totalPoints) {}
 
@@ -56,17 +57,14 @@ public record KillCompetitionDetailResponse(
         List<Team> teamDtos = competition.getTeams().stream().map(team -> {
             List<KillCompetitionParticipant> members = approved.stream()
                     .filter(p -> p.getTeam() != null && Objects.equals(p.getTeam().getId(), team.getId())).toList();
-            Integer finalKills = members.stream().allMatch(p -> p.getFinalKills() != null)
-                    ? members.stream().mapToInt(p -> p.getFinalKills()).sum() : null;
-            Integer finalPoints = members.stream().allMatch(p -> p.getFinalPoints() != null)
-                    ? members.stream().mapToInt(p -> p.getFinalPoints()).sum() : null;
-            int interimKills = members.stream().mapToInt(KillCompetitionParticipant::getInterimKills).sum();
-            int interimPoints = members.stream().mapToInt(KillCompetitionParticipant::getInterimPoints).sum();
+            var interim = KillCompetitionScoring.teamScore(competition, team, false);
+            var finalScore = KillCompetitionScoring.teamScore(competition, team, true);
+            boolean finalized = members.stream().allMatch(p -> p.getFinalPoints() != null);
             return new Team(team.getId(), team.getTeamName(), team.getDisplayOrder(),
                     members.stream().map(KillCompetitionParticipant::getId).toList(),
-                    interimKills, placementPoints(interimPoints, interimKills, competition.getKillPoint()), interimPoints,
-                    finalKills, finalPoints == null ? null : placementPoints(finalPoints, finalKills, competition.getKillPoint()),
-                    finalPoints);
+                    interim.kills(), interim.placementPoints(), interim.points(),
+                    finalized ? finalScore.kills() : null, finalized ? finalScore.placementPoints() : null,
+                    finalized ? finalScore.points() : null);
         }).toList();
         Long myParticipantId = competition.getParticipants().stream()
                 .filter(p -> Objects.equals(p.getCommunityMember().getId(), currentMemberId))
@@ -89,7 +87,7 @@ public record KillCompetitionDetailResponse(
                 Objects.equals(competition.getCreatedBy().getId(), currentMemberId), administrator, canManage,
                 myParticipantId, pubgConfigured, approved.size() >= 4,
                 approved.size(), participantDtos, teamDtos,
-                standings(competition, false), standings(competition, true), matches(matchResults)
+                standings(competition, false), standings(competition, true), matches(competition, matchResults)
         );
     }
 
@@ -105,13 +103,8 @@ public record KillCompetitionDetailResponse(
             )).toList();
         } else {
             entries = competition.getTeams().stream().map(team -> {
-                int kills = competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                        .filter(p -> p.getTeam() != null && Objects.equals(p.getTeam().getId(), team.getId()))
-                        .mapToInt(p -> finalResult ? Optional.ofNullable(p.getFinalKills()).orElse(0) : p.getInterimKills()).sum();
-                int points = competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                        .filter(p -> p.getTeam() != null && Objects.equals(p.getTeam().getId(), team.getId()))
-                        .mapToInt(p -> finalResult ? Optional.ofNullable(p.getFinalPoints()).orElse(0) : p.getInterimPoints()).sum();
-                return new Entry(null, team.getId(), team.getTeamName(), kills, points);
+                var score = KillCompetitionScoring.teamScore(competition, team, finalResult);
+                return new Entry(null, team.getId(), team.getTeamName(), score.kills(), score.points());
             }).toList();
         }
         List<Entry> sorted = entries.stream().sorted(Comparator.comparingInt(Entry::points).reversed()
@@ -130,14 +123,21 @@ public record KillCompetitionDetailResponse(
         return result;
     }
 
-    private static List<Match> matches(List<KillCompetitionMatchResult> rows) {
+    private static List<Match> matches(KillCompetition competition, List<KillCompetitionMatchResult> rows) {
         Map<String, List<KillCompetitionMatchResult>> grouped = new LinkedHashMap<>();
         rows.forEach(row -> grouped.computeIfAbsent(row.getMatchId(), ignored -> new ArrayList<>()).add(row));
+        var teamScores = KillCompetitionScoring.teamMatchScores(competition, rows);
         return grouped.values().stream().map(group -> new Match(
                 group.getFirst().getMatchId(), group.getFirst().getMatchStartedAt(),
                 group.stream().map(row -> new MatchPlayer(row.getParticipant().getId(),
                         row.getParticipant().getCommunityMember().getNickname(), row.getKills(), row.getPlacement(),
-                        row.getKillPoints(), row.getPlacementPoints(), row.getTotalPoints())).toList()
+                        row.getKillPoints(), row.getPlacementPoints(), row.getTotalPoints())).toList(),
+                competition.getTeams().stream().filter(team -> teamScores.containsKey(
+                        new KillCompetitionScoring.TeamMatchKey(team.getId(), group.getFirst().getMatchId())))
+                        .map(team -> {
+                            var score = teamScores.get(new KillCompetitionScoring.TeamMatchKey(team.getId(), group.getFirst().getMatchId()));
+                            return new MatchTeam(team.getId(), team.getTeamName(), score.kills(), score.placementPoints(), score.points());
+                        }).toList()
         )).toList();
     }
 

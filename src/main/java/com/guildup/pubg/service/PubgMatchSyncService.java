@@ -65,25 +65,48 @@ public class PubgMatchSyncService {
     public SyncResult sync(PubgPlatform platform, Collection<String> accountIds,
                            Predicate<PubgMatch> telemetryRequired, boolean upgradeTelemetryFacts,
                            ProgressListener progress) {
+        return sync(platform, accountIds, telemetryRequired, upgradeTelemetryFacts, progress, Set.of());
+    }
+
+    public SyncResult sync(PubgPlatform platform, Collection<String> accountIds,
+                           Predicate<PubgMatch> telemetryRequired, boolean upgradeTelemetryFacts,
+                           ProgressListener progress, Set<String> retryMatchIds) {
         String shard = platform.getShard();
+        List<CollectionFailure> failures = new ArrayList<>();
         observeTransaction("PLAYER_SYNC");
         List<String> accounts = List.copyOf(new LinkedHashSet<>(accountIds));
         progress.stage("PLAYER_SYNC", 0, accounts.size(), "PUBG 계정의 최신 경기 목록을 확인하고 있습니다.");
-        List<PubgPlayer> loadedPlayers = accounts.isEmpty() ? List.of() : players.findByAccountIdsFresh(shard, accounts);
+        List<PubgPlayer> loadedPlayers;
+        try { loadedPlayers = accounts.isEmpty() ? List.of() : players.findByAccountIdsFresh(shard, accounts); }
+        catch (RuntimeException failure) {
+            log.warn("PUBG player lookup failed - shard={} accounts={}", shard, accounts, failure);
+            loadedPlayers = List.of();
+        }
         Set<String> loadedAccountIds = loadedPlayers.stream().map(PubgPlayer::accountId).collect(java.util.stream.Collectors.toSet());
         long missingAccounts = accounts.stream().filter(account -> !loadedAccountIds.contains(account)).count();
+        accounts.stream().filter(account -> !loadedAccountIds.contains(account))
+                .forEach(account -> failures.add(new CollectionFailure(FailureStage.PLAYER_LOOKUP, account)));
         if (missingAccounts > 0) log.warn("PUBG player batch omitted requested accounts - stage=PLAYER_SYNC shard={} requestedAccounts={} missingAccounts={}",
                 shard, accounts.size(), missingAccounts);
         int playerCalls = (accounts.size() + 9) / 10;
         Set<String> discovered = loadedPlayers.stream().flatMap(player -> player.matchIds().stream())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        discovered.addAll(retryMatchIds);
 
         progress.stage("MATCH_DISCOVERY", discovered.size(), discovered.size(), "신규 경기를 확인하고 있습니다.");
         Set<String> existing = query.existingMatchIds(platform, discovered);
         Set<String> newIds = new LinkedHashSet<>(discovered); newIds.removeAll(existing);
         progress.stage("MATCH_FETCH", 0, newIds.size(), "신규 경기 " + newIds.size() + "개를 가져오고 있습니다.");
         observeTransaction("MATCH_FETCH");
-        Map<String, PubgMatch> fetched = newIds.isEmpty() ? Map.of() : matches.findUniqueMatches(shard, newIds);
+        Map<String, PubgMatch> fetched;
+        try { fetched = newIds.isEmpty() ? Map.of() : matches.findUniqueMatches(shard, newIds); }
+        catch (RuntimeException failure) {
+            log.warn("PUBG match lookup failed - shard={} matchIds={}", shard, newIds, failure);
+            fetched = Map.of();
+        }
+        for (String id : newIds) {
+            if (!fetched.containsKey(id)) failures.add(new CollectionFailure(FailureStage.MATCH_LOOKUP, id));
+        }
 
         if (fetched.size() < newIds.size()) log.warn("PUBG match batch completed with missing matches - stage=MATCH_FETCH shard={} requestedMatches={} missingMatches={}",
                 shard, newIds.size(), newIds.size() - fetched.size());
@@ -99,12 +122,16 @@ public class PubgMatchSyncService {
                 if (concurrentMatchInsert(race)) {
                     log.debug("PUBG match was inserted concurrently - matchId={} shard={}", match.matchId(), shard);
                 } else {
+                    failures.add(new CollectionFailure(FailureStage.MATCH_SAVE, match.matchId()));
                     log.error("PUBG match fact save failed - matchId={} shard={} stage=MATCH_FACT_SAVE", match.matchId(), shard, race);
                     if (monitoring != null) monitoring.recordError(MonitoringCategory.DATABASE,
                             MonitoringEventCode.DATABASE_ERROR, "PUBG match fact save failed", null, null,
                             "matchId=" + match.matchId(), Map.of("matchId", match.matchId(), "stage", "MATCH_FACT_SAVE",
                                     "exceptionClass", race.getClass().getSimpleName()));
                 }
+            } catch (RuntimeException failure) {
+                failures.add(new CollectionFailure(FailureStage.MATCH_SAVE, match.matchId()));
+                log.error("PUBG match fact save failed - matchId={} shard={} stage=MATCH_FACT_SAVE", match.matchId(), shard, failure);
             }
         }
 
@@ -123,9 +150,10 @@ public class PubgMatchSyncService {
         progress.stage("TELEMETRY_FETCH", 0, telemetryMatches.size(),
                 "Telemetry 0 / " + telemetryMatches.size());
         Counters counters = fetchTelemetry(platform, telemetryMatches, progress);
+        failures.addAll(counters.collectionFailures);
         return new SyncResult(accounts.size(), playerCalls, discovered.size(), existing.size(), newIds.size(),
                 newIds.size(), Math.max(0, newIds.size() - fetched.size()), telemetryMatches.size(), counters.failures,
-                insertedMatches, insertedPlayers, counters.kills);
+                insertedMatches, insertedPlayers, counters.kills, List.copyOf(failures));
     }
 
     private Counters fetchTelemetry(PubgPlatform platform, List<PubgMatch> values, ProgressListener progress) {
@@ -138,6 +166,7 @@ public class PubgMatchSyncService {
                     total.players += count.players(); total.kills += count.kills();
                 } catch (RuntimeException exception) {
                     total.failures++;
+                    total.collectionFailures.add(collectionFailure(values.get(i).matchId(), exception));
                     logTelemetryFailure(values.get(i).matchId(), exception);
                 }
                 progress.stage("TELEMETRY_FETCH", i + 1, values.size(),
@@ -161,6 +190,7 @@ public class PubgMatchSyncService {
                     total.kills += outcome.counts().kills();
                 } else {
                     total.failures++;
+                    total.collectionFailures.add(collectionFailure(outcome.matchId(), outcome.failure()));
                     logTelemetryFailure(outcome.matchId(), outcome.failure());
                 }
             } catch (InterruptedException exception) {
@@ -196,11 +226,14 @@ public class PubgMatchSyncService {
                                 && !causedBy(failure, org.springframework.web.client.UnknownContentTypeException.class)
                                 ? "TELEMETRY_FETCH" : "TELEMETRY_PARSE", failure);
                     }
+                    if (parsed.isEmpty()) throw new TelemetryStageFailure("FACT_GENERATION",
+                            new IllegalStateException("No required player facts generated for match " + match.matchId()));
                 }
                 PubgMatchFactWriter.StoredCounts result;
                 try (var ignored = LogContext.scope(Map.of("matchId", match.matchId(), "stage", "TELEMETRY_FACT_SAVE"))) {
                     try { result = writer.saveTelemetry(platform, match.matchId(), parsed); }
-                    catch (RuntimeException failure) { throw new TelemetryStageFailure("TELEMETRY_FACT_SAVE", failure); }
+                    catch (RuntimeException failure) { throw new TelemetryStageFailure(
+                            failure instanceof PubgMatchFactWriter.IncompleteFactsException ? "FACT_GENERATION" : "TELEMETRY_FACT_SAVE", failure); }
                 }
                 mine.complete(null);
                 return result;
@@ -277,6 +310,15 @@ public class PubgMatchSyncService {
         return "TELEMETRY_FETCH";
     }
 
+    private CollectionFailure collectionFailure(String matchId, RuntimeException failure) {
+        FailureStage stage = switch (telemetryStage(failure)) {
+            case "TELEMETRY_FACT_SAVE" -> FailureStage.TELEMETRY_SAVE;
+            case "TELEMETRY_PARSE", "FACT_GENERATION" -> FailureStage.FACT_GENERATION;
+            default -> FailureStage.TELEMETRY_LOOKUP;
+        };
+        return new CollectionFailure(stage, matchId);
+    }
+
     private boolean concurrentMatchInsert(Throwable exception) {
         for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
             if (cause instanceof ConstraintViolationException constraint
@@ -339,7 +381,27 @@ public class PubgMatchSyncService {
     public record SyncResult(int linkedAccounts, int playerApiCalls, int discoveredMatchIds, int existingDbMatches,
                              int newMatchIds, int matchApiCalls, int matchFailures, int telemetryApiCalls,
                              int telemetryFailures, int dbMatchesInserted, int dbPlayerFactsInserted,
-                             int dbKillFactsInserted) {}
+                             int dbKillFactsInserted, List<CollectionFailure> failures) {
+        public boolean collectionComplete() { return failures.isEmpty(); }
+        public Set<String> pendingMatchIds() {
+            return failures.stream().filter(f -> f.stage() == FailureStage.MATCH_LOOKUP || f.stage() == FailureStage.MATCH_SAVE)
+                    .map(CollectionFailure::dataId).collect(java.util.stream.Collectors.toSet());
+        }
+    }
+    public enum FailureStage { PLAYER_LOOKUP, MATCH_LOOKUP, MATCH_SAVE, TELEMETRY_LOOKUP, TELEMETRY_SAVE, FACT_GENERATION }
+    public record CollectionFailure(FailureStage stage, String dataId) {
+        public String description() {
+            String action = switch (stage) {
+                case PLAYER_LOOKUP -> "Player 조회";
+                case MATCH_LOOKUP -> "Match 조회";
+                case MATCH_SAVE -> "Match 저장";
+                case TELEMETRY_LOOKUP -> "Telemetry 조회";
+                case TELEMETRY_SAVE -> "Telemetry 저장";
+                case FACT_GENERATION -> "필요한 fact 생성";
+            };
+            return action + " 실패 (" + dataId + ")";
+        }
+    }
     private record TelemetryOutcome(String matchId, PubgMatchFactWriter.StoredCounts counts,
                                     RuntimeException failure) {
         static TelemetryOutcome success(String matchId, PubgMatchFactWriter.StoredCounts counts) {
@@ -349,5 +411,8 @@ public class PubgMatchSyncService {
             return new TelemetryOutcome(matchId, null, failure);
         }
     }
-    private static final class Counters { int players; int kills; int failures; }
+    private static final class Counters {
+        int players; int kills; int failures;
+        final List<CollectionFailure> collectionFailures = new ArrayList<>();
+    }
 }

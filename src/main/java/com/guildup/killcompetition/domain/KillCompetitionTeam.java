@@ -16,6 +16,9 @@ public class KillCompetitionTeam {
     private KillCompetition competition;
     @Column(name = "team_name", nullable = false, length = 40) private String teamName;
     @Column(name = "display_order", nullable = false) private int displayOrder;
+    // NULL은 기존 DB의 팀 점수 정책 전환 대상임을 나타낸다. 신규 팀은 0부터 시작한다.
+    @Column(name = "interim_placement_points") private Integer interimPlacementPoints = 0;
+    @Column(name = "final_placement_points") private Integer finalPlacementPoints;
     protected KillCompetitionTeam() {}
     public KillCompetitionTeam(KillCompetition competition, String teamName, int displayOrder) {
         this.competition = competition; this.teamName = teamName; this.displayOrder = displayOrder;
@@ -23,4 +26,8 @@ public class KillCompetitionTeam {
     public Long getId() { return id; }
     public String getTeamName() { return teamName; }
     public int getDisplayOrder() { return displayOrder; }
+    public int getInterimPlacementPoints() { return interimPlacementPoints == null ? 0 : interimPlacementPoints; }
+    public Integer getFinalPlacementPoints() { return finalPlacementPoints; }
+    public void recordInterimPlacementPoints(int points) { interimPlacementPoints = points; }
+    public void recordFinalPlacementPoints(int points) { finalPlacementPoints = points; }
 }

@@ -9,6 +9,14 @@ import java.util.Optional;
 import java.time.Instant;
 
 public interface KillCompetitionRepository extends JpaRepository<KillCompetition, Long> {
+    @Query("""
+            select distinct team.competition.id from KillCompetitionTeam team
+            where team.interimPlacementPoints is null
+              and team.competition.gameMode <> com.guildup.killcompetition.domain.KillCompetitionGameMode.SOLO
+            order by team.competition.id
+            """)
+    List<Long> findLegacyTeamScoringIds();
+
     @EntityGraph(attributePaths = {"createdBy", "participants", "participants.communityMember", "participants.team", "teams"})
     List<KillCompetition> findByCommunityGameIdOrderByCreatedAtDesc(Long communityGameId);
 

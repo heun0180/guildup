@@ -1,7 +1,11 @@
 package com.guildup.community.repository;
 
+import com.guildup.community.domain.CommunityGameActivityRule;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 커뮤니티에 소유권이 있는 데이터를 FK의 자식부터 명시적으로 제거한다.
@@ -13,6 +17,35 @@ public class CommunityDeletionStore {
 
     public CommunityDeletionStore(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    /** 자동 정리에서 생성 시 기본 게임/활동 규칙 외의 콘텐츠·사용자 설정을 보존한다. */
+    public boolean hasCommunityContent(Long communityId) {
+        List<String> conditions = new ArrayList<>();
+        List<Object> parameters = new ArrayList<>();
+        for (String table : List.of("community_members", "community_member_accounts",
+                "community_member_role_settings", "community_game_nickname_rules",
+                "community_notices", "community_events", "community_posts",
+                "community_attendances", "community_score_history", "community_member_scores",
+                "discord_voice_sessions", "pubg_bingo_events", "pubg_kill_competitions")) {
+            conditions.add("exists (select 1 from " + table + " where community_id = ?)");
+            parameters.add(communityId);
+        }
+        for (String table : List.of("community_member_activity_snapshots", "community_game_activity_syncs")) {
+            conditions.add("exists (select 1 from " + table + " data join community_games game "
+                    + "on game.id = data.community_game_id where game.community_id = ?)");
+            parameters.add(communityId);
+        }
+        conditions.add("(select count(*) from community_games where community_id = ?) > 1");
+        parameters.add(communityId);
+        conditions.add("exists (select 1 from community_game_activity_rules rule join community_games game "
+                + "on game.id = rule.community_game_id where game.community_id = ? "
+                + "and (rule.activity_period_days <> ? or rule.minimum_clan_members_in_roster <> ?))");
+        parameters.add(communityId);
+        parameters.add(CommunityGameActivityRule.DEFAULT_ACTIVITY_PERIOD_DAYS);
+        parameters.add(CommunityGameActivityRule.DEFAULT_MINIMUM_CLAN_MEMBERS_IN_ROSTER);
+        return Boolean.TRUE.equals(jdbc.queryForObject("select " + String.join(" or ", conditions),
+                Boolean.class, parameters.toArray()));
     }
 
     public void deleteCommunityData(Long communityId) {

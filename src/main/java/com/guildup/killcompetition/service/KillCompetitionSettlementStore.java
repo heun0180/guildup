@@ -177,9 +177,10 @@ public class KillCompetitionSettlementStore {
                     || !row.startedAt().isBefore(rangeEnd)) continue;
             MatchKey key = new MatchKey(row.participantId(), row.matchId());
             KillCompetitionMatchResult existing = byKey.get(key);
+            var score = KillCompetitionScoring.personalMatchScore(competition, row.kills(), row.placement());
             int killPoints = Math.multiplyExact(row.kills(), competition.getKillPoint());
-            int placementPoints = competition.placementPointFor(row.placement());
-            int totalPoints = Math.addExact(killPoints, placementPoints);
+            int placementPoints = score.placementPoints();
+            int totalPoints = score.points();
             if (existing != null) {
                 existing.refresh(row.startedAt(), row.kills(), row.placement(),
                         killPoints, placementPoints, totalPoints);
@@ -198,20 +199,23 @@ public class KillCompetitionSettlementStore {
 
     private void applyTotals(KillCompetition competition, List<KillCompetitionMatchResult> accumulated,
                              boolean finalResult) {
-        record PlayerScore(int kills, int matchCount, int points) {}
-        Map<Long, PlayerScore> totals = new HashMap<>();
+        // 최신 PUBG 응답에서 빠진 기존 행도 개인 점수에 팀 보너스가 남지 않도록 정규화한다.
         for (KillCompetitionMatchResult row : accumulated) {
-            Long participantId = row.getParticipant().getId();
-            PlayerScore old = totals.getOrDefault(participantId, new PlayerScore(0, 0, 0));
-            totals.put(participantId, new PlayerScore(
-                    Math.addExact(old.kills(), row.getKills()), Math.addExact(old.matchCount(), 1),
-                    Math.addExact(old.points(), row.getTotalPoints())));
+            var score = KillCompetitionScoring.personalMatchScore(competition, row.getKills(), row.getPlacement());
+            row.refresh(row.getMatchStartedAt(), row.getKills(), row.getPlacement() == null ? 0 : row.getPlacement(),
+                    Math.multiplyExact(row.getKills(), competition.getKillPoint()), score.placementPoints(), score.points());
         }
+        var totals = KillCompetitionScoring.calculate(competition, accumulated);
         for (KillCompetitionParticipant participant : competition.getParticipants().stream()
                 .filter(KillCompetitionParticipant::isApproved).toList()) {
-            var total = totals.getOrDefault(participant.getId(), new PlayerScore(0, 0, 0));
+            var total = totals.players().getOrDefault(participant.getId(), KillCompetitionScoring.PlayerTotal.ZERO);
             if (finalResult) participant.recordFinal(total.kills(), total.matchCount(), total.points());
             else participant.recordInterim(total.kills(), total.matchCount(), total.points());
+        }
+        for (KillCompetitionTeam team : competition.getTeams()) {
+            int bonus = totals.teamPlacementPoints().getOrDefault(team.getId(), 0);
+            if (finalResult) team.recordFinalPlacementPoints(bonus);
+            else team.recordInterimPlacementPoints(bonus);
         }
     }
 

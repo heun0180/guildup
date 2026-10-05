@@ -87,7 +87,7 @@ export function KillCompetitionHelpPage() {
       <p>DUO와 SQUAD는 승인 참가자를 두 팀 이상으로 나누고 모든 참가자를 한 팀에 배정해야 시작할 수 있습니다. SOLO는 팀 구성 없이 시작합니다.</p>
     </HelpSection>
     <HelpSection title="집계 기준">
-      <p>참가자별로 집계 대상 시간 안에 시작한 PUBG 경기의 킬 수를 불러옵니다. 경기 점수는 <strong>킬 수 × 킬 점수 + 해당 경기의 등수 점수</strong>이며, 모든 경기 점수를 합산해 순위를 정합니다. DUO와 SQUAD는 팀원의 점수를 합산합니다.</p>
+      <p>참가자별로 집계 대상 시간 안에 시작한 PUBG 경기의 킬 수를 불러옵니다. SOLO의 경기 점수는 <strong>킬 수 × 킬 점수 + 해당 경기의 등수 점수</strong>입니다. DUO와 SQUAD의 팀 점수는 <strong>팀원 킬 점수 합계 + 경기별 팀 등수 점수</strong>이며, 등수 점수는 팀원 수와 관계없이 같은 경기에서 팀당 한 번만 적용됩니다. 모든 경기 점수를 합산해 순위를 정합니다.</p>
       <p>진행 중에는 관리자가 중간 정산을 할 수 있으며, 한 번 정산한 뒤 5분이 지나야 다시 정산할 수 있습니다.</p>
       <HelpNotice>게임 종료 직후에는 최근 경기가 PUBG API에 바로 나타나지 않을 수 있습니다. 최근 전적이 보이지 않으면 잠시 후 다시 정산해 주세요.</HelpNotice>
     </HelpSection>

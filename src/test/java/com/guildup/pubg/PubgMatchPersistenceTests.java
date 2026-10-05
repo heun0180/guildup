@@ -142,7 +142,9 @@ class PubgMatchPersistenceTests {
         assertThat(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, kakao)).isTrue();
         assertThat(writer.saveMatchIfAbsent(PubgPlatform.STEAM, steam)).isTrue();
         assertThat(writer.saveMatchIfAbsent(PubgPlatform.KAKAO, kakao)).isFalse();
-        writer.saveTelemetry(PubgPlatform.KAKAO, "match-123", Map.of());
+        writer.saveTelemetry(PubgPlatform.KAKAO, "match-123", Map.of("same-account",
+                new PlayerMatchFacts("match-123", at, "Erangel_Main", "squad", Map.of("KILLS", BigDecimal.valueOf(3)),
+                        List.of(), Map.of(), 0, at)));
         assertThat(matches.findByShardAndMatchId("kakao", "match-123").orElseThrow().isTelemetryLoaded()).isTrue();
         assertThat(matches.findByShardAndMatchId("steam", "match-123").orElseThrow().isTelemetryLoaded()).isFalse();
         assertThat(query.findTelemetryMissing(PubgPlatform.STEAM, Set.of("match-123")))

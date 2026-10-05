@@ -73,6 +73,21 @@ class BingoAggregationJobServiceTests {
     }
 
     @Test
+    void matchLookupFailureWithoutTelemetryFailurePublishesRetryDetails() {
+        var failure = new com.guildup.pubg.service.PubgMatchSyncService.CollectionFailure(
+                com.guildup.pubg.service.PubgMatchSyncService.FailureStage.MATCH_LOOKUP, "missing-match");
+        when(aggregation.aggregate(eq(1L), eq(10L), eq(100L), any())).thenReturn(new BingoAggregationResponse(
+                100L, 9, 3, "SETTLING", Instant.parse("2026-09-24T05:00:00Z"))
+                .withCollectionFailures(0, java.util.List.of(failure)));
+        jobs.start(1L, 10L, 20L, 100L);
+        tasks.remove().run();
+        var result = jobs.status(1L, 10L, 20L, 100L);
+        assertThat(result.state()).isEqualTo("COMPLETED_WITH_WARNINGS");
+        assertThat(result.telemetryFailures()).isZero();
+        assertThat(result.message()).contains("최종 확정을 보류", "Match 조회 실패", "missing-match", "다음 집계에서 다시 시도");
+    }
+
+    @Test
     void aSecondClickWhileRunningReturnsTheSameJobWithoutEnqueueingAnotherOne() {
         var first = jobs.start(1L, 10L, 20L, 100L);
         var second = jobs.start(1L, 10L, 20L, 100L);

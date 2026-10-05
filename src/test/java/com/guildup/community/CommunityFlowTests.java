@@ -444,6 +444,96 @@ class CommunityFlowTests {
         assertThat(memberAccounts.findPubgAccountsByCommunityId(community.getId())).hasSize(2);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void partialNicknameSyncPreservesFailedAndUnextractedConnectionsInDatabase(PubgPlatform platform) throws Exception {
+        Community community = service.createCommunity("부분 동기화", nicknameSyncGameType(platform), user.getId());
+        CommunityGame game = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        saveFullNicknameRule(community, game);
+        CommunityMember success = communityMembers.save(new CommunityMember(community, "Success"));
+        CommunityMember missing = communityMembers.save(new CommunityMember(community, "Missing"));
+        CommunityMember blank = communityMembers.save(new CommunityMember(community, " "));
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(success, platform, "old-success", "OldSuccess"));
+        CommunityMemberAccount missingAccount = memberAccounts.saveAndFlush(
+                new CommunityMemberAccount(missing, platform, "retained-missing", "StoredMissing"));
+        CommunityMemberAccount blankAccount = memberAccounts.saveAndFlush(
+                new CommunityMemberAccount(blank, platform, "retained-blank", "StoredBlank"));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh(platform.getShard(), java.util.List.of("Success", "Missing")))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer("new-success", "Success", java.util.List.of())));
+
+        mvc.perform(post(gameBase(community) + "/nickname-rule/sync").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.synchronizedMembers").value(1))
+                .andExpect(jsonPath("$.updatedAccounts").value(1)).andExpect(jsonPath("$.failedMembers").value(2));
+
+        assertThat(memberAccounts.findById(missingAccount.getId())).isPresent();
+        assertThat(memberAccounts.findById(blankAccount.getId())).isPresent();
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(success.getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, platform).orElseThrow().getExternalUserId())
+                .isEqualTo("new-success");
+        assertThat(memberAccounts.findPubgAccountsByCommunityId(community.getId())).hasSize(3);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void retainedAccountConflictDoesNotDeleteConnectionsOrFailWithUniqueViolation(PubgPlatform platform) throws Exception {
+        Community community = service.createCommunity("연결 충돌", nicknameSyncGameType(platform), user.getId());
+        CommunityGame game = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        saveFullNicknameRule(community, game);
+        CommunityMember first = communityMembers.save(new CommunityMember(community, "First"));
+        CommunityMember missing = communityMembers.save(new CommunityMember(community, "Missing"));
+        CommunityMemberAccount firstAccount = memberAccounts.saveAndFlush(
+                new CommunityMemberAccount(first, platform, "old-first", "StoredFirst"));
+        CommunityMemberAccount missingAccount = memberAccounts.saveAndFlush(
+                new CommunityMemberAccount(missing, platform, "retained", "StoredMissing"));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh(platform.getShard(), java.util.List.of("First", "Missing")))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer("retained", "First", java.util.List.of())));
+
+        mvc.perform(post(gameBase(community) + "/nickname-rule/sync").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.synchronizedMembers").value(0))
+                .andExpect(jsonPath("$.failedMembers").value(2));
+
+        assertThat(memberAccounts.findById(firstAccount.getId())).isPresent();
+        assertThat(memberAccounts.findById(missingAccount.getId())).isPresent();
+        assertThat(memberAccounts.findPubgAccountsByCommunityId(community.getId()))
+                .extracting(CommunityMemberAccount::getExternalUserId).containsExactlyInAnyOrder("old-first", "retained");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(PubgPlatform.class)
+    void verifiedAccountSwapCommitsWithoutUniqueViolation(PubgPlatform platform) throws Exception {
+        Community community = service.createCommunity("계정 교환", nicknameSyncGameType(platform), user.getId());
+        CommunityGame game = communityGames.findByCommunityIdOrderByIdAsc(community.getId()).getFirst();
+        saveFullNicknameRule(community, game);
+        CommunityMember first = communityMembers.save(new CommunityMember(community, "First"));
+        CommunityMember second = communityMembers.save(new CommunityMember(community, "Second"));
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(first, platform, "account-1", "OldFirst"));
+        memberAccounts.saveAndFlush(new CommunityMemberAccount(second, platform, "account-2", "OldSecond"));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh(platform.getShard(), java.util.List.of("First", "Second")))
+                .thenReturn(java.util.List.of(
+                        new com.guildup.pubg.model.PubgPlayer("account-2", "First", java.util.List.of()),
+                        new com.guildup.pubg.model.PubgPlayer("account-1", "Second", java.util.List.of())));
+
+        mvc.perform(post(gameBase(community) + "/nickname-rule/sync").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.updatedAccounts").value(2))
+                .andExpect(jsonPath("$.failedMembers").value(0));
+
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(first.getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, platform).orElseThrow().getExternalUserId())
+                .isEqualTo("account-2");
+        assertThat(memberAccounts.findByCommunityMemberIdAndProviderAndPlatform(second.getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, platform).orElseThrow().getExternalUserId())
+                .isEqualTo("account-1");
+    }
+
+    private GameType nicknameSyncGameType(PubgPlatform platform) {
+        return platform == PubgPlatform.KAKAO ? GameType.BATTLEGROUNDS_KAKAO : GameType.BATTLEGROUNDS_STEAM;
+    }
+
+    private void saveFullNicknameRule(Community community, CommunityGame game) {
+        gameNicknameRules.saveAndFlush(new CommunityGameNicknameRule(community, game.getGameType(),
+                GameNicknameRuleStrategyType.FULL_NICKNAME, null, null, false, null, "sample", "sample"));
+    }
+
     @Test
     void preservesOAuthGuildSelectionBotInstallationAndRoleQueries() throws Exception {
         Community mine = service.createCommunity("치즈", user.getId());
@@ -552,7 +642,7 @@ class CommunityFlowTests {
 
         assertThat(memberships.findByCommunityIdAndUserId(existing.getId(), user.getId()))
                 .get().extracting(CommunityUser::getRole).isEqualTo(CommunityUserRole.MEMBER);
-        assertThat(communities.findById(source.getId())).isEmpty();
+        assertThat(communities.findById(source.getId())).isPresent();
         assertThat(memberships.findByCommunityId(existing.getId())).hasSize(2);
     }
 

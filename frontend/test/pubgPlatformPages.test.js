@@ -23,8 +23,8 @@ const community = (id) => ({ id, name: "플랫폼 테스트", role: "OWNER", dis
 ] });
 const response = (body) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } });
 
-async function mount(path, id, handle, strict = false) {
-  const dom = new JSDOM("<div id='root'></div>", { url: `http://localhost${path}?communityId=${id}&communityGameId=10${path === "/bingos.html" ? "&view=manage" : ""}` });
+async function mount(path, id, handle, strict = false, competitionId = null) {
+  const dom = new JSDOM("<div id='root'></div>", { url: `http://localhost${path}?communityId=${id}&communityGameId=10${path === "/bingos.html" ? "&view=manage" : ""}${competitionId ? `&competitionId=${competitionId}` : ""}` });
   const saved = new Map();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document,
     HTMLElement: dom.window.HTMLElement, Event: dom.window.Event, IS_REACT_ACT_ENVIRONMENT: true })) {
@@ -62,6 +62,55 @@ async function click(text) {
   const button = [...document.querySelectorAll("button")].find((item) => item.textContent === text);
   assert.ok(button, `button ${text} exists`);
   await act(async () => button.click());
+}
+
+for (const status of ["IN_PROGRESS", "COMPLETED"]) {
+  test(`team bonus appears once in ${status} standings, roster and match evidence`, async () => {
+    const participants = [10, 5, 5, 5, 0].map((kills, index) => ({
+      participantId: index + 1, memberId: index + 1, nickname: `Player${index + 1}`, pubgNickname: `PUBG${index + 1}`,
+      teamId: index < 4 ? 1 : 2, participationStatus: "APPROVED", eligibleFrom: "2026-09-15T12:00:00Z",
+      interimKills: kills, interimMatchCount: 1, interimPoints: kills, interimPlacementPoints: 0,
+      finalKills: kills, finalMatchCount: 1, finalPoints: kills, finalPlacementPoints: 0,
+    }));
+    const teams = [1, 2].map((teamId) => ({ teamId, name: `TEAM ${teamId}`, displayOrder: teamId,
+      participantIds: participants.filter(p => p.teamId === teamId).map(p => p.participantId),
+      interimKills: teamId === 1 ? 25 : 0, interimPlacementPoints: teamId === 1 ? 10 : 0, interimPoints: teamId === 1 ? 35 : 0,
+      finalKills: teamId === 1 ? 25 : 0, finalPlacementPoints: teamId === 1 ? 10 : 0, finalPoints: teamId === 1 ? 35 : 0,
+    }));
+    const standings = teams.map((t, index) => ({ rank: index + 1, teamId: t.teamId, name: t.name,
+      kills: t.interimKills, placementPoints: t.interimPlacementPoints, points: t.interimPoints,
+      winner: status === "COMPLETED" && index === 0 }));
+    const detail = { id: 9, title: "팀 점수 확인", gameMode: "SQUAD", status, killPoint: 1,
+      placementPointEnabled: true, firstPlacePoint: 10, creator: { nickname: "테스트" }, participantCount: 5,
+      scoreEligible: true, canManageKillGame: false, endsAt: "2099-09-15T12:30:00Z", startedAt: "2026-09-15T12:00:00Z",
+      lastInterimCalculatedAt: "2026-09-15T12:05:00Z", completedAt: "2026-09-15T13:00:00Z",
+      participants, teams, interimStandings: standings, finalStandings: status === "COMPLETED" ? standings : [],
+      finalMatches: [{ matchId: "team-match", startedAt: "2026-09-15T12:01:00Z",
+        teams: teams.map(t => ({ teamId: t.teamId, name: t.name, kills: t.finalKills,
+          placementPoints: t.finalPlacementPoints, totalPoints: t.finalPoints })),
+        players: participants.map(p => ({ participantId: p.participantId, nickname: p.nickname,
+          kills: p.finalKills, placement: p.teamId === 1 ? 1 : 20, killPoints: p.finalPoints,
+          placementPoints: 0, totalPoints: p.finalPoints })),
+      }],
+    };
+    const page = await mount("/kill-competitions.html", 112, async url => response(url.endsWith("/9") ? detail : []), false, 9);
+    try {
+      const header = document.querySelector(".kill-team-card header");
+      assert.match(header.textContent, /35점 · 25킬 · 등수 \+10/);
+      const members = [...document.querySelectorAll(".kill-team-card:first-child p strong")].map(el => el.textContent);
+      assert.deepEqual(members, ["10점 · 10킬", "5점 · 5킬", "5점 · 5킬", "5점 · 5킬"]);
+      for (const list of document.querySelectorAll(".kill-standings ol")) {
+        assert.match(list.firstElementChild.textContent, /25킬 · 등수 \+1035점/);
+      }
+      if (status === "COMPLETED") {
+        const evidence = document.querySelector(".kill-match-evidence");
+        assert.match(evidence.textContent, /팀 등수 점수 \+10팀 총 35점/);
+        assert.equal((evidence.textContent.match(/팀 등수 점수 \+10/g) || []).length, 1);
+        assert.doesNotMatch(evidence.querySelectorAll("ul")[1].textContent, /등수 점수/);
+        assert.match(evidence.querySelectorAll("ul")[1].textContent, /개인 10점/);
+      }
+    } finally { await page.close(); }
+  });
 }
 
 test("StrictMode request cancellation never shows an abort error on the current Team Maker page", async () => {

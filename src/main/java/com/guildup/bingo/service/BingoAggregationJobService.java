@@ -172,24 +172,29 @@ public class BingoAggregationJobService {
             BingoAggregationResponse result = participantId == null
                     ? aggregation.aggregate(userId, communityId, bingoId, progress)
                     : aggregation.aggregatePersonal(userId, communityId, bingoId, progress);
-            boolean warnings = result.telemetryFailures() > 0;
+            boolean warnings = result.telemetryFailures() > 0 || !result.collectionFailures().isEmpty();
             String state = warnings ? "COMPLETED_WITH_WARNINGS" : "SUCCEEDED";
-            String message = warnings
+            String message = !result.collectionFailures().isEmpty()
+                    ? "일부 경기 데이터를 수집하지 못했습니다. 최종 확정을 보류하고 다음 집계에서 다시 시도합니다: "
+                        + result.collectionFailures().stream().map(PubgMatchSyncService.CollectionFailure::description)
+                            .collect(java.util.stream.Collectors.joining(", "))
+                    : warnings
                     ? "집계가 완료되었지만 " + result.telemetryFailures() + "개 경기 데이터는 다음 집계에서 다시 시도합니다."
                     : "빙고 집계가 완료되었습니다.";
             put(key, communityId, communityGameId, new BingoAggregationJobResponse(bingoId, state, requestedAt,
                     startedAt, clock.instant(), result.processedMatches(), result.updatedParticipants(),
                     result.aggregatedAt(), message, "COMPLETED", null, null, result.telemetryFailures()));
             long elapsedMs = Duration.between(startedAt, clock.instant()).toMillis();
-            if (warnings) log.warn("Bingo aggregation completed with partial failures - bingoEventId={} communityId={} telemetryFailures={} elapsedMs={}",
-                    bingoId, communityId, result.telemetryFailures(), elapsedMs);
+            if (warnings) log.warn("Bingo aggregation completed with partial failures - bingoEventId={} communityId={} telemetryFailures={} collectionFailures={} elapsedMs={}",
+                    bingoId, communityId, result.telemetryFailures(), result.collectionFailures(), elapsedMs);
             else log.info("Bingo aggregation completed - bingoEventId={} communityId={} processedMatches={} updatedParticipants={} elapsedMs={}",
                     bingoId, communityId, result.processedMatches(), result.updatedParticipants(), elapsedMs);
-            if (result.telemetryFailures() > 0 && monitoring != null) {
+            if (warnings && monitoring != null) {
                 monitoring.recordWarn(MonitoringCategory.BINGO, MonitoringEventCode.BINGO_PARTIAL_FAILURE,
                         "Bingo aggregation completed with telemetry failures", communityId, userId,
                         "bingoEventId=" + bingoId, Map.of("bingoEventId", bingoId,
                                 "telemetryFailures", result.telemetryFailures(),
+                                "collectionFailures", result.collectionFailures().toString(),
                                 "processedMatches", result.processedMatches(), "elapsedMs", elapsedMs));
             }
             if (elapsedMs >= slowThreshold.toMillis()) {

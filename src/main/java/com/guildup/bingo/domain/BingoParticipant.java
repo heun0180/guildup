@@ -55,6 +55,7 @@ public class BingoParticipant {
     /** 이 참가자의 저장된 Fact 기반 진행도를 마지막으로 계산한 시각이다. */
     public void aggregated(Instant at) { lastAggregatedAt = at; }
     public Long getId() { return id; }
+    public long getVersion() { return version; }
     public BingoEvent getEvent() { return event; }
     public CommunityUser getCommunityUser() { return communityUser; }
     public CommunityMember getCommunityMember() { return communityMember; }

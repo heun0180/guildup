@@ -20,10 +20,8 @@ public class KillCompetitionWinnerResolver {
                     .map(KillCompetitionParticipant::getCommunityMember).toList();
         }
         Map<Long, Integer> totals = new HashMap<>();
-        competition.getTeams().forEach(team -> totals.put(team.getId(), 0));
-        competition.getParticipants().stream().filter(KillCompetitionParticipant::isApproved)
-                .filter(p -> p.getTeam() != null && p.getFinalPoints() != null)
-                .forEach(p -> totals.merge(p.getTeam().getId(), p.getFinalPoints(), Integer::sum));
+        competition.getTeams().forEach(team -> totals.put(team.getId(),
+                KillCompetitionScoring.teamScore(competition, team, true).points()));
         int max = totals.values().stream().mapToInt(Integer::intValue).max().orElse(0);
         Set<Long> winningTeams = new HashSet<>();
         totals.forEach((teamId, points) -> { if (points == max) winningTeams.add(teamId); });

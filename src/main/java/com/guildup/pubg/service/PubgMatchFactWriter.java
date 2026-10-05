@@ -58,6 +58,9 @@ public class PubgMatchFactWriter {
         PubgStoredMatch stored = matches.findForUpdateByShardAndMatchId(platform.getShard(), matchId).orElseThrow(() ->
                 new IllegalStateException("PUBG source match missing during telemetry fact save: matchId=" + matchId));
         if (!stored.needsTelemetryFactUpgrade()) return new StoredCounts(0, 0);
+        List<String> missing = stored.getPlayers().stream().map(PubgStoredMatchPlayer::getAccountId)
+                .filter(account -> facts.get(account) == null).toList();
+        if (!missing.isEmpty()) throw new IncompleteFactsException("Required player facts missing: matchId=" + matchId + ", accounts=" + missing);
         Instant now = clock.instant();
         Map<String, PubgStoredMatchPlayer> players = stored.getPlayers().stream().collect(
                 java.util.stream.Collectors.toMap(PubgStoredMatchPlayer::getAccountId, value -> value));
@@ -80,4 +83,7 @@ public class PubgMatchFactWriter {
 
     private BigDecimal decimal(double value) { return BigDecimal.valueOf(value); }
     public record StoredCounts(int players, int kills) {}
+    public static final class IncompleteFactsException extends IllegalStateException {
+        public IncompleteFactsException(String message) { super(message); }
+    }
 }
