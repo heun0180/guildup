@@ -37,6 +37,8 @@ public class DiscordOAuthController {
     private final CommunityAccessService access;
     private static final String STATE = "COMMUNITY_DISCORD_STATE";
     private static final String COMMUNITY = "COMMUNITY_DISCORD_ID";
+    private static final String CREATION_USER = "CREATION_DISCORD_USER";
+    private static final String CREATION_RESULT = "CREATION_DISCORD_RESULT";
 
     public DiscordOAuthController(DiscordOAuthService discordOAuthService, CommunityAccessService access) {
         this.access = access;
@@ -62,9 +64,22 @@ public class DiscordOAuthController {
         session.setAttribute(STATE, UriComponentsBuilder.fromUri(discordAuthorizationUri)
                 .build().getQueryParams().getFirst("state"));
         session.setAttribute(COMMUNITY, communityId);
+        session.removeAttribute(CREATION_USER);
+        session.removeAttribute(CREATION_RESULT);
 
         // 응답 본문 없이 Location 헤더의 Discord URL로 브라우저를 이동시킨다.
         return ResponseEntity.status(HttpStatus.FOUND).location(discordAuthorizationUri).build();
+    }
+
+    @GetMapping("/api/community-creation/discord/oauth/authorize")
+    public ResponseEntity<Void> authorizeCreation(HttpSession session) {
+        Long userId = CurrentUserSession.requireUserId(session);
+        URI uri = URI.create(discordOAuthService.createCreationAuthorizationUrl());
+        session.setAttribute(STATE, UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst("state"));
+        session.removeAttribute(COMMUNITY);
+        session.removeAttribute(CREATION_RESULT);
+        session.setAttribute(CREATION_USER, userId);
+        return ResponseEntity.status(HttpStatus.FOUND).location(uri).build();
     }
 
     /**
@@ -80,32 +95,61 @@ public class DiscordOAuthController {
      */
     @GetMapping("/api/discord/oauth/callback")
     public ResponseEntity<Void> callback(
-            @RequestParam String code,
+            @RequestParam(required = false) String code,
             @RequestParam String state,
+            @RequestParam(required = false) String error,
             HttpSession session
     ) {
         Long userId = CurrentUserSession.requireUserId(session);
-        if (!state.equals(session.getAttribute(STATE))
-                || !(session.getAttribute(COMMUNITY) instanceof Long communityId)) {
+        boolean creation = userId.equals(session.getAttribute(CREATION_USER));
+        Long communityId = session.getAttribute(COMMUNITY) instanceof Long id ? id : null;
+        if (!state.equals(session.getAttribute(STATE)) || (!creation && communityId == null)) {
             throw new InvalidDiscordOAuthStateException();
         }
-        access.requireManagementAccess(userId, communityId);
+        if (!creation) access.requireManagementAccess(userId, communityId);
         session.removeAttribute(STATE);
         session.removeAttribute(COMMUNITY);
-        // state로 원래 communityId를 복원하고, code로 Discord 사용자/서버 정보를 조회한다.
-        DiscordOAuthService.OAuthCompletion completion =
-                discordOAuthService.completeAuthorization(code, state);
+        if (error != null || code == null || code.isBlank()) {
+            discordOAuthService.cancelAuthorization(state);
+            return failedCallback(creation, communityId);
+        }
+        DiscordOAuthService.OAuthCompletion completion;
+        try {
+            completion = discordOAuthService.completeAuthorization(code, state);
+        } catch (org.springframework.web.client.RestClientException exception) {
+            com.guildup.monitoring.logging.FailureLogContext.capture(exception);
+            return failedCallback(creation, communityId);
+        }
+        if (creation) session.setAttribute(CREATION_RESULT, completion.resultId());
 
         // 실제 인증 데이터를 URL에 노출하지 않고 임시 결과 식별자(oauthResult)만 전달한다.
-        URI screenUri = UriComponentsBuilder.fromPath("/discord-connect.html")
-                .queryParam("communityId", completion.communityId())
-                .queryParam("oauthResult", completion.resultId())
-                .build()
-                .encode()
-                .toUri();
+        var screen = UriComponentsBuilder.fromPath(creation ? "/community-create.html" : "/discord-connect.html");
+        if (!creation) screen.queryParam("communityId", completion.communityId());
+        URI screenUri = screen.queryParam("oauthResult", completion.resultId()).build().encode().toUri();
 
         // 브라우저를 /discord-connect.html?communityId=...&oauthResult=... 로 이동시킨다.
         return ResponseEntity.status(HttpStatus.FOUND).location(screenUri).build();
+    }
+
+    private ResponseEntity<Void> failedCallback(boolean creation, Long communityId) {
+        var screen = UriComponentsBuilder.fromPath(creation ? "/community-create.html" : "/discord-connect.html");
+        if (!creation) screen.queryParam("communityId", communityId);
+        URI uri = screen.queryParam("oauthError", "discord").build().encode().toUri();
+        return ResponseEntity.status(HttpStatus.FOUND).location(uri).build();
+    }
+
+    public static void requireCreationResult(HttpSession session, String resultId) {
+        Long userId = CurrentUserSession.requireUserId(session);
+        if (!userId.equals(session.getAttribute(CREATION_USER)) || resultId == null
+                || !resultId.equals(session.getAttribute(CREATION_RESULT))) {
+            throw new com.guildup.discord.oauth.exception.DiscordOAuthResultNotFoundException();
+        }
+    }
+
+    @GetMapping("/api/community-creation/discord/oauth/results/{resultId}")
+    public DiscordOAuthResultResponse getCreationResult(@PathVariable String resultId, HttpSession session) {
+        requireCreationResult(session, resultId);
+        return discordOAuthService.getResult(null, resultId);
     }
 
     /**

@@ -4,6 +4,11 @@ package com.guildup.discord.oauth.store;
 public record DiscordBotInstallSession(
         Long communityId,
         String guildId,
-        String guildName
+        String guildName,
+        Long creationUserId,
+        boolean verified
 ) {
+    public DiscordBotInstallSession(Long communityId, String guildId, String guildName) {
+        this(communityId, guildId, guildName, null, false);
+    }
 }

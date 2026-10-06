@@ -13,7 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
 
-/** 로그인 사용자와 Discord 계정이 같은 기존 CommunityMember를 찾는다. */
+/** GuildUp 멤버십의 내부 클랜원 연결을 우선 사용하고 기존 Discord 계정 매칭도 지원한다. */
 @Service
 @Transactional(readOnly = true)
 public class CurrentCommunityMemberService {
@@ -33,7 +33,8 @@ public class CurrentCommunityMemberService {
     }
 
     public Optional<CommunityMember> find(Long userId, Long communityId) {
-        access.requireCommunityMember(userId, communityId);
+        var nativeMember = access.requireCommunityMember(userId, communityId).getCommunityMember();
+        if (nativeMember != null) return Optional.of(nativeMember).filter(member -> member.getStatus() == CommunityMemberStatus.ACTIVE);
         return findWithoutAccessCheck(userId, communityId);
     }
 
@@ -42,8 +43,7 @@ public class CurrentCommunityMemberService {
     }
 
     public CommunityMember requireForUpdate(Long userId, Long communityId) {
-        access.requireCommunityMember(userId, communityId);
-        CommunityMember member = findWithoutAccessCheck(userId, communityId)
+        CommunityMember member = find(userId, communityId)
                 .orElseThrow(this::memberLinkRequired);
         return members.findForUpdate(communityId, member.getId(), CommunityMemberStatus.ACTIVE)
                 .orElseThrow(this::memberLinkRequired);
@@ -63,6 +63,6 @@ public class CurrentCommunityMemberService {
 
     private ResponseStatusException memberLinkRequired() {
         return new ResponseStatusException(HttpStatus.CONFLICT,
-                "로그인한 Discord 계정과 연결된 활성 클랜원이 없습니다. 클랜원 동기화 후 다시 시도해 주세요.");
+                "로그인 사용자와 연결된 활성 클랜원이 없습니다. 커뮤니티의 클랜원 연결을 확인해 주세요.");
     }
 }

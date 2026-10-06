@@ -22,4 +22,13 @@ public interface CommunityUserRepository extends JpaRepository<CommunityUser, Lo
     boolean existsByCommunityIdAndUserId(Long communityId, Long userId);
 
     long countByCommunityId(Long communityId);
+
+    interface MemberCount {
+        Long getCommunityId();
+        Long getMemberCount();
+    }
+
+    @org.springframework.data.jpa.repository.Query("select member.community.id as communityId, count(member) as memberCount "
+            + "from CommunityUser member where member.community.id in :ids group by member.community.id")
+    List<MemberCount> countMembersByCommunityIds(@org.springframework.data.repository.query.Param("ids") List<Long> ids);
 }

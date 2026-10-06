@@ -11,4 +11,7 @@ public interface DiscordBotInstallStore {
 
     /** 설치 확인이 성공한 토큰을 재사용할 수 없도록 제거한다. */
     void removeInstallToken(String installToken);
+
+    /** 생성 전 설치 증명만 표시한다. Community/Discord 연결은 저장하지 않는다. */
+    void markVerified(String installToken);
 }

@@ -86,13 +86,23 @@ public class DiscordCommunityConnectionService {
         }
     }
 
+    /** 생성 전에도 확인한다. 동시 연결은 connect()의 DB UNIQUE 제약이 최종 차단한다. */
+    @Transactional(readOnly = true)
+    public void requireAvailableGuild(String guildId) {
+        if (connectionRepository.findByDiscordGuildId(requireGuildId(guildId)).isPresent()) {
+            throw new DiscordGuildAlreadyConnectedException(guildId);
+        }
+    }
+
     private RuntimeException translateConstraintViolation(
             DataIntegrityViolationException exception,
             String discordGuildId,
             Long communityId
     ) {
         String detail = rootMessage(exception).toLowerCase();
-        if (detail.contains("community_id") || detail.contains("uk_discord_connection_community")) {
+        // JDBC 오류에는 INSERT SQL도 포함된다. SQL의 컬럼 목록을 UNIQUE 대상이라고 오인하지 않는다.
+        if (detail.contains("uk_discord_connection_community")
+                || java.util.regex.Pattern.compile("\\(community_id(?:\\)|\\s)").matcher(detail).find()) {
             return new DiscordCommunityConnectionConflictException(communityId);
         }
         return new DiscordGuildAlreadyConnectedException(discordGuildId);

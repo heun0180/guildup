@@ -7,10 +7,14 @@ export default function CommunityRouteGuard({ children }) {
   const location = useLocation();
   const { communityId, validId, community, loading, error } = useCommunity();
   const requiredRoles = requiredRolesForLocation(location.pathname, location.search);
+  const discordRequired = new Set(["/discord-dm.html", "/discord-voice-activity.html", "/discord-member-role-settings.html", "/game-nickname-settings.html"])
+    .has(location.pathname) || (location.pathname === "/members.html"
+      && new URLSearchParams(location.search).get("discordRoles") === "true");
   const state = !validId ? "invalid"
     : loading ? "loading"
     : error ? "error"
     : requiredRoles && !requiredRoles.has(community?.role) ? "forbidden"
+    : discordRequired && !community?.discordConnected ? "disconnected"
     : "allowed";
 
   if (state === "allowed") return children;
@@ -19,11 +23,14 @@ export default function CommunityRouteGuard({ children }) {
     invalid: "올바른 커뮤니티를 선택해 주세요.",
     forbidden: "OWNER 또는 ADMIN만 이 화면에 접근할 수 있습니다.",
     error: "커뮤니티 권한을 확인하지 못했습니다.",
+    disconnected: "Discord가 연결되지 않았습니다. Discord를 연결하면 멤버 동기화와 역할 연동 등 추가 기능을 사용할 수 있습니다.",
   };
   return <section className="public-main login-main">
     <section className="login-card">
       <h1>{state === "forbidden" ? "접근 권한이 없습니다." : "페이지를 열 수 없습니다."}</h1>
       <p className="login-description">{messages[state]}</p>
+      {state === "disconnected" && <AppLink className="button-link"
+        href={`/discord-connect.html?communityId=${encodeURIComponent(communityId)}`}>Discord 연결하기</AppLink>}
       {state !== "loading" && <AppLink href={validId
         ? `/community-dashboard.html?communityId=${encodeURIComponent(communityId)}`
         : "/communities.html"}>커뮤니티로 돌아가기</AppLink>}

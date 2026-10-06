@@ -29,6 +29,15 @@ public class Community {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "creation_request_key", unique = true, length = 100, updatable = false)
+    private String creationRequestKey;
+
+    @Column(name = "creation_request_hash", length = 64, updatable = false)
+    private String creationRequestHash;
+
+    @Column(name = "invite_code", unique = true, length = 36)
+    private String inviteCode;
+
     @Enumerated(EnumType.STRING)
     @ColumnDefault("'ALL_TIME'")
     @Column(name = "ranking_period_type", nullable = false, length = 20)
@@ -47,6 +56,24 @@ public class Community {
     /** 새 커뮤니티를 이름으로 생성한다. */
     public Community(String name) {
         this.name = name;
+        this.inviteCode = java.util.UUID.randomUUID().toString();
+    }
+
+    public Community(String name, String creationRequestKey, String creationRequestHash) {
+        this(name);
+        this.creationRequestKey = creationRequestKey;
+        this.creationRequestHash = creationRequestHash;
+    }
+
+    public String getCreationRequestHash() { return creationRequestHash; }
+    public boolean isFinalizedCreation() { return creationRequestKey != null; }
+
+    public String getInviteCode() { return inviteCode; }
+
+    /** 기존 커뮤니티는 운영자가 초대 코드를 요청했을 때만 발급한다. */
+    public String ensureInviteCode() {
+        if (inviteCode == null) inviteCode = java.util.UUID.randomUUID().toString();
+        return inviteCode;
     }
 
     public Long getId() {

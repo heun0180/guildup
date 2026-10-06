@@ -62,7 +62,8 @@ export function GeneralHelpPage() {
       <HelpSteps items={["Discord 계정으로 로그인", "내 커뮤니티를 선택하거나 가입 가능한 커뮤니티에 가입", "커뮤니티 대시보드 입장", "출석과 랭킹 등 GuildUp 공통 기능 이용", "커뮤니티가 지원하는 게임별 기능 이용"]} />
     </HelpSection>
     <HelpSection title="로그인과 커뮤니티">
-      <p>GuildUp은 Discord 계정으로 로그인합니다. 로그인 후에는 이미 참여 중인 커뮤니티를 선택하거나, 연결된 Discord 서버의 멤버로 확인된 커뮤니티에 가입할 수 있습니다. 새 커뮤니티를 직접 만들 수도 있습니다.</p>
+      <p>GuildUp은 Discord 계정으로 로그인합니다. 로그인 후 내 커뮤니티에 입장하거나 초대 코드로 참여할 수 있습니다. 연결된 Discord 서버에서 가입 가능한 커뮤니티를 찾아 참여할 수도 있습니다.</p>
+      <p>직접 운영하는 커뮤니티는 기본 정보 입력, 선택적인 Discord 연결, 최종 확인을 거쳐 만들 수 있습니다. Discord 없이도 커뮤니티를 이용할 수 있으며, 커뮤니티 설정이나 연동 기능에서 나중에 연결할 수 있습니다.</p>
     </HelpSection>
   </HelpLayout>;
 }

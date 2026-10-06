@@ -62,4 +62,22 @@ public class DiscordBotInstallController {
         access.requireManagementAccess(userId, installation.communityId());
         return botInstallService.confirmInstallation(request.installToken());
     }
+
+    @PostMapping("/api/community-creation/discord/bot-install/authorize")
+    public DiscordBotInstallStartResponse prepareCreation(@RequestBody DiscordBotInstallStartRequest request,
+                                                          HttpSession session) {
+        DiscordOAuthController.requireCreationResult(session, request.oauthResultId());
+        return botInstallService.prepareCreationInstallation(CurrentUserSession.requireUserId(session),
+                request.oauthResultId(), request.guildId());
+    }
+
+    @PostMapping("/api/community-creation/discord/bot-install/confirm")
+    public CreationInstallationResponse confirmCreation(@RequestBody DiscordBotInstallConfirmRequest request,
+                                                        HttpSession session) {
+        var installation = botInstallService.confirmCreationInstallation(
+                CurrentUserSession.requireUserId(session), request.installToken());
+        return new CreationInstallationResponse(request.installToken(), installation.guildName());
+    }
+
+    public record CreationInstallationResponse(String installToken, String guildName) { }
 }

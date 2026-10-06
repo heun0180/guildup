@@ -6,7 +6,7 @@ import com.guildup.discord.oauth.dto.DiscordManageableGuildResponse;
 /** OAuth 요청 검증용 state와 인증 완료 결과를 임시 보관하는 저장소 규약이다. */
 public interface DiscordOAuthSessionStore {
 
-    /** 인증을 시작한 커뮤니티에 연결된 일회용 state를 만든다. */
+    /** 인증을 시작한 커뮤니티에 연결된 일회용 state를 만든다. null은 생성 전 흐름이며 HTTP 세션에 바인딩한다. */
     String createState(Long communityId);
 
     /** 콜백의 state를 한 번만 사용하고 원래 커뮤니티 ID를 반환한다. */

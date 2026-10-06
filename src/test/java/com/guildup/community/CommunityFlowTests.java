@@ -121,7 +121,7 @@ class CommunityFlowTests {
 
     @Test
     void createsCommunityAndLinksSessionUserAsOwner() throws Exception {
-        mvc.perform(post("/api/communities").session(session).contentType("application/json")
+        mvc.perform(post("/api/communities").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).session(session).contentType("application/json")
                         .content("{\"name\":\"  치즈 클랜  \",\"gameType\":\"BATTLEGROUNDS_KAKAO\",\"userId\":" + other.getId() + "}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.name").value("치즈 클랜"))
@@ -138,7 +138,7 @@ class CommunityFlowTests {
 
     @Test
     void createsSteamCommunityWithSelectedGame() throws Exception {
-        mvc.perform(post("/api/communities").session(session).contentType("application/json")
+        mvc.perform(post("/api/communities").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).session(session).contentType("application/json")
                         .content("{\"name\":\"스팀 클랜\",\"gameType\":\"BATTLEGROUNDS_STEAM\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.gameType").value("BATTLEGROUNDS_STEAM"))
@@ -220,10 +220,10 @@ class CommunityFlowTests {
 
     @Test
     void rejectsMissingAndUnsupportedGameTypes() throws Exception {
-        mvc.perform(post("/api/communities").session(session).contentType("application/json")
+        mvc.perform(post("/api/communities").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).session(session).contentType("application/json")
                         .content("{\"name\":\"게임 없음\"}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/communities").session(session).contentType("application/json")
+        mvc.perform(post("/api/communities").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).session(session).contentType("application/json")
                         .content("{\"name\":\"잘못된 게임\",\"gameType\":\"PUBG\"}"))
                 .andExpect(status().isBadRequest());
 
@@ -263,7 +263,7 @@ class CommunityFlowTests {
 
     @Test
     void rejectsInvalidCommunityNames() throws Exception {
-        mvc.perform(post("/api/communities").session(session).contentType("application/json")
+        mvc.perform(post("/api/communities").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).session(session).contentType("application/json")
                 .content("{\"name\":\"  \"}")).andExpect(status().isBadRequest());
         assertThat(communities.count()).isZero();
     }
@@ -974,6 +974,337 @@ class CommunityFlowTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.configured").value(false));
         verifyNoInteractions(jda);
+    }
+
+
+    @Test
+    void creationOAuthCancellationAndApiFailureNeverCreateCommunity() throws Exception {
+        String state = creationState();
+        assertNoCreation();
+        mvc.perform(get("/api/discord/oauth/callback").session(session).param("state", state)
+                        .param("error", "access_denied"))
+                .andExpect(status().isFound()).andExpect(header().string("Location",
+                        org.hamcrest.Matchers.startsWith("/community-create.html")));
+        assertNoCreation();
+        verifyNoInteractions(discord);
+        state = creationState();
+        org.mockito.Mockito.when(discord.exchangeCode("failed"))
+                .thenThrow(new org.springframework.web.client.ResourceAccessException("OAuth unavailable"));
+        mvc.perform(get("/api/discord/oauth/callback").session(session).param("state", state).param("code", "failed"))
+                .andExpect(status().isFound()).andExpect(header().string("Location",
+                        org.hamcrest.Matchers.containsString("oauthError=discord")));
+        assertNoCreation();
+    }
+
+    @Test
+    void verifiesCreationDiscordWithoutInsertingUntilFinalRequestAndReplaysAfterTokenRemoval() throws Exception {
+        String result = creationOAuthResult();
+        mockGuild("123456");
+        String installation = prepareCreation(result, true);
+        assertNoCreation(); // OAuth/봇 설치 완료 후 이탈해도 영구 데이터가 없다.
+        String requestId = java.util.UUID.randomUUID().toString();
+        String body = creationBody(installation);
+        String first = finalCreation(requestId, body);
+        assertThat(communities.count()).isEqualTo(1);
+        assertThat(connections.count()).isEqualTo(1);
+        assertThat(memberships.findByUserIdOrderByCommunityIdAsc(user.getId()).getFirst().getRole())
+                .isEqualTo(CommunityUserRole.OWNER);
+        installs.removeInstallToken(installation); // 재시작/만료 후 성공 요청을 다시 보내도 기존 결과 반환
+        assertThat(finalCreation(requestId, body)).isEqualTo(first);
+        assertThat(communities.count()).isEqualTo(1);
+        assertThat(connections.count()).isEqualTo(1);
+    }
+
+    @Test
+    void failedBotInstallationCanRetryAndStillDoesNotCreateBeforeFinalConfirmation() throws Exception {
+        String result = creationOAuthResult();
+        String installation = prepareCreation(result, false);
+        mvc.perform(post("/api/community-creation/discord/bot-install/confirm").session(session)
+                        .contentType("application/json").content("{\"installToken\":\"" + installation + "\"}"))
+                .andExpect(status().isConflict());
+        assertNoCreation();
+        mvc.perform(post("/api/communities").session(session).header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                        .contentType("application/json").content(creationBody(installation)))
+                .andExpect(status().isBadRequest()); // 미검증 토큰은 최종 생성에도 사용할 수 없음
+        assertNoCreation();
+        mockGuild("123456");
+        mvc.perform(post("/api/community-creation/discord/bot-install/confirm").session(session)
+                        .contentType("application/json").content("{\"installToken\":\"" + installation + "\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.guildName").value("Cheeeze"));
+        assertNoCreation();
+        finalCreation(java.util.UUID.randomUUID().toString(), creationBody(installation));
+        assertThat(connections.count()).isEqualTo(1);
+    }
+
+    @Test
+    void draftOAuthResultAndInstallationCannotBeUsedByAnotherSessionOrUser() throws Exception {
+        String result = creationOAuthResult();
+        MockHttpSession stranger = new MockHttpSession();
+        stranger.setAttribute("LOGIN_USER_ID", other.getId());
+        mvc.perform(get("/api/community-creation/discord/oauth/results/" + result).session(stranger))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/community-creation/discord/bot-install/authorize").session(stranger)
+                        .contentType("application/json").content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isNotFound());
+        mockGuild("123456");
+        String installation = prepareCreation(result, true);
+        mvc.perform(post("/api/community-creation/discord/bot-install/confirm").session(stranger)
+                        .contentType("application/json").content("{\"installToken\":\"" + installation + "\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/communities").session(stranger).header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                        .contentType("application/json").content(creationBody(installation)))
+                .andExpect(status().isBadRequest());
+        assertNoCreation();
+    }
+
+    @Test
+    void duplicateDiscordGuildIsBlockedDuringPreparationAndFinalCreation() throws Exception {
+        String result = creationOAuthResult();
+        mockGuild("123456");
+        String installation = prepareCreation(result, true);
+        Community existing = service.createCommunity("기존 클랜", other.getId());
+        connections.save(new DiscordCommunityConnection(existing, "123456", "Cheeeze"));
+        mvc.perform(post("/api/community-creation/discord/guild-selection/inspect").session(session)
+                        .contentType("application/json").content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alreadyConnected").value(true))
+                .andExpect(jsonPath("$.communityName").value("기존 클랜"));
+        mvc.perform(post("/api/community-creation/discord/bot-install/authorize").session(session)
+                        .contentType("application/json").content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.communityName").value("기존 클랜"));
+        mvc.perform(post("/api/communities").session(session).header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                        .contentType("application/json").content(creationBody(installation)))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("DISCORD_GUILD_ALREADY_CONNECTED"));
+        assertThat(communities.count()).isEqualTo(1);
+        assertThat(memberships.findByUserIdOrderByCommunityIdAsc(user.getId())).isEmpty();
+    }
+
+    @Test
+    void finalConnectionInsertFailureRollsBackCommunityGameAndOwner() throws Exception {
+        mockGuild("123456");
+        String installation = prepareCreation(creationOAuthResult(), true);
+        jdbc.execute("ALTER TABLE discord_community_connections ADD CONSTRAINT reject_creation_guild CHECK (discord_guild_id <> '123456')");
+        try {
+            mvc.perform(post("/api/communities").session(session).header("Idempotency-Key", java.util.UUID.randomUUID().toString())
+                            .contentType("application/json").content(creationBody(installation)))
+                    .andExpect(status().isConflict());
+            assertNoCreation();
+        } finally {
+            jdbc.execute("ALTER TABLE discord_community_connections DROP CONSTRAINT reject_creation_guild");
+        }
+    }
+
+    @Test
+    void finalCreationRequiresRequestKeyAndRejectsChangedPayloadOnReplay() throws Exception {
+        mvc.perform(post("/api/communities").session(session).contentType("application/json").content(creationBody(null)))
+                .andExpect(status().isBadRequest());
+        assertNoCreation();
+        String key = java.util.UUID.randomUUID().toString();
+        String created = finalCreation(key, creationBody(null));
+        assertThat(finalCreation(key, creationBody(null))).isEqualTo(created);
+        mvc.perform(post("/api/communities").session(session).header("Idempotency-Key", key)
+                        .contentType("application/json").content(creationBody(null).replace("치즈 클랜", "다른 클랜")))
+                .andExpect(status().isConflict());
+        assertThat(communities.count()).isEqualTo(1);
+        verifyNoInteractions(jda, discord);
+    }
+
+    @Test
+    void concurrentFinalRequestsCreateExactlyOneCommunityAndOwner() throws Exception {
+        var request = new com.guildup.community.dto.CommunityCreateRequest("동시 생성", GameType.BATTLEGROUNDS_KAKAO, null);
+        String key = java.util.UUID.randomUUID().toString();
+        var start = new java.util.concurrent.CyclicBarrier(2);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Long> create = () -> { start.await(); return service.createCommunity(request, key, user.getId()).getId(); };
+            var first = executor.submit(create);
+            var second = executor.submit(create);
+            assertThat(first.get(10, java.util.concurrent.TimeUnit.SECONDS))
+                    .isEqualTo(second.get(10, java.util.concurrent.TimeUnit.SECONDS));
+        }
+        assertThat(communities.count()).isEqualTo(1);
+        assertThat(memberships.count()).isEqualTo(1);
+        assertThat(communityGames.count()).isEqualTo(1);
+        assertThat(communityMembers.count()).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentCommunitiesCannotConnectTheSameDiscordGuild() throws Exception {
+        mockGuild("123456");
+        String firstToken = installs.createInstallToken(new DiscordBotInstallSession(null, "123456", "Cheeeze", user.getId(), true));
+        String secondToken = installs.createInstallToken(new DiscordBotInstallSession(null, "123456", "Cheeeze", other.getId(), true));
+        var start = new java.util.concurrent.CyclicBarrier(2);
+        try (var executor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> racingCreation(start, user.getId(), firstToken));
+            var second = executor.submit(() -> racingCreation(start, other.getId(), secondToken));
+            assertThat(java.util.List.of(first.get(10, java.util.concurrent.TimeUnit.SECONDS), second.get(10, java.util.concurrent.TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("created", "duplicate");
+        }
+        assertThat(communities.count()).isEqualTo(1);
+        assertThat(connections.count()).isEqualTo(1);
+        assertThat(memberships.count()).isEqualTo(1);
+    }
+
+    @Test
+    void invitationJoiningAndDashboardWorkWithoutDiscordAndJoiningIsIdempotent() throws Exception {
+        Community community = service.createCommunity("Discord 없는 클랜", user.getId());
+        String code = service.getInvitation(user.getId(), community.getId());
+        MockHttpSession member = new MockHttpSession();
+        member.setAttribute("LOGIN_USER_ID", other.getId());
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(post("/api/communities/join-by-invitation").session(member).contentType("application/json")
+                            .content("{\"inviteCode\":\"" + code + "\"}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.role").value("MEMBER"));
+        }
+        mvc.perform(get("/api/communities/" + community.getId()).session(member))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.discordConnected").value(false));
+        mvc.perform(post("/api/communities/" + community.getId() + "/attendance").session(member))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.scoreAdded").value(1));
+        mvc.perform(get("/api/auth/me/communities").session(member))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].memberCount").value(2));
+        mvc.perform(post("/api/communities/" + community.getId() + "/invitation").session(member))
+                .andExpect(status().isForbidden());
+        assertThat(memberships.countByCommunityId(community.getId())).isEqualTo(2);
+        assertThat(connections.count()).isZero();
+        verifyNoInteractions(jda, discord);
+    }
+
+    @Test
+    void disconnectedCommunityKeepsGuildUpFeaturesAccessible() throws Exception {
+        Community community = service.createCommunity(new com.guildup.community.dto.CommunityCreateRequest(
+                "독립 커뮤니티", GameType.BATTLEGROUNDS_KAKAO, null), java.util.UUID.randomUUID().toString(), user.getId());
+        String base = "/api/communities/" + community.getId();
+        for (String suffix : new String[]{"/members", "/notices", "/events", "/posts", "/rankings", "/attendance/me"}) {
+            mvc.perform(get(base + suffix).session(session)).andExpect(status().isOk());
+        }
+        for (String suffix : new String[]{"/bingos", "/kill-competitions", "/activities"}) {
+            mvc.perform(get(gameBase(community) + suffix).session(session)).andExpect(status().isOk());
+        }
+        mvc.perform(post(base + "/attendance").session(session)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.scoreAdded").value(1));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh("kakao", java.util.List.of("CheezePlayer")))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer("account-native", "CheezePlayer", java.util.List.of())));
+        mvc.perform(put(gameBase(community) + "/pubg-account/me").session(session).contentType("application/json")
+                        .content("{\"nickname\":\"CheezePlayer\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accountId").value("account-native"));
+        String kill = mvc.perform(post(gameBase(community) + "/kill-competitions").session(session).contentType("application/json")
+                        .content("{\"title\":\"Discord 없는 킬내기\",\"gameMode\":\"SOLO\",\"endsAt\":\""
+                                + java.time.Instant.now().plusSeconds(3600) + "\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Long killId = new com.fasterxml.jackson.databind.ObjectMapper().readTree(kill).get("id").asLong();
+        mvc.perform(post(gameBase(community) + "/kill-competitions/" + killId + "/participants/me").session(session))
+                .andExpect(status().isOk());
+        assertThat(connections.count()).isZero();
+        verifyNoInteractions(jda, discord);
+        service.deleteCommunity(user.getId(), community.getId());
+    }
+
+    @Test
+    void laterDiscordMemberSyncReusesNativeMemberAndKeepsAttendance() throws Exception {
+        userExternalAccounts.save(new com.guildup.user.domain.UserExternalAccount(
+                user, com.guildup.account.domain.ExternalAccountProvider.DISCORD, "999", "operator"));
+        Community community = service.createCommunity(new com.guildup.community.dto.CommunityCreateRequest(
+                "나중에 연결", GameType.BATTLEGROUNDS_KAKAO, null), java.util.UUID.randomUUID().toString(), user.getId());
+        Long memberId = memberships.findByCommunityIdAndUserId(community.getId(), user.getId()).orElseThrow()
+                .getCommunityMember().getId();
+        mvc.perform(post("/api/communities/" + community.getId() + "/attendance").session(session)).andExpect(status().isOk());
+        connections.save(new DiscordCommunityConnection(community, "123456", "Cheeeze"));
+        var guild = mockGuild("123456");
+        var role = mockRole("456", "클랜원", 1);
+        org.mockito.Mockito.when(guild.getRoles()).thenReturn(java.util.List.of(role));
+        loadMembers(guild, mockDiscordMember("999", "operator", "운영자", role));
+        memberRoleSettings.save(new CommunityMemberRoleSetting(community, "456", "클랜원"));
+        mvc.perform(post("/api/communities/" + community.getId() + "/members/sync").session(session)).andExpect(status().isOk());
+        assertThat(communityMembers.findByCommunityIdAndStatusOrderByIdAsc(community.getId(), CommunityMemberStatus.ACTIVE))
+                .extracting(CommunityMember::getId).containsExactly(memberId);
+        mvc.perform(get("/api/communities/" + community.getId() + "/attendance/me").session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.attended").value(true));
+    }
+
+    @Test
+    void directGameAccountRegistrationRejectsDuplicatesAndKeepsPubgPlatformsSeparate() throws Exception {
+        Community community = service.createCommunity(new com.guildup.community.dto.CommunityCreateRequest(
+                "게임 계정", GameType.BATTLEGROUNDS_KAKAO, null), java.util.UUID.randomUUID().toString(), user.getId());
+        var steam = communityGames.save(new CommunityGame(community, GameType.BATTLEGROUNDS_STEAM));
+        var otherMember = communityMembers.save(new CommunityMember(community, "다른 플레이어"));
+        memberAccounts.save(new CommunityMemberAccount(otherMember, PubgPlatform.KAKAO, "account-shared", "CheezePlayer"));
+        org.mockito.Mockito.when(pubgPlayerService.findByNamesFresh(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq(java.util.List.of("CheezePlayer"))))
+                .thenReturn(java.util.List.of(new com.guildup.pubg.model.PubgPlayer("account-shared", "CheezePlayer", java.util.List.of())));
+        mvc.perform(put(gameBase(community) + "/pubg-account/me").session(session).contentType("application/json")
+                        .content("{\"nickname\":\"CheezePlayer\"}"))
+                .andExpect(status().isConflict());
+        String steamPath = "/api/communities/" + community.getId() + "/games/" + steam.getId() + "/pubg-account/me";
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(put(steamPath).session(session).contentType("application/json").content("{\"nickname\":\"CheezePlayer\"}"))
+                    .andExpect(status().isOk());
+        }
+        assertThat(memberAccounts.findByCommunityIdAndProviderAndPlatform(community.getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.STEAM)).hasSize(1);
+        assertThat(memberAccounts.findByCommunityIdAndProviderAndPlatform(community.getId(),
+                com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO)).hasSize(1);
+        MockHttpSession stranger = new MockHttpSession();
+        stranger.setAttribute("LOGIN_USER_ID", other.getId());
+        mvc.perform(put(steamPath).session(stranger).contentType("application/json").content("{\"nickname\":\"CheezePlayer\"}"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(jda, discord);
+    }
+
+    private String racingCreation(java.util.concurrent.CyclicBarrier start, Long userId, String token) throws Exception {
+        start.await();
+        try {
+            service.createCommunity(new com.guildup.community.dto.CommunityCreateRequest("동시 연결", GameType.BATTLEGROUNDS_KAKAO, token),
+                    java.util.UUID.randomUUID().toString(), userId);
+            return "created";
+        } catch (com.guildup.community.exception.DiscordGuildAlreadyConnectedException exception) {
+            return "duplicate";
+        }
+    }
+
+    private String creationState() throws Exception {
+        String location = mvc.perform(get("/api/community-creation/discord/oauth/authorize").session(session))
+                .andExpect(status().isFound()).andReturn().getResponse().getHeader("Location");
+        return UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("state");
+    }
+
+    private String creationOAuthResult() throws Exception {
+        String state = creationState();
+        org.mockito.Mockito.when(discord.exchangeCode("creation-code")).thenReturn(
+                new com.guildup.discord.oauth.client.dto.DiscordAccessTokenResponse("creation-token", "Bearer", 3600, "identify guilds"));
+        org.mockito.Mockito.when(discord.getCurrentUser("creation-token")).thenReturn(
+                new com.guildup.discord.oauth.client.dto.DiscordApiUser("999", "user", "User", null));
+        org.mockito.Mockito.when(discord.getCurrentUserGuilds("creation-token")).thenReturn(java.util.List.of(
+                new com.guildup.discord.oauth.client.dto.DiscordApiGuild("123456", "Cheeeze", null, true, "0")));
+        String location = mvc.perform(get("/api/discord/oauth/callback").session(session).param("state", state).param("code", "creation-code"))
+                .andExpect(status().isFound()).andReturn().getResponse().getHeader("Location");
+        String result = UriComponentsBuilder.fromUriString(location).build().getQueryParams().getFirst("oauthResult");
+        mvc.perform(get("/api/community-creation/discord/oauth/results/" + result).session(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.guilds[0].id").value("123456"));
+        return result;
+    }
+
+    private String prepareCreation(String result, boolean installed) throws Exception {
+        String body = mvc.perform(post("/api/community-creation/discord/bot-install/authorize").session(session)
+                        .contentType("application/json").content("{\"oauthResultId\":\"" + result + "\",\"guildId\":\"123456\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.alreadyInstalled").value(installed))
+                .andReturn().getResponse().getContentAsString();
+        return new com.fasterxml.jackson.databind.ObjectMapper().readTree(body).get("installToken").asText();
+    }
+
+    private String finalCreation(String key, String body) throws Exception {
+        return mvc.perform(post("/api/communities").session(session).header("Idempotency-Key", key)
+                        .contentType("application/json").content(body))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+    }
+
+    private String creationBody(String token) {
+        return "{\"name\":\"치즈 클랜\",\"gameType\":\"BATTLEGROUNDS_KAKAO\",\"discordInstallToken\":"
+                + (token == null ? "null" : "\"" + token + "\"") + "}";
+    }
+
+    private void assertNoCreation() {
+        assertThat(communities.count()).isZero();
+        assertThat(memberships.count()).isZero();
+        assertThat(communityGames.count()).isZero();
+        assertThat(connections.count()).isZero();
+        assertThat(communityMembers.count()).isZero();
     }
 
     private net.dv8tion.jda.api.entities.Guild mockGuild(String id) {

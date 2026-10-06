@@ -72,6 +72,12 @@ public class DiscordOAuthExceptionHandler {
         return conflict("아직 GuildUp 봇 설치를 확인할 수 없습니다. Discord 서버에 봇을 추가한 후 설치 확인을 다시 눌러주세요.");
     }
 
+    @ExceptionHandler(InvalidDiscordBotInstallTokenException.class)
+    public ResponseEntity<DiscordOAuthErrorResponse> handleInvalidInstallToken(InvalidDiscordBotInstallTokenException exception) {
+        return ResponseEntity.badRequest().body(new DiscordOAuthErrorResponse(HttpStatus.BAD_REQUEST.value(),
+                "Discord 설치 확인 정보가 만료되었거나 올바르지 않습니다. 이전 단계에서 Discord를 다시 연결하거나 나중에 연결하기를 선택해 주세요."));
+    }
+
     private ResponseEntity<DiscordOAuthErrorResponse> conflict(String message) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new DiscordOAuthErrorResponse(HttpStatus.CONFLICT.value(), message));

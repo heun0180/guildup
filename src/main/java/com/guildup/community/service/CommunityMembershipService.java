@@ -88,7 +88,17 @@ public class CommunityMembershipService {
     ) {
         access.requireManagementAccess(userId, sourceCommunityId);
         var selectedGuild = oauthResults.getSelectedGuild(sourceCommunityId, oauthResultId, guildId);
-        return connections.findByDiscordGuildId(selectedGuild.id())
+        return inspectGuild(userId, selectedGuild.id());
+    }
+
+    @Transactional(readOnly = true)
+    public DiscordGuildSelectionResponse inspectCreation(Long userId, String resultId, String guildId) {
+        var selected = oauthResults.getSelectedGuild(null, resultId, guildId);
+        return inspectGuild(userId, selected.id());
+    }
+
+    private DiscordGuildSelectionResponse inspectGuild(Long userId, String guildId) {
+        return connections.findByDiscordGuildId(guildId)
                 .map(connection -> {
                     var community = connection.getCommunity();
                     return new DiscordGuildSelectionResponse(
@@ -235,6 +245,7 @@ public class CommunityMembershipService {
         if (sourceId.equals(targetCommunityId) || sourceMembership.getRole() != CommunityUserRole.OWNER) return;
         var source = communities.findForUpdate(sourceId).orElse(null);
         if (source == null
+                || source.isFinalizedCreation()
                 || memberships.countByCommunityId(source.getId()) != 1
                 || connections.findByCommunityId(source.getId()).isPresent()
                 || source.getCreatedAt().isBefore(Instant.now().minus(NEW_COMMUNITY_WINDOW))) {

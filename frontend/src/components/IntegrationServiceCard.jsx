@@ -57,8 +57,8 @@ export default function IntegrationServiceCard({
       ) : (
         <div className="integration-disconnected-state">
           <div>
-            <h3>{name}가 아직 연결되지 않았습니다.</h3>
-            <p>외부 서비스의 기능을 사용하려면 먼저 연결을 완료해 주세요.</p>
+            <h3>{name}가 연결되지 않았습니다.</h3>
+            <p>{name === "Discord" ? "Discord를 연결하면 멤버 동기화와 역할 연동 등 추가 기능을 사용할 수 있습니다. Discord가 없어도 GuildUp 커뮤니티는 정상적으로 이용할 수 있습니다." : "외부 서비스의 기능을 사용하려면 먼저 연결을 완료해 주세요."}</p>
           </div>
           <a className="button-link" href={connectHref}>
             {name} 연결하기 <Icon name="arrow" size={17} />

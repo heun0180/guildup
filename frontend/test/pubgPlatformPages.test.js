@@ -17,7 +17,8 @@ await build({ entryPoints: ["src/App.jsx"], outfile: output, bundle: true, platf
 const { default: App } = await import(pathToFileURL(output));
 after(() => rm(temp, { recursive: true, force: true }));
 
-const community = (id) => ({ id, name: "플랫폼 테스트", role: "OWNER", discordConnected: id === 107, games: [
+const community = (id, path) => ({ id, name: "플랫폼 테스트", role: "OWNER", discordConnected: id === 107
+  || ["/community-settings.html", "/game-nickname-settings.html"].includes(path), games: [
   { communityGameId: 10, gameType: "BATTLEGROUNDS_KAKAO", gameName: "PUBG Kakao", capabilities: ["BINGO", "KILL_COMPETITION", "TEAM_MAKER", "ACTIVITY", "NICKNAME_SYNC"] },
   { communityGameId: 20, gameType: "BATTLEGROUNDS_STEAM", gameName: "PUBG Steam", capabilities: ["BINGO", "KILL_COMPETITION", "TEAM_MAKER", "ACTIVITY", "NICKNAME_SYNC"] },
 ] });
@@ -35,7 +36,7 @@ async function mount(path, id, handle, strict = false, competitionId = null) {
   const requests = [];
   globalThis.fetch = async (url, options) => {
     requests.push({ url, options });
-    if (url === `/api/communities/${id}`) return response(community(id));
+    if (url === `/api/communities/${id}`) return response(community(id, path));
     if (url === "/api/auth/me") return response({ nickname: "테스트" });
     if (url === "/api/auth/csrf") return response({ token: "session-token" });
     return handle(url, options);

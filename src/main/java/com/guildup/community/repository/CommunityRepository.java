@@ -11,6 +11,8 @@ import java.util.Optional;
 
 /** 커뮤니티 엔티티를 저장하고 조회하는 Spring Data 저장소다. */
 public interface CommunityRepository extends JpaRepository<Community, Long> {
+    Optional<Community> findByCreationRequestKey(String creationRequestKey);
+    Optional<Community> findByInviteCode(String inviteCode);
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select community from Community community where community.id = :id")
     Optional<Community> findForUpdate(@Param("id") Long id);

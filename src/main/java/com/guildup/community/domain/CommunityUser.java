@@ -44,6 +44,12 @@ public class CommunityUser {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private User user;
 
+    /** GuildUp 자체 기능용 선택적 클랜원 연결. Discord 계정/서버 없이도 사용할 수 있다. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "community_member_id", unique = true)
+    @OnDelete(action = OnDeleteAction.SET_NULL)
+    private CommunityMember communityMember;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private CommunityUserRole role;
@@ -70,6 +76,15 @@ public class CommunityUser {
 
     public User getUser() {
         return user;
+    }
+
+    public CommunityMember getCommunityMember() { return communityMember; }
+
+    public void linkCommunityMember(CommunityMember member) {
+        if (!community.getId().equals(member.getCommunity().getId())) {
+            throw new IllegalArgumentException("Member must belong to the same community");
+        }
+        this.communityMember = member;
     }
 
     public CommunityUserRole getRole() {

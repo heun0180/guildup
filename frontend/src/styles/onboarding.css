@@ -1,0 +1,135 @@
+/* Public onboarding shares GuildUp's existing colors and controls. */
+.onboarding-page .communities-main,
+.onboarding-page .community-create-main { width: min(100% - 48px, 600px); max-width: 600px; padding: 72px 0 80px; }
+.onboarding-heading { margin-bottom: 36px; }
+.onboarding-heading h1 { font-size: clamp(1.6rem, 3vw, 1.9rem); line-height: 1.4; letter-spacing: -0.045em; }
+.onboarding-heading h1:focus, .onboarding-stage-title:focus { outline: none; }
+.onboarding-heading p { margin-top: 12px; font-size: 0.9375rem; line-height: 1.75; }
+.community-create-main .onboarding-heading { text-align: center; }
+.onboarding-page .message { border: 0; }
+.onboarding-page .text-button { display: inline-flex; min-height: 44px; margin: 0; align-items: center; padding: 0 12px; font-weight: 650; }
+.onboarding-page .site-header .text-button { flex: 0 0 auto; white-space: nowrap; }
+
+.communities-main .community-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin: 0; }
+.communities-main .community-card { display: flex; min-height: 104px; flex-direction: row; align-items: center; gap: 18px; border: 0; padding: 24px; color: var(--color-text); text-decoration: none; box-shadow: var(--shadow-card); transition: background-color 150ms ease; }
+.communities-main a.community-card:hover { transform: none; background: var(--color-primary-soft); box-shadow: var(--shadow-card); }
+.communities-main .community-card-mark { width: 48px; height: 48px; border-radius: 14px; background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.community-card-copy { flex: 1; min-width: 0; }
+.communities-main .community-card h2 { font-size: 1.0625rem; }
+.community-card-copy p { margin-top: 5px; font-size: 0.8125rem; overflow-wrap: anywhere; }
+.communities-main .community-card-link { flex: 0 0 auto; min-height: 44px; margin: 0; font-size: 0.8125rem; }
+.community-create-link { display: flex; min-height: 64px; align-items: center; justify-content: center; margin-top: 4px; border: 1px dashed var(--color-border-strong); border-radius: var(--radius-card); color: var(--color-text-secondary); font-size: 0.875rem; font-weight: 650; text-decoration: none; }
+.community-create-link:hover { border-color: var(--color-primary); color: var(--color-primary-dark); }
+.communities-main .community-secondary-actions { margin-top: 28px; border: 0; padding: 0; text-align: center; }
+.communities-main .community-secondary-actions > p { margin: 0; font-size: 0.8125rem; }
+.community-secondary-actions > .text-button { margin-top: 4px; color: var(--color-primary-dark); }
+.communities-main .invitation-form { display: grid; gap: 8px; margin-top: 20px; text-align: left; }
+.invitation-form label { font-size: 0.8125rem; font-weight: 650; }
+.invitation-controls { display: flex; gap: 10px; }
+.communities-main .invitation-form input { min-width: 0; }
+.invitation-controls button { flex: 0 0 auto; }
+.community-discoveries { margin-top: 48px; }
+.community-discoveries-heading { margin-bottom: 16px; }
+.community-discoveries-heading h2 { font-size: 0.9375rem; }
+.community-discoveries-heading p { margin-top: 4px; font-size: 0.8125rem; }
+.communities-main .community-card.is-discoverable { min-height: 96px; padding: 18px 20px; background: var(--color-surface-soft); box-shadow: none; }
+.community-card.is-discoverable button { flex: 0 0 auto; font-size: 0.8125rem; }
+.onboarding-empty { padding: 24px 0 32px; font-size: 0.875rem; }
+.onboarding-empty h2 { margin-bottom: 8px; font-size: 1rem; }
+.onboarding-empty p { font-size: 0.875rem; }
+
+.creation-steps { display: flex; width: min(100%, 360px); flex-wrap: nowrap; align-items: center; gap: 0; margin: 0 auto 44px; padding: 0; list-style: none; color: var(--color-text-secondary); font-size: 0.75rem; }
+.creation-steps li { display: flex; flex: 1; align-items: center; gap: 12px; white-space: nowrap; }
+.creation-steps li::after { flex: 1; height: 1px; margin-right: 12px; background: var(--color-border-strong); content: ""; }
+.creation-steps li:last-child { flex: 0 0 auto; }
+.creation-steps li:last-child::after { display: none; }
+.creation-steps [aria-current="step"] { color: var(--color-primary-dark); font-weight: 750; }
+.onboarding-field { display: grid; gap: 9px; }
+.onboarding-field + .onboarding-field { margin-top: 24px; }
+.onboarding-field label { font-size: 0.875rem; font-weight: 650; }
+.onboarding-field input, .onboarding-field select { min-height: 52px; padding: 0 16px; font-size: 0.9375rem; }
+.onboarding-hint { margin-top: 20px; font-size: 0.8125rem; line-height: 1.7; }
+.onboarding-hint a { text-decoration: none; font-weight: 650; }
+.onboarding-page .creation-actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 16px; margin-top: 36px; }
+.creation-actions > button:not(.text-button) { min-width: 152px; min-height: 48px; }
+.onboarding-page .creation-actions .creation-submit { min-width: 180px; min-height: 52px; padding: 0 24px; }
+
+.onboarding-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.onboarding-choice { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; border-radius: var(--radius-card); padding: 24px; background: var(--color-surface); }
+.onboarding-choice.is-recommended { box-shadow: var(--shadow-card); }
+.onboarding-choice.is-later { background: var(--color-surface-soft); }
+.onboarding-choice-top { display: flex; width: 100%; align-items: center; justify-content: space-between; margin-bottom: 16px; color: var(--color-primary); }
+.onboarding-recommendation { border-radius: 999px; padding: 3px 9px; background: var(--color-primary-soft); color: var(--color-primary-dark); font-size: 0.6875rem; font-weight: 700; }
+.onboarding-choice h2 { font-size: 1rem; line-height: 1.5; }
+.onboarding-choice ul { display: grid; gap: 7px; margin: 18px 0 24px; padding-left: 17px; color: var(--color-text-secondary); font-size: 0.8125rem; }
+.onboarding-choice li::marker { color: var(--color-border-strong); }
+.onboarding-choice p { margin-top: 16px; font-size: 0.8125rem; line-height: 1.75; }
+.onboarding-choice p + p { margin-top: 8px; margin-bottom: 24px; }
+.onboarding-choice .button-link, .onboarding-choice .secondary-button { width: 100%; min-height: 46px; margin-top: auto; padding: 0 10px; font-size: 0.8125rem; }
+.onboarding-choice .secondary-button { border-color: var(--color-border); background: transparent; }
+.onboarding-choice .secondary-button:hover { background: var(--color-surface); color: var(--color-text); }
+.onboarding-account { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+.onboarding-account .avatar { width: 32px; height: 32px; border-radius: 9px; font-size: 0.75rem; }
+.onboarding-account p { font-size: 0.8125rem; }
+.onboarding-account strong { color: var(--color-text); font-weight: 650; }
+.onboarding-server-selection > p { margin-top: 6px; font-size: 0.875rem; }
+.onboarding-guilds { display: grid; gap: 12px; margin-top: 20px; }
+.onboarding-guild { display: flex; min-width: 0; align-items: center; gap: 12px; border-radius: var(--radius-card); padding: 16px; background: var(--color-surface); }
+.onboarding-guild p { margin-top: 3px; font-size: 0.75rem; }
+.onboarding-guild .secondary-button { flex: 0 0 auto; margin: 0; }
+.onboarding-guild .guild-name { overflow-wrap: anywhere; font-size: 0.9375rem; }
+.onboarding-selected-guild { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 32px; text-align: left; }
+.onboarding-selected-guild p { font-size: 0.75rem; }
+.onboarding-selected-guild h2 { margin-top: 2px; overflow-wrap: anywhere; }
+.onboarding-install { display: flex; flex-direction: column; align-items: center; padding: 28px 20px; text-align: center; }
+.onboarding-install > p { margin-top: 8px; font-size: 0.875rem; }
+.onboarding-install > button:not(.text-button) { min-height: 48px; margin-top: 28px; }
+.onboarding-install > .text-button { margin-top: 8px; }
+.onboarding-restart { display: inline-flex; min-height: 44px; align-items: center; margin-top: 12px; color: var(--color-text-secondary); font-size: 0.8125rem; }
+.onboarding-connected { border-radius: var(--radius-card); padding: 32px; background: var(--color-surface); text-align: center; }
+.onboarding-status { color: var(--color-success); font-size: 0.75rem; font-weight: 650; }
+.onboarding-connected h2 { margin-top: 12px; font-size: 1.25rem; }
+.onboarding-connected p { margin-top: 8px; font-size: 0.875rem; }
+.onboarding-connected .text-button { margin-top: 16px; }
+
+.creation-preview { display: flex; min-width: 0; flex-direction: column; align-items: center; border-radius: var(--radius-card); padding: 40px 28px; background: var(--color-surface); box-shadow: var(--shadow-card); text-align: center; }
+.creation-preview-mark { display: grid; width: 72px; height: 72px; place-items: center; margin-bottom: 24px; border-radius: 20px; background: var(--color-primary-soft); color: var(--color-primary-dark); font-size: 1.75rem; font-weight: 750; }
+.creation-preview-caption { margin-bottom: 8px; font-size: 0.75rem; }
+.creation-preview h2 { margin-bottom: 10px; font-size: 1.5rem; line-height: 1.5; }
+.creation-preview > p:not(.creation-preview-caption) { font-size: 0.875rem; overflow-wrap: anywhere; }
+.creation-preview .creation-preview-discord { max-width: 100%; margin-top: 24px; border-radius: 999px; padding: 7px 14px; background: var(--color-surface-soft); }
+
+@media (max-width: 560px) {
+  .onboarding-page .communities-main, .onboarding-page .community-create-main { width: calc(100% - 40px); padding: 40px 0 56px; }
+  .onboarding-heading { margin-bottom: 28px; }
+  .onboarding-heading p { font-size: 0.875rem; }
+  .community-create-main .onboarding-heading { text-align: left; }
+  .creation-steps { margin-bottom: 32px; }
+  .communities-main .community-card { min-height: 96px; gap: 12px; padding: 18px 16px; }
+  .communities-main .community-card-mark { width: 40px; height: 40px; border-radius: 11px; }
+  .communities-main .community-card h2 { font-size: 1rem; }
+  .communities-main .community-card-link { gap: 4px; font-size: 0.75rem; }
+  .community-card-copy p { font-size: 0.75rem; }
+  .community-card.is-discoverable { flex-wrap: wrap; }
+  .community-card.is-discoverable button { margin-left: auto; }
+  .invitation-controls { flex-wrap: wrap; }
+  .invitation-controls input { flex-basis: 100%; }
+  .invitation-controls button { width: 100%; }
+  .onboarding-choices { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .onboarding-choice { padding: 24px; }
+  .onboarding-choice ul { margin: 14px 0 20px; }
+  .onboarding-choice-top { margin-bottom: 12px; }
+  .onboarding-page .creation-actions { gap: 8px; margin-top: 28px; }
+  .creation-actions > button:not(.text-button) { min-width: 140px; }
+  .onboarding-page .creation-actions .creation-submit { min-width: 164px; padding: 0 18px; }
+  .onboarding-guild { gap: 10px; padding: 14px; }
+  .onboarding-guild .guild-icon { width: 36px; height: 36px; }
+  .onboarding-install { padding: 20px 0; }
+  .creation-preview { padding: 32px 20px; }
+  .creation-preview h2 { font-size: 1.35rem; }
+}
+
+@media (max-width: 360px) {
+  .onboarding-page .header-inner { gap: 12px; }
+  .onboarding-page .header-actions { gap: 4px; }
+}

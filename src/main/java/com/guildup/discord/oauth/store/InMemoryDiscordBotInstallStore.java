@@ -61,6 +61,16 @@ public class InMemoryDiscordBotInstallStore implements DiscordBotInstallStore {
     }
 
     @Override
+    public void markVerified(String installToken) {
+        getInstallSession(installToken);
+        installSessions.computeIfPresent(installToken, (key, stored) -> {
+            var session = stored.installSession();
+            return new ExpiringInstallSession(new DiscordBotInstallSession(session.communityId(),
+                    session.guildId(), session.guildName(), session.creationUserId(), true), stored.expiresAt());
+        });
+    }
+
+    @Override
     public void removeInstallToken(String installToken) {
         if (installToken != null) {
             installSessions.remove(installToken);

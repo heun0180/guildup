@@ -1,6 +1,7 @@
 import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage.jsx";
 import CommunitiesPage from "./pages/CommunitiesPage.jsx";
+import CommunityCreatePage from "./pages/CommunityCreatePage.jsx";
 import CommunityDashboardPage from "./pages/CommunityDashboardPage.jsx";
 import DiscordConnectPage from "./pages/DiscordConnectPage.jsx";
 import MembersPage from "./pages/MembersPage.jsx";
@@ -117,6 +118,7 @@ export default function App() {
       <Route path="/help/attendance" element={<AttendanceHelpPage />} />
       <Route path="/help/ranking" element={<RankingHelpPage />} />
       <Route path="/communities.html" element={<CommunitiesPage />} />
+      <Route path="/community-create.html" element={<CommunityCreatePage />} />
       <Route element={<DeveloperLayout />}>
         <Route path="/developer" element={<DeveloperDashboardPage />} />
         <Route path="/developer/monitoring" element={<MonitoringPage />} />

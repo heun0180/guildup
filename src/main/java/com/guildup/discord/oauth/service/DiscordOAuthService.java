@@ -60,6 +60,19 @@ public class DiscordOAuthService {
         if (!communityRepository.existsById(communityId)) {
             throw new CommunityNotFoundException(communityId);
         }
+        return authorizationUrl(communityId);
+    }
+
+    /** null 컨텍스트는 DB 커뮤니티가 아직 없는 생성 플로우다. 컨트롤러가 세션에 바인딩한다. */
+    public String createCreationAuthorizationUrl() {
+        return authorizationUrl(null);
+    }
+
+    public void cancelAuthorization(String state) {
+        sessionStore.consumeState(state);
+    }
+
+    private String authorizationUrl(Long communityId) {
         properties.validate();
         String state = sessionStore.createState(communityId);
 
@@ -80,7 +93,10 @@ public class DiscordOAuthService {
         properties.validate();
         // state는 저장소에서 꺼내는 즉시 삭제되므로 동일 콜백을 다시 사용할 수 없다.
         Long communityId = sessionStore.consumeState(state);
-        try (var ignored = LogContext.scope(java.util.Map.of("communityId", communityId, "jobName", "discordCommunityOAuth"))) {
+        var context = new java.util.HashMap<String, Object>();
+        context.put("jobName", "discordCommunityOAuth");
+        if (communityId != null) context.put("communityId", communityId);
+        try (var ignored = LogContext.scope(context)) {
 
             // 브라우저에는 액세스 토큰을 전달하지 않고 백엔드가 Discord API를 직접 호출한다.
             DiscordAccessTokenResponse token = discordApiClient.exchangeCode(code);

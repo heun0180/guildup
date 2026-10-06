@@ -53,6 +53,19 @@ export default function CommunitySettingsPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [loadingInvitation, setLoadingInvitation] = useState(false);
+
+  async function showInvitation() {
+    if (loadingInvitation) return;
+    setLoadingInvitation(true);
+    try {
+      const result = await api(`/api/communities/${encodedId}/invitation`, { method: "POST" });
+      setInviteCode(result.inviteCode);
+    } catch (error) {
+      if (!isRequestCancelled(error) && !redirectToLogin(error)) setMessage(error.message);
+    } finally { setLoadingInvitation(false); }
+  }
 
   useEffect(() => {
     if (!validId || !community) {
@@ -191,9 +204,17 @@ export default function CommunitySettingsPage() {
         {loading && <p className="panel page-state" role="status">설정 상태를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
         {!loading && community && <>
+          <section className="panel creation-form" aria-label="커뮤니티 초대">
+            <h2>초대 코드로 멤버 초대</h2>
+            <p>이 코드를 공유하면 Discord 연결 여부와 관계없이 GuildUp 커뮤니티에 참여할 수 있습니다.</p>
+            <button type="button" className="secondary-button" disabled={loadingInvitation} onClick={showInvitation}>
+              {loadingInvitation ? "확인 중..." : "초대 코드 확인"}
+            </button>
+            {inviteCode && <label>초대 코드<input value={inviteCode} readOnly onFocus={(event) => event.target.select()} /></label>}
+          </section>
           <section className="settings-menu-grid" aria-label="커뮤니티 설정 목록">
             <SettingsCard icon="discord" tone="discord" title="Discord 클랜원 역할 설정" description="어떤 Discord 역할을 GuildUp 클랜원으로 인식할지 선택합니다." status={discordStatus} href={community.discordConnected ? settingsUrl("/discord-member-role-settings.html") : settingsUrl("/discord-connect.html")} buttonLabel={community.discordConnected ? "역할 설정으로 이동" : "Discord 연결하기"} />
-            {nicknameGame && <SettingsCard icon="game" tone="activity" title={`${nicknameGame.gameName} 인게임 닉네임 설정`} description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={gameSettingsUrl("/game-nickname-settings.html", nicknameGame)} buttonLabel="닉네임 설정으로 이동" />}
+            {nicknameGame && <SettingsCard icon="game" tone="activity" title={`${nicknameGame.gameName} 인게임 닉네임 설정`} description="Discord 닉네임에서 게임 닉네임을 추출하는 규칙을 관리합니다." status={gameStatus} href={community.discordConnected ? gameSettingsUrl("/game-nickname-settings.html", nicknameGame) : settingsUrl("/discord-connect.html")} buttonLabel={community.discordConnected ? "닉네임 설정으로 이동" : "Discord 연결하기"} />}
             {activityGame && <SettingsCard icon="activity" tone="activity" title={`${activityGame.gameName} 클랜 활동 규칙`} description="게임 활동을 인정할 조회 기간과 최소 클랜원 수를 정합니다." status={activityStatus} href={gameSettingsUrl("/activity-rule-settings.html", activityGame)} buttonLabel="활동 규칙으로 이동" />}
             <SettingsCard icon="users" tone="members" title="GuildUp 커뮤니티 권한" description="커뮤니티 사용자와 GuildUp 관리자 역할을 관리합니다." status={permissionStatus} href={settingsUrl("/community-role-settings.html")} buttonLabel="권한 설정으로 이동" />
           </section>

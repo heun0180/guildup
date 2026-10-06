@@ -11,12 +11,13 @@ public record MyCommunityResponse(
         CommunityUserRole role,
         GameType gameType,
         String gameName,
-        List<CommunityGameResponse> games
+        List<CommunityGameResponse> games,
+        long memberCount
 ) {
-    public static MyCommunityResponse from(CommunityUser membership, List<CommunityGameResponse> games) {
+    public static MyCommunityResponse from(CommunityUser membership, List<CommunityGameResponse> games, long memberCount) {
         GameType gameType = games.isEmpty() ? null : games.get(0).gameType();
         return new MyCommunityResponse(membership.getCommunity().getId(),
                 membership.getCommunity().getName(), membership.getRole(), gameType,
-                gameType == null ? null : gameType.getDisplayName(), games);
+                gameType == null ? null : gameType.getDisplayName(), games, memberCount);
     }
 }

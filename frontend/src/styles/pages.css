@@ -106,6 +106,23 @@
 .create-community-form label > span { color: var(--color-text-secondary); font-size: 0.8125rem; font-weight: 700; }
 .create-community-form select { appearance: auto; }
 .create-community-form button { white-space: nowrap; }
+.community-secondary-actions { border-top: 1px solid var(--color-border); padding-top: 24px; margin-top: 32px; }
+.community-secondary-actions h2 { font-size: 1rem; margin-bottom: 12px; }
+.community-secondary-actions > p { margin-top: 24px; margin-bottom: 8px; }
+.invitation-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+.invitation-form input { flex: 1; min-width: 200px; }
+.community-create-main { max-width: 780px; }
+.creation-guidance { padding: 20px; border-radius: var(--radius-card); background: var(--color-surface); margin-bottom: 24px; }
+.creation-guidance p { margin-bottom: 8px; }
+.creation-steps { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 0; margin-bottom: 20px; list-style: none; color: var(--color-text-secondary); }
+.creation-steps [aria-current="step"] { color: var(--color-primary-dark); font-weight: 750; }
+.creation-form { display: grid; gap: 14px; margin-bottom: 24px; }
+.creation-form .connect-panel { box-shadow: none; margin: 0; }
+.creation-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 12px; }
+.creation-actions .secondary-button { margin-top: 0; }
+.creation-summary { display: grid; grid-template-columns: 140px 1fr; gap: 16px; }
+.creation-summary dt { color: var(--color-text-secondary); }
+.creation-summary dd { margin: 0; font-weight: 700; overflow-wrap: anywhere; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 32px; }
 .summary-card { display: flex; min-width: 0; align-items: center; gap: 15px; border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 20px 22px; background: var(--color-surface); box-shadow: var(--shadow-card); }

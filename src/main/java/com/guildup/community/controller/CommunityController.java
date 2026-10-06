@@ -33,14 +33,29 @@ public class CommunityController {
 
     /** 새 커뮤니티를 만들고 201 Created로 생성 결과를 반환한다. */
     @PostMapping
-    public ResponseEntity<CommunityResponse> createCommunity(@RequestBody CommunityCreateRequest request, HttpSession session) {
+    public ResponseEntity<CommunityResponse> createCommunity(@RequestBody CommunityCreateRequest request,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Idempotency-Key", required = false) String requestId,
+            HttpSession session) {
         Community community = communityService.createCommunity(
-                request.name(), request.gameType(), CurrentUserSession.requireUserId(session)
+                request, requestId, CurrentUserSession.requireUserId(session)
         );
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(CommunityResponse.from(community, request.gameType()));
     }
+
+    @PostMapping("/{communityId}/invitation")
+    public InvitationResponse invitation(@PathVariable Long communityId, HttpSession session) {
+        return new InvitationResponse(communityService.getInvitation(CurrentUserSession.requireUserId(session), communityId));
+    }
+
+    @PostMapping("/join-by-invitation")
+    public com.guildup.discord.oauth.dto.CommunityJoinResponse joinInvitation(@RequestBody InvitationResponse request,
+                                                                           HttpSession session) {
+        return communityService.joinInvitation(CurrentUserSession.requireUserId(session), request.inviteCode());
+    }
+
+    public record InvitationResponse(String inviteCode) { }
 
     /** 기존 목록 경로도 현재 사용자의 Community만 반환한다. */
     @GetMapping

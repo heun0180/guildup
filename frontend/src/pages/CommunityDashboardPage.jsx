@@ -4,6 +4,7 @@ import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import HelpLink from "../components/HelpLink.jsx";
 import CommunityNewsSummary from "../components/CommunityNewsSummary.jsx";
+import CommunityGameAccountForm from "../components/CommunityGameAccountForm.jsx";
 import { canManageCommunity } from "../communityAccess.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
@@ -95,6 +96,7 @@ export default function CommunityDashboardPage() {
 
         {!community && !message && <p className="panel page-state" role="status">커뮤니티를 불러오는 중입니다.</p>}
         {message && <p className="message" role="alert">{message}</p>}
+        {community && !community.discordConnected && <CommunityGameAccountForm communityId={communityId} />}
 
         {community && (
           <>

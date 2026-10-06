@@ -77,7 +77,7 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
         PendingResult pendingResult = resultId == null ? null : results.get(resultId);
         // 결과 ID뿐 아니라 communityId도 비교해 다른 커뮤니티 결과의 조회를 막는다.
         if (pendingResult == null
-                || !pendingResult.communityId().equals(communityId)
+                || !java.util.Objects.equals(pendingResult.communityId(), communityId)
                 || pendingResult.expiresAt().isBefore(Instant.now())) {
             throw new DiscordOAuthResultNotFoundException();
         }
@@ -125,7 +125,7 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
     private PendingResult requireResult(Long communityId, String resultId) {
         PendingResult pendingResult = resultId == null ? null : results.get(resultId);
         if (pendingResult == null
-                || !pendingResult.communityId().equals(communityId)
+                || !java.util.Objects.equals(pendingResult.communityId(), communityId)
                 || pendingResult.expiresAt().isBefore(Instant.now())) {
             log.debug("Discord OAuth result rejected. communityId={}, reason=INVALID_OR_EXPIRED_RESULT", communityId);
             if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
