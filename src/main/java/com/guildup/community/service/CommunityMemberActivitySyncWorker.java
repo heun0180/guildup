@@ -103,13 +103,16 @@ public class CommunityMemberActivitySyncWorker {
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    public void synchronize(Long communityGameId) {
+    public void synchronize(Long communityGameId, Instant attemptedAt) {
         long startedAtNanos = System.nanoTime();
         Long communityId = null;
         SyncStage stage = SyncStage.PREPARATION;
         try {
-            Preparation preparation = transactions.execute(status -> prepare(communityGameId));
-            if (preparation == null) throw new IllegalStateException("활동 조회 준비 결과가 없습니다.");
+            Preparation preparation = transactions.execute(status -> prepare(communityGameId, attemptedAt));
+            if (preparation == null) {
+                log.info("Superseded activity task skipped - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
+                return;
+            }
             CommunityGame game = preparation.game();
             CommunityGameActivityRule rule = preparation.rule();
             List<CommunityMember> members = preparation.members();
@@ -158,17 +161,24 @@ public class CommunityMemberActivitySyncWorker {
                     .toList();
 
             stage = SyncStage.DB_SAVE;
-            transactions.executeWithoutResult(status -> {
+            Boolean saved = transactions.execute(status -> {
+                gameRepository.findByIdForUpdate(game.getId()).orElseThrow();
+                var sync = syncRepository.findByCommunityGameId(game.getId()).orElseThrow();
+                if (!sync.isCurrentAttempt(attemptedAt)) return false;
                 accountRepository.saveAll(accountsByMemberId.values());
                 snapshotRepository.deleteByCommunityGameId(game.getId());
                 // 같은 (게임, 멤버) 키로 새 스냅샷을 넣기 전에 기존 DELETE를 먼저 실행한다.
                 snapshotRepository.flush();
                 snapshotRepository.saveAll(activitySnapshots);
-                syncRepository.findByCommunityGameId(game.getId())
-                        .orElseThrow()
-                        .succeed(synchronizedAt);
+                sync.succeed(synchronizedAt);
                 snapshotRepository.flush();
+                return true;
             });
+
+            if (!Boolean.TRUE.equals(saved)) {
+                log.info("Superseded activity result discarded - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
+                return;
+            }
 
             log.info(
                     "PUBG activity sync completed - communityId={}, communityGameId={}, players={}, "
@@ -191,11 +201,14 @@ public class CommunityMemberActivitySyncWorker {
         }
     }
 
-    private Preparation prepare(Long communityGameId) {
-        CommunityGame game = gameRepository.findById(communityGameId)
+    private Preparation prepare(Long communityGameId, Instant attemptedAt) {
+        CommunityGame game = gameRepository.findByIdForUpdate(communityGameId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.BAD_REQUEST, "배틀그라운드 게임 설정을 찾을 수 없습니다."
                 ));
+        if (!syncRepository.findByCommunityGameId(communityGameId).orElseThrow().isCurrentAttempt(attemptedAt)) {
+            return null;
+        }
         Long communityId = game.getCommunity().getId();
         CommunityGameActivityRule rule = activityRuleRepository.findByCommunityGameId(game.getId())
                 .orElseThrow(() -> new ResponseStatusException(

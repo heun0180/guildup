@@ -14,6 +14,7 @@ import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { canManageCommunity } from "../communityAccess.js";
 import { loadActivityPageData } from "../activityPageLoader.js";
+import { startActivitySyncPolling } from "../activitySyncPolling.js";
 import { loadGameNicknameStatus } from "../gameNicknameStatus.js";
 import { useCommunity } from "../community/CommunityContext.jsx";
 
@@ -46,7 +47,7 @@ export default function MemberActivitiesPage() {
             loadStatus: () => api(`${gameApi}/nickname-rule/status`),
             loadRule: () => api(`${gameApi}/nickname-rule`),
           }),
-          loadActivities: () => api(`${gameApi}/activities`),
+          loadActivities: () => api(`${gameApi}/activities`, { cache: "no-store" }),
         });
         if (cancelled) return;
         setActivities(result.activities);
@@ -64,7 +65,29 @@ export default function MemberActivitiesPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [community, communityId, validId]);
+  }, [api, community, gameApi, validId]);
+
+  useEffect(() => {
+    if (configurationStatus !== "configured" || activities?.sync?.status !== "SYNCING") return undefined;
+    return startActivitySyncPolling({
+      loadActivities: (options) => api(`${gameApi}/activities`, options),
+      onUpdate: (latest) => {
+        setActivities(latest);
+        setMessage("");
+      },
+      onComplete: (sync) => {
+        if (sync.status === "SUCCESS") setMessage("활동 조회가 완료되었습니다.");
+        else if (sync.status === "FAILED") setMessage("활동 조회에 실패했습니다. 기존 활동 데이터는 유지되었습니다. 잠시 후 다시 시도해 주세요.");
+      },
+      onError: (error) => {
+        if (redirectToLogin(error)) return false;
+        setMessage(error.status === 403 ? "클랜원 활동을 확인할 권한이 없습니다."
+          : error.status === 404 ? "활동 조회 대상을 찾을 수 없습니다."
+          : "활동 조회 상태를 확인하지 못했습니다. 잠시 후 다시 확인합니다.");
+        return error.status !== 403 && error.status !== 404;
+      },
+    });
+  }, [api, gameApi, configurationStatus, activities?.sync?.status, activities?.sync?.lastSyncAttemptAt]);
 
   useEffect(() => {
     setSyncNow(Date.now());
@@ -123,7 +146,7 @@ export default function MemberActivitiesPage() {
     } catch (error) {
       if (!isRequestCancelled(error) && !redirectToLogin(error)) {
         if (error.status === 409 || error.status === 429) {
-          const latest = await api(`${gameApi}/activities`)
+          const latest = await api(`${gameApi}/activities`, { cache: "no-store" })
             .catch((statusError) => {
               if (!isRequestCancelled(statusError) && !redirectToLogin(statusError)) setMessage("활동 조회 상태를 확인하지 못했습니다. 잠시 후 페이지를 다시 열어 주세요.");
               return null;

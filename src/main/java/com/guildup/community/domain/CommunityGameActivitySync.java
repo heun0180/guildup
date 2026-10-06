@@ -17,6 +17,7 @@ import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 
 @Entity
 @Table(
@@ -67,6 +68,12 @@ public class CommunityGameActivitySync {
 
     public void fail() {
         syncStatus = CommunityGameActivitySyncStatus.FAILED;
+    }
+
+    /** stale 작업이 재접수된 작업의 성공/실패 상태를 덮어쓰지 않게 한다. */
+    public boolean isCurrentAttempt(Instant attemptedAt) {
+        return attemptedAt != null && syncStatus == CommunityGameActivitySyncStatus.SYNCING
+                && Objects.equals(lastSyncAttemptAt, attemptedAt);
     }
 
     public boolean isSyncingAt(Instant now, Duration staleAfter) {

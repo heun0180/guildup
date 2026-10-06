@@ -74,6 +74,11 @@ public class CommunityMemberActivityService {
     public CommunityMemberActivityListResponse getActivities(Long userId, Long communityId, Long communityGameId) {
         CommunityGame game = gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.ACTIVITY);
         CommunityGameActivityRule rule = requireRule(game.getId());
+        // SUCCESS를 먼저 관찰한 다음 그 커밋에 포함된 스냅샷을 읽는다.
+        // 스냅샷을 먼저 읽으면 조회 도중 커밋되어 이전 목록 + SUCCESS를 반환할 수 있다.
+        CommunityActivitySyncResponse sync = syncPolicy.describe(
+                syncRepository.findByCommunityGameId(game.getId()).orElse(null), clock.instant()
+        );
         List<CommunityMember> members = memberRepository.findByCommunityIdAndStatusOrderByIdAsc(
                 communityId, CommunityMemberStatus.ACTIVE
         );
@@ -89,10 +94,6 @@ public class CommunityMemberActivityService {
         List<MemberActivitySummaryResponse> summaries = members.stream()
                 .map(member -> toSummary(member, snapshots.get(member.getId()), accounts.get(member.getId())))
                 .toList();
-        CommunityActivitySyncResponse sync = syncPolicy.describe(
-                syncRepository.findByCommunityGameId(game.getId()).orElse(null),
-                clock.instant()
-        );
         return CommunityMemberActivityListResponse.of(
                 MemberActivityRuleResponse.from(rule), sync, summaries
         );

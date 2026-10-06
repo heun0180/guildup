@@ -233,7 +233,7 @@ PUBG 호출은 백엔드에서 Bearer API key로 수행하며 브라우저에 ke
 - Players 요청은 최대 10명씩 배치한다.
 - 플레이어 1분, Match 10분, 시즌 목록 30일, 시즌 통계 30분, 빙고 Match facts/Telemetry 30분의 프로세스 메모리 캐시를 사용한다.
 - PUBG 429 응답의 `X-RateLimit-Reset` 또는 `Retry-After`가 61초 이내이면 한 번 대기 후 재시도한다.
-- 클랜 활동 동기화는 성공 후 24시간, 실패 후 5분의 재실행 제한이 있다.
+- 클랜 활동 동기화는 성공 후 3시간, 실패 후 5분의 재실행 제한이 있다. 진행 중인 조회는 409로 거절하고, 30분이 지난 stale 조회는 다시 시작할 수 있다.
 
 ### PUBG 클랜 활동 조회
 
@@ -247,16 +247,24 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     Admin->>React: 활동 정보 새로 조회
-    React->>API: POST .../member-activities/sync
-    API->>Worker: 권한·24시간 정책 확인
+    React->>API: POST .../activities/sync
+    API->>DB: 권한·쿨타임 확인, 게임 잠금, SYNCING 저장
+    API->>Worker: 전용 TaskExecutor에 작업 제출
+    API-->>React: 202 Accepted, 기존 목록 DTO (sync.status=SYNCING)
     Worker->>DB: 게임, 활동 규칙, ACTIVE 멤버, 계정 조회
     Worker->>PUBG: Players 배치 조회
     PUBG-->>Worker: account ID, 최근 Match ID
     Worker->>PUBG: 중복 제거한 Match 조회
     Worker->>Worker: 같은 Roster의 클랜원 수로 활동 판정
-    Worker->>DB: 계정 연결과 활동 snapshot 교체
-    API-->>React: 저장된 활동 요약
+    Worker->>DB: 현재 시도 검증, 계정·snapshot·SUCCESS 원자적 저장
+    loop SYNCING인 동안, 이전 GET 완료 후 3초 간격
+        React->>API: GET .../activities
+        API->>DB: sync 상태와 저장된 활동 조회
+        API-->>React: sync 상태와 저장된 활동 요약
+    end
 ```
+
+페이지 재접속 시에도 GET의 `SYNCING` 상태로 polling을 복원한다. worker 실패는 `FAILED`로 저장하며 이전 snapshot은 유지한다. 전용 실행기는 최대 2개 작업을 실행하고 대기열을 두지 않으며, 포화 시 503과 `FAILED`로 처리한다. 정상 종료 시 실행 중 작업을 최대 300초 기다린다. 강제 종료 후 미완료 작업은 자동 재개되지 않으며 기존 30분 stale 정책으로 다시 조회할 수 있다.
 
 활동 인정은 같은 Match 참가 여부가 아니라 같은 Roster에 포함된 GuildUp 클랜원 수로 판단한다. 기본 규칙은 최근 14일, 본인 포함 2명 이상이며 운영진이 기간과 인원을 바꿀 수 있다.
 

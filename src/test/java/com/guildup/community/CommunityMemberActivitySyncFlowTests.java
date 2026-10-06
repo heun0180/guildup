@@ -20,8 +20,11 @@ import com.guildup.user.domain.User;
 import com.guildup.user.repository.UserRepository;
 import net.dv8tion.jda.api.JDA;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
@@ -30,6 +33,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -38,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -49,7 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.datasource.url=jdbc:h2:mem:activity-sync-flow;DB_CLOSE_DELAY=-1",
         "spring.datasource.driver-class-name=org.h2.Driver",
         "spring.datasource.username=sa", "spring.datasource.password=",
-        "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.show-sql=false",
+        "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.show-sql=false", "spring.jpa.open-in-view=false",
         "discord.oauth.client-id=test-client", "discord.oauth.client-secret=test-secret",
         "discord.oauth.redirect-uri=http://localhost/api/discord/oauth/callback"
 })
@@ -73,6 +78,7 @@ class CommunityMemberActivitySyncFlowTests {
     @Autowired CommunityMemberAccountRepository accounts;
     @Autowired CommunityMemberActivitySnapshotRepository snapshots;
     @Autowired MonitoringEventRepository monitoringEvents;
+    @Autowired @Qualifier("communityActivitySyncExecutor") ThreadPoolTaskExecutor activityExecutor;
 
     @MockitoBean Clock clock;
     @MockitoBean PubgPlayerService playerService;
@@ -108,6 +114,11 @@ class CommunityMemberActivitySyncFlowTests {
         adminSession = session(admin);
     }
 
+    @AfterEach
+    void waitForBackgroundTasks() {
+        await().atMost(Duration.ofSeconds(10)).until(() -> activityExecutor.getActiveCount() == 0);
+    }
+
     @Test
     void listAndDetailReadsNeverCallPubgApi() throws Exception {
         Fixture fixture = createFixture();
@@ -139,8 +150,9 @@ class CommunityMemberActivitySyncFlowTests {
                 new PubgPlayer("account.steam", "SteamNick", List.of()),
                 new PubgPlayer("account.steam2", "SteamNick2", List.of())));
         when(matchService.findUniqueMatchesFresh(eq("steam"), anyList(), anyLong(), anyLong())).thenReturn(Map.of());
-        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
-        verify(playerService).findByAccountIdsFresh("steam", List.of("account.steam", "account.steam2"));
+        syncSuccessfully(fixture, ownerSession);
+        verify(playerService).findByAccountIdsFresh(eq("steam"), org.mockito.ArgumentMatchers.argThat(ids ->
+                ids.size() == 2 && ids.containsAll(List.of("account.steam", "account.steam2"))));
         verify(playerService, never()).findByAccountIdsFresh(eq("kakao"), anyList());
         assertThat(accounts.findByCommunityMemberIdAndProviderAndPlatform(kakao.apple().getId(),
                 com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO).orElseThrow().getExternalUserId())
@@ -154,6 +166,10 @@ class CommunityMemberActivitySyncFlowTests {
         stubSuccessfulPubgLookup();
 
         mvc.perform(post(syncPath(fixture)).session(ownerSession))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.sync.status").value("SYNCING"));
+        awaitSync(fixture, CommunityGameActivitySyncStatus.SUCCESS);
+        mvc.perform(get(listPath(fixture)).session(ownerSession))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sync.status").value("SUCCESS"))
                 .andExpect(jsonPath("$.sync.lastSuccessfulSyncAt").value(FIRST_SYNC.toString()))
@@ -187,7 +203,7 @@ class CommunityMemberActivitySyncFlowTests {
         memberships.save(new CommunityUser(fixture.community(), admin, CommunityUserRole.ADMIN));
         stubSuccessfulPubgLookup();
 
-        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
+        syncSuccessfully(fixture, ownerSession);
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isTooManyRequests());
         assertThat(monitoringEvents.count()).isZero();
@@ -199,7 +215,7 @@ class CommunityMemberActivitySyncFlowTests {
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of(
                 applePlayer(), julmiPlayer()
         ));
-        mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isOk());
+        syncSuccessfully(fixture, adminSession);
         verify(matchService, times(2)).findUniqueMatchesFresh(
                 eq("kakao"), anyList(), anyLong(), anyLong()
         );
@@ -209,13 +225,15 @@ class CommunityMemberActivitySyncFlowTests {
     void failedRefreshKeepsPreviousDataAndDoesNotRestart3HourCooldown() throws Exception {
         Fixture fixture = createFixture();
         stubSuccessfulPubgLookup();
-        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
+        syncSuccessfully(fixture, ownerSession);
 
         now.set(FIRST_SYNC.plusSeconds(10800));
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList()))
                 .thenThrow(new PubgApiException("PUBG 장애"));
         mvc.perform(post(syncPath(fixture)).session(ownerSession))
-                .andExpect(status().isServiceUnavailable());
+                .andExpect(status().isAccepted());
+        awaitSync(fixture, CommunityGameActivitySyncStatus.FAILED);
+        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
 
         var sync = syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow();
         assertThat(sync.getSyncStatus()).isEqualTo(CommunityGameActivitySyncStatus.FAILED);
@@ -243,7 +261,8 @@ class CommunityMemberActivitySyncFlowTests {
         )).thenThrow(new PubgApiException("PUBG match retries exhausted", null, 503, true));
 
         mvc.perform(post(syncPath(fixture)).session(ownerSession))
-                .andExpect(status().isServiceUnavailable());
+                .andExpect(status().isAccepted());
+        awaitSync(fixture, CommunityGameActivitySyncStatus.FAILED);
 
         var sync = syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow();
         assertThat(sync.getSyncStatus()).isEqualTo(CommunityGameActivitySyncStatus.FAILED);
@@ -259,18 +278,15 @@ class CommunityMemberActivitySyncFlowTests {
                 .containsEntry("pubgErrorCode", "PUBG_UNAVAILABLE")
                 .containsKey("elapsedMs");
         assertThat(failure.getMetadata().toString()).doesNotContain("PUBG match retries exhausted");
-        assertThat(monitoringEvents.findAll()).anySatisfy(event -> {
-            assertThat(event.getEventCode()).isEqualTo(MonitoringEventCode.HTTP_5XX);
-            assertThat(event.getMetadata()).containsEntry("status", 503)
-                    .containsEntry("uri", syncPath(fixture));
-        });
+        // PUBG 실패는 접수 응답 이후의 작업 실패이므로 HTTP 5xx로 기록하지 않는다.
+        assertThat(monitoringEvents.findAll()).noneMatch(event -> event.getEventCode() == MonitoringEventCode.HTTP_5XX);
     }
 
     @Test
     void activityViewUsesCurrentNicknameAndRejectsSnapshotFromPreviousPubgAccount() throws Exception {
         Fixture fixture = createFixture();
         stubSuccessfulPubgLookup();
-        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isOk());
+        syncSuccessfully(fixture, ownerSession);
 
         CommunityMemberAccount previous = accounts.findByCommunityMemberIdAndProviderAndPlatform(
                 fixture.apple().getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO
@@ -310,7 +326,11 @@ class CommunityMemberActivitySyncFlowTests {
         CountDownLatch releasePubg = new CountDownLatch(1);
         when(playerService.findByNamesFresh(eq("kakao"), anyList())).thenAnswer(ignored -> {
             enteredPubg.countDown();
-            if (!releasePubg.await(5, TimeUnit.SECONDS)) throw new AssertionError("sync did not resume");
+            if (!releasePubg.await(10, TimeUnit.SECONDS)) throw new AssertionError("sync did not resume");
+            assertThat(Thread.currentThread().getName()).startsWith("community-activity-sync-");
+            assertThat(org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()).isNull();
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("activity-request-123");
             return List.of(applePlayer(), julmiPlayer());
         });
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
@@ -319,13 +339,22 @@ class CommunityMemberActivitySyncFlowTests {
         )).thenReturn(matchMap());
 
         try (var executor = Executors.newSingleThreadExecutor()) {
-            var first = executor.submit(() -> mvc.perform(post(syncPath(fixture)).session(ownerSession))
+            var first = executor.submit(() -> mvc.perform(post(syncPath(fixture)).session(ownerSession)
+                            .header("X-Request-ID", "activity-request-123"))
                     .andReturn().getResponse().getStatus());
             assertThat(enteredPubg.await(5, TimeUnit.SECONDS)).isTrue();
+            // PUBG 조회를 막아 둔 상태에서도 HTTP는 이미 끝나야 한다.
+            assertThat(first.get(2, TimeUnit.SECONDS)).isEqualTo(202);
+            assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getSyncStatus())
+                    .isEqualTo(CommunityGameActivitySyncStatus.SYNCING);
+            assertThat(snapshots.count()).isZero();
+            ownerSession.invalidate(); // 접수 후 브라우저/세션 종료가 worker를 중단하지 않는다.
+            mvc.perform(get(listPath(fixture)).session(adminSession))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.sync.status").value("SYNCING"));
             mvc.perform(post(syncPath(fixture)).session(adminSession))
                     .andExpect(status().isConflict());
             releasePubg.countDown();
-            assertThat(first.get(5, TimeUnit.SECONDS)).isEqualTo(200);
+            awaitSync(fixture, CommunityGameActivitySyncStatus.SUCCESS);
         } finally {
             releasePubg.countDown();
         }
@@ -333,6 +362,91 @@ class CommunityMemberActivitySyncFlowTests {
         verify(matchService, times(1)).findUniqueMatchesFresh(
                 eq("kakao"), anyList(), anyLong(), anyLong()
         );
+    }
+
+    @Test
+    void nanosecondClockUsesDatabasePrecisionForTheAttempt() throws Exception {
+        Fixture fixture = createFixture();
+        now.set(FIRST_SYNC.plusNanos(123456789));
+        stubSuccessfulPubgLookup();
+        syncSuccessfully(fixture, ownerSession);
+        assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getLastSyncAttemptAt())
+                .isEqualTo(FIRST_SYNC.plusNanos(123456000));
+    }
+
+    @Test
+    void supersededWorkerCannotReplaceTheRecoveredResult() throws Exception {
+        Fixture fixture = createFixture();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        stubSuccessfulPubgLookup();
+        when(playerService.findByNamesFresh(eq("kakao"), anyList())).thenAnswer(ignored -> {
+            if (calls.incrementAndGet() == 1) {
+                entered.countDown();
+                if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("old task not released");
+            }
+            return List.of(applePlayer(), julmiPlayer());
+        });
+        try {
+            mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isAccepted());
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            now.set(FIRST_SYNC.plusSeconds(1800));
+            mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isAccepted());
+            await().atMost(Duration.ofSeconds(5)).until(() -> syncs.findByCommunityGameId(fixture.game().getId())
+                    .orElseThrow().getSyncStatus() == CommunityGameActivitySyncStatus.SUCCESS);
+            release.countDown();
+            awaitSync(fixture, CommunityGameActivitySyncStatus.SUCCESS);
+            assertThat(snapshots.count()).isEqualTo(2);
+            assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getLastSuccessfulSyncAt())
+                    .isEqualTo(now.get());
+            assertThat(monitoringEvents.count()).isZero();
+        } finally { release.countDown(); }
+    }
+
+    @Test
+    void supersededFailureCannotFailTheNewAttempt() throws Exception {
+        Fixture fixture = createFixture();
+        CountDownLatch oldEntered = new CountDownLatch(1), newEntered = new CountDownLatch(1);
+        CountDownLatch releaseOld = new CountDownLatch(1), releaseNew = new CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        stubSuccessfulPubgLookup();
+        when(playerService.findByNamesFresh(eq("kakao"), anyList())).thenAnswer(ignored -> {
+            if (calls.incrementAndGet() == 1) {
+                oldEntered.countDown();
+                if (!releaseOld.await(10, TimeUnit.SECONDS)) throw new AssertionError("old task not released");
+                throw new PubgApiException("old attempt failed");
+            }
+            newEntered.countDown();
+            if (!releaseNew.await(10, TimeUnit.SECONDS)) throw new AssertionError("new task not released");
+            return List.of(applePlayer(), julmiPlayer());
+        });
+        try {
+            mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isAccepted());
+            assertThat(oldEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            now.set(FIRST_SYNC.plusSeconds(1800));
+            mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isAccepted());
+            assertThat(newEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseOld.countDown();
+            await().atMost(Duration.ofSeconds(5)).until(() -> activityExecutor.getActiveCount() == 1);
+            assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getSyncStatus())
+                    .isEqualTo(CommunityGameActivitySyncStatus.SYNCING);
+            releaseNew.countDown();
+            awaitSync(fixture, CommunityGameActivitySyncStatus.SUCCESS);
+        } finally { releaseOld.countDown(); releaseNew.countDown(); }
+    }
+
+    private void syncSuccessfully(Fixture fixture, MockHttpSession session) throws Exception {
+        mvc.perform(post(syncPath(fixture)).session(session)).andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.sync.status").value("SYNCING"));
+        awaitSync(fixture, CommunityGameActivitySyncStatus.SUCCESS);
+    }
+
+    private void awaitSync(Fixture fixture, CommunityGameActivitySyncStatus status) {
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+            assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getSyncStatus()).isEqualTo(status);
+            assertThat(activityExecutor.getActiveCount()).isZero();
+        });
     }
 
     private Fixture createFixture() {

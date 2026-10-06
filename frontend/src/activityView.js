@@ -100,20 +100,20 @@ export function activitySyncView(sync, syncing = false, now = Date.now()) {
   const status = sync?.status || "NEVER_SYNCED";
   const syncAvailable = isSyncAvailable(sync, now);
   const buttonDisabled = syncing || !syncAvailable;
+  if ((status === "SYNCING" && !syncAvailable) || syncing) {
+    return {
+      title: "인게임 활동을 조회하고 있습니다...",
+      description: "완료될 때까지 잠시 기다려 주세요.",
+      buttonLabel: "조회 중...",
+      buttonDisabled: true,
+    };
+  }
   if (status === "NEVER_SYNCED") {
     return {
       title: "아직 배틀그라운드 활동을 조회하지 않았습니다.",
       description: null,
       buttonLabel: syncing ? "조회 중..." : "활동 조회",
       buttonDisabled,
-    };
-  }
-  if ((status === "SYNCING" && !syncAvailable) || syncing) {
-    return {
-      title: "배틀그라운드 활동을 조회하고 있습니다.",
-      description: "완료될 때까지 잠시 기다려 주세요.",
-      buttonLabel: "조회 중...",
-      buttonDisabled: true,
     };
   }
   if (status === "SYNCING") {

@@ -14,6 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 @Service
 public class CommunityActivitySyncCoordinator {
@@ -39,7 +41,7 @@ public class CommunityActivitySyncCoordinator {
     }
 
     @Transactional
-    public Long begin(Long userId, Long communityId, Long communityGameId) {
+    public Instant begin(Long userId, Long communityId, Long communityGameId) {
         gameAccess.requireManageable(userId, communityId, communityGameId, GameCapability.ACTIVITY);
         CommunityGame game = gameRepository.findByIdForUpdate(communityGameId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -59,16 +61,18 @@ public class CommunityActivitySyncCoordinator {
                     "아직 활동 정보를 다시 조회할 수 없습니다."
             );
         }
-        sync.start(clock.instant());
+        // PostgreSQL timestamp 정밀도와 일치시켜 다른 트랜잭션에서도 작업 ID를 비교한다.
+        Instant attemptedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        sync.start(attemptedAt);
         syncRepository.save(sync);
-        return game.getId();
+        return attemptedAt;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void fail(Long communityGameId) {
+    public void fail(Long communityGameId, Instant attemptedAt) {
         gameRepository.findByIdForUpdate(communityGameId).orElseThrow();
         syncRepository.findByCommunityGameId(communityGameId).ifPresent(sync -> {
-            if (sync.getSyncStatus() == CommunityGameActivitySyncStatus.SYNCING) sync.fail();
+            if (sync.isCurrentAttempt(attemptedAt)) sync.fail();
         });
     }
 
