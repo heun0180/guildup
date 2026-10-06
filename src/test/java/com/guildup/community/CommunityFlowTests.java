@@ -39,6 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "discord.oauth.redirect-uri=http://localhost/api/discord/oauth/callback"
 })
 @AutoConfigureMockMvc
+@com.guildup.support.SessionCsrfTestClient.WithSessionCsrf
 class CommunityFlowTests {
     @Autowired MockMvc mvc;
     @Autowired CommunityService service;

@@ -29,7 +29,10 @@ test("server failures keep the request ID while hiding internal messages and cre
 test("network and invalid JSON failures have different context without logging arbitrary error text", async (t) => {
   const logs = [];
   t.mock.method(console, "warn", (...args) => logs.push(args));
-  t.mock.method(globalThis, "fetch", async () => { throw new TypeError("private-network-secret"); });
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (url === "/api/auth/csrf") return new Response('{"token":"session-token"}', { status: 200 });
+    throw new TypeError("private-network-secret");
+  });
   await assert.rejects(api("/api/network-test", { method: "POST", body: "private-body-secret" }),
     (error) => error.code === "NETWORK_ERROR" && error.method === "POST" && error.status === 0);
   globalThis.fetch = async () => new Response("invalid-json-secret", { status: 200 });

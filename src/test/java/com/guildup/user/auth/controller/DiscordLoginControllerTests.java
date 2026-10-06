@@ -43,6 +43,9 @@ class DiscordLoginControllerTests {
     @Test
     void logsInUserAndStoresUserIdInSession() throws Exception {
         MockHttpSession session = new MockHttpSession();
+        String beforeLoginId = session.getId();
+        session.setAttribute("PRE_LOGIN_CONTEXT", "keep-me");
+        String beforeLoginToken = com.guildup.user.auth.service.SessionCsrfTokens.rotate(session);
 
         session.setAttribute(
                 "DISCORD_LOGIN_STATE",
@@ -88,6 +91,10 @@ class DiscordLoginControllerTests {
                 .andExpect(status().isFound())
                 .andExpect(redirectedUrl("/communities.html"));
 
+        assertThat(session.getId()).isNotEqualTo(beforeLoginId);
+        assertThat(session.getAttribute("PRE_LOGIN_CONTEXT")).isEqualTo("keep-me");
+        assertThat(com.guildup.user.auth.service.SessionCsrfTokens.matches(session, beforeLoginToken)).isFalse();
+
         assertThat(
                 session.getAttribute("LOGIN_USER_ID")
         ).isEqualTo(10L);
@@ -125,6 +132,7 @@ class DiscordLoginControllerTests {
     @Test
     void redirectsToLoginWhenDiscordAuthorizationIsDenied() throws Exception {
         MockHttpSession session = new MockHttpSession();
+        String beforeLoginId = session.getId();
         session.setAttribute("DISCORD_LOGIN_STATE", "valid-state");
         session.setAttribute("DISCORD_LOGIN_REDIRECT_URI", "http://localhost:8080/api/auth/discord/callback");
 
@@ -139,6 +147,40 @@ class DiscordLoginControllerTests {
 
         assertThat(session.getAttribute("DISCORD_LOGIN_STATE")).isNull();
         assertThat(session.getAttribute("DISCORD_LOGIN_REDIRECT_URI")).isNull();
+        assertThat(session.getId()).isEqualTo(beforeLoginId);
+        assertThat(session.getAttribute("LOGIN_USER_ID")).isNull();
+    }
+
+    @Test
+    void rejectsWrongStateWithoutPromotingSession() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String beforeLoginId = session.getId();
+        session.setAttribute("DISCORD_LOGIN_STATE", "valid-state");
+        session.setAttribute("DISCORD_LOGIN_REDIRECT_URI", "http://localhost/api/auth/discord/callback");
+        mockMvc.perform(get("/api/auth/discord/callback").session(session)
+                        .param("code", "code").param("state", "wrong-state"))
+                .andExpect(redirectedUrl("/login.html?oauthError=session"));
+        assertThat(session.getId()).isEqualTo(beforeLoginId);
+        assertThat(session.getAttribute("LOGIN_USER_ID")).isNull();
+        org.mockito.Mockito.verifyNoInteractions(discordLoginService);
+    }
+
+    @Test
+    void discordFailureDoesNotPromoteSession() throws Exception {
+        MockHttpSession session = new MockHttpSession();
+        String beforeLoginId = session.getId();
+        session.setAttribute("DISCORD_LOGIN_STATE", "valid-state");
+        session.setAttribute("DISCORD_LOGIN_REDIRECT_URI", "http://localhost/api/auth/discord/callback");
+        when(discordLoginService.getDiscordUser("code", "http://localhost/api/auth/discord/callback"))
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_GATEWAY, "Discord unavailable"));
+        mockMvc.perform(get("/api/auth/discord/callback").session(session)
+                        .param("code", "code").param("state", "valid-state"))
+                .andExpect(status().isBadGateway());
+        assertThat(session.getId()).isEqualTo(beforeLoginId);
+        assertThat(session.getAttribute("LOGIN_USER_ID")).isNull();
+        org.mockito.Mockito.verify(discordLoginService, org.mockito.Mockito.never())
+                .findOrCreateUser(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

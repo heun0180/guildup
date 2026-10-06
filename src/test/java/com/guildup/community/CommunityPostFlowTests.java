@@ -33,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.show-sql=false"
 })
 @AutoConfigureMockMvc
+@com.guildup.support.SessionCsrfTestClient.WithSessionCsrf
 @Transactional
 class CommunityPostFlowTests {
     @Autowired MockMvc mvc;

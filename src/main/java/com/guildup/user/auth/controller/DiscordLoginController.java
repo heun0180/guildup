@@ -20,6 +20,7 @@ import java.util.Base64;
 
 import com.guildup.discord.oauth.client.dto.DiscordApiUser;
 import com.guildup.user.auth.service.DiscordLoginService;
+import com.guildup.user.auth.service.SessionCsrfTokens;
 import com.guildup.user.domain.User;
 import com.guildup.user.auth.dto.LoginUserResponse;
 
@@ -136,7 +137,8 @@ public class DiscordLoginController {
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String state,
             @RequestParam(required = false) String error,
-            HttpSession session
+            HttpSession session,
+            HttpServletRequest request
     ) {
         if (error != null || code == null || code.isBlank()) {
             log.debug("Discord login callback rejected. reason=DENIED_OR_MISSING_CODE");
@@ -170,10 +172,13 @@ public class DiscordLoginController {
         User user =
                 discordLoginService.findOrCreateUser(discordUser);
 
+        // Rotate after successful OAuth verification, preserving pre-login session attributes.
+        request.changeSessionId();
         session.setAttribute(
                 LOGIN_USER_ID,
                 user.getId()
         );
+        SessionCsrfTokens.rotate(session);
 
         return ResponseEntity
                 .status(HttpStatus.FOUND)
@@ -288,4 +293,14 @@ public class DiscordLoginController {
 
         return ResponseEntity.noContent().build();
     }
+
+    @GetMapping("/csrf")
+    public ResponseEntity<CsrfTokenResponse> csrf(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        CurrentUserSession.requireUserId(session);
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(new CsrfTokenResponse(SessionCsrfTokens.getOrCreate(session)));
+    }
+
+    public record CsrfTokenResponse(String token) {}
 }

@@ -1,5 +1,17 @@
 async function api(url, options = {}) {
     const startedAt = performance.now();
+    const method = String(options.method || "GET").toUpperCase();
+    const target = new URL(url, location.origin);
+    if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)
+            && target.origin === location.origin && /^\/api(?:\/|$)/.test(target.pathname)) {
+        const csrf = await api("/api/auth/csrf", {cache: "no-store", signal: options.signal});
+        if (typeof csrf?.token !== "string" || !csrf.token) {
+            throw new Error("요청 보안 정보를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.");
+        }
+        const headers = new Headers(options.headers);
+        headers.set("X-CSRF-Token", csrf.token);
+        options = {...options, headers};
+    }
     let response;
     try { response = await fetch(url, {credentials: "same-origin", ...options}); }
     catch (failure) {

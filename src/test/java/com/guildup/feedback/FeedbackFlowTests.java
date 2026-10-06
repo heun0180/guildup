@@ -50,6 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.jpa.hibernate.ddl-auto=create-drop", "spring.jpa.show-sql=false"
 })
 @AutoConfigureMockMvc
+@com.guildup.support.SessionCsrfTestClient.WithSessionCsrf
 @Transactional
 class FeedbackFlowTests {
     private static final Instant RECEIVED_AT = Instant.parse("2026-09-14T18:30:00Z");

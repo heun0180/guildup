@@ -37,6 +37,7 @@ async function mount(path, id, handle, strict = false, competitionId = null) {
     requests.push({ url, options });
     if (url === `/api/communities/${id}`) return response(community(id));
     if (url === "/api/auth/me") return response({ nickname: "테스트" });
+    if (url === "/api/auth/csrf") return response({ token: "session-token" });
     return handle(url, options);
   };
   const root = createRoot(document.getElementById("root"));

@@ -421,8 +421,19 @@ npm run dev
 | `KILL_COMPETITION_RESULT_PUBLISH_INTERVAL` | 선택 | 결과 발표 scheduler 간격(ms), 기본 `60000` |
 | `PUBG_BASE_URL` | 선택 | PUBG API base URL override |
 | `SERVER_PORT` | 선택 | Spring Boot 포트 override |
+| `SESSION_COOKIE_SECURE` | HTTPS 운영 배포 | 세션 쿠키 Secure 플래그. 기본 로컬 환경은 `false`, `prod` profile은 `true` |
 
 Spring Boot relaxed binding으로 `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT` 등 표준 property override도 사용할 수 있다.
+
+세션 인증은 Discord 로그인 성공 시 Servlet `changeSessionId()`로 ID를 교체하며 기존 세션 속성을 유지한다.
+동일 출처의 상태 변경 API는 로그인 세션과 `X-CSRF-Token` 헤더가 필요하다. `GET /api/auth/csrf`에서
+현재 세션의 토큰을 받을 수 있으며 응답은 `Cache-Control: no-store`다. React의 `src/api/http.js`와
+기존 정적 페이지의 `community-ui.js`가 매 상태 변경 요청 전에 토큰을 조회하고 자동 전달한다.
+OAuth GET redirect는 기존 `state` 검증을 유지한다. 인증된 로그아웃도 CSRF 검증 대상이다.
+
+세션 쿠키는 `HttpOnly`, `SameSite=Lax`, `Path=/`를 사용하며 URL 기반 세션 추적은 비활성화한다.
+HTTPS 운영 배포는 `SPRING_PROFILES_ACTIVE=prod` 또는 `SESSION_COOKIE_SECURE=true`를 지정한다.
+실제 reverse proxy의 TLS 종료, 전달 헤더, 캐시·로그 정책과 환경변수 override는 배포 환경에서 확인해야 한다.
 
 ## 테스트
 

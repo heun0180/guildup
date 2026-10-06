@@ -54,6 +54,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "discord.oauth.redirect-uri=http://localhost/api/discord/oauth/callback"
 })
 @AutoConfigureMockMvc
+@com.guildup.support.SessionCsrfTestClient.WithSessionCsrf
 class CommunityMemberActivitySyncFlowTests {
 
     private static final Instant FIRST_SYNC = Instant.parse("2026-09-07T15:30:00Z");

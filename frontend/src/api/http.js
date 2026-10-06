@@ -21,6 +21,17 @@ export class ApiError extends Error {
 export async function api(url, options = {}) {
   const startedAt = performance.now();
   const context = { endpoint: safeEndpoint(url), method: String(options.method || "GET").toUpperCase() };
+  if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(context.method) && isSameOriginApi(url)) {
+    // Read each time because another tab may have changed the login session.
+    const csrf = await api("/api/auth/csrf", { cache: "no-store", signal: options.signal });
+    if (typeof csrf?.token !== "string" || !csrf.token) {
+      throw new ApiError(200, "요청 보안 정보를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.",
+        { ...context, code: "INVALID_RESPONSE" });
+    }
+    const headers = new Headers(options.headers);
+    headers.set("X-CSRF-Token", csrf.token);
+    options = { ...options, headers };
+  }
   let response;
   try {
     response = await fetch(url, { credentials: "same-origin", ...options });
@@ -66,6 +77,13 @@ export async function api(url, options = {}) {
     reportClientFailure("INVALID_RESPONSE", error, context);
     throw error;
   }
+}
+
+function isSameOriginApi(url) {
+  const origin = globalThis.location?.origin;
+  if (!origin) return typeof url === "string" && /^\/api(?:\/|$)/.test(url);
+  const target = new URL(url, origin);
+  return target.origin === origin && /^\/api(?:\/|$)/.test(target.pathname);
 }
 
 export function redirectToLogin(error) {
