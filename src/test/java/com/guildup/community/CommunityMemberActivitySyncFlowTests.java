@@ -76,7 +76,7 @@ class CommunityMemberActivitySyncFlowTests {
     @Autowired CommunityGameNicknameRuleRepository nicknameRules;
     @Autowired CommunityMemberRepository members;
     @Autowired CommunityMemberAccountRepository accounts;
-    @Autowired CommunityMemberActivitySnapshotRepository snapshots;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean CommunityMemberActivitySnapshotRepository snapshots;
     @Autowired MonitoringEventRepository monitoringEvents;
     @Autowired @Qualifier("communityActivitySyncExecutor") ThreadPoolTaskExecutor activityExecutor;
 
@@ -190,6 +190,23 @@ class CommunityMemberActivitySyncFlowTests {
         assertThat(accounts.count()).isEqualTo(2);
         assertThat(members.count()).isEqualTo(2);
         assertThat(snapshots.count()).isEqualTo(2);
+        var events = monitoringEvents.findAll().stream().sorted(java.util.Comparator.comparing(com.guildup.monitoring.domain.MonitoringEvent::getId)).toList();
+        assertThat(events).extracting(com.guildup.monitoring.domain.MonitoringEvent::getEventCode).containsExactly(
+                MonitoringEventCode.ACTIVITY_SYNC_QUEUED, MonitoringEventCode.ACTIVITY_SYNC_STARTED,
+                MonitoringEventCode.ACTIVITY_SYNC_PLAYER_FETCH_STARTED, MonitoringEventCode.ACTIVITY_SYNC_PLAYER_FETCH_COMPLETED,
+                MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_STARTED, MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_COMPLETED,
+                MonitoringEventCode.ACTIVITY_SYNC_CALCULATION_STARTED, MonitoringEventCode.ACTIVITY_SYNC_CALCULATION_COMPLETED,
+                MonitoringEventCode.ACTIVITY_SYNC_SAVE_STARTED, MonitoringEventCode.ACTIVITY_SYNC_SAVE_COMPLETED,
+                MonitoringEventCode.ACTIVITY_SYNC_COMPLETED);
+        String syncId = com.guildup.monitoring.logging.ActivitySyncLog.syncId(fixture.game().getId(), FIRST_SYNC);
+        assertThat(events).allSatisfy(event -> {
+            assertThat(event.getReferenceId()).isEqualTo(syncId);
+            assertThat(event.getMetadata()).containsEntry("syncId", syncId);
+        });
+        assertThat(events.get(1).getMetadata()).containsEntry("memberCount", 2).containsEntry("targetAccounts", 2)
+                .containsEntry("gameType", "BATTLEGROUNDS_KAKAO");
+        assertThat(events.getLast().getMetadata()).containsEntry("syncStatus", "SUCCESS").containsEntry("snapshotCount", 2)
+                .containsEntry("successChanged", true).containsKey("durationMs");
         verify(playerService).findByNamesFresh(eq("kakao"), eq(List.of("sa-gwa", "jul-mi")));
         verify(matchService).findUniqueMatchesFresh(
                 eq("kakao"), eq(List.of("match-1")),
@@ -206,7 +223,7 @@ class CommunityMemberActivitySyncFlowTests {
         syncSuccessfully(fixture, ownerSession);
         mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isTooManyRequests());
         mvc.perform(post(syncPath(fixture)).session(adminSession)).andExpect(status().isTooManyRequests());
-        assertThat(monitoringEvents.count()).isZero();
+        assertThat(monitoringEvents.findAll()).noneMatch(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_FAILED);
         verify(matchService, times(1)).findUniqueMatchesFresh(
                 eq("kakao"), anyList(), anyLong(), anyLong()
         );
@@ -268,7 +285,7 @@ class CommunityMemberActivitySyncFlowTests {
         assertThat(sync.getSyncStatus()).isEqualTo(CommunityGameActivitySyncStatus.FAILED);
         assertThat(snapshots.count()).isZero();
         var failure = monitoringEvents.findAll().stream()
-                .filter(event -> event.getEventCode() == MonitoringEventCode.COMMUNITY_ACTIVITY_SYNC_FAILED)
+                .filter(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_FAILED)
                 .findFirst().orElseThrow();
         assertThat(failure.getSeverity()).isEqualTo(MonitoringSeverity.ERROR);
         assertThat(failure.getCommunityId()).isEqualTo(fixture.community().getId());
@@ -276,10 +293,34 @@ class CommunityMemberActivitySyncFlowTests {
         assertThat(failure.getMetadata()).containsEntry("status", 503)
                 .containsEntry("upstreamStatus", 503)
                 .containsEntry("pubgErrorCode", "PUBG_UNAVAILABLE")
-                .containsKey("elapsedMs");
-        assertThat(failure.getMetadata().toString()).doesNotContain("PUBG match retries exhausted");
+                .containsKey("durationMs");
+        assertThat(failure.getMetadata()).containsEntry("failureStage", "MATCH_FETCH")
+                .containsEntry("errorType", "PUBG_API").containsKey("stackTrace");
+        assertThat(failure.getMetadata().get("errorMessage").toString()).contains("PUBG match retries exhausted");
         // PUBG 실패는 접수 응답 이후의 작업 실패이므로 HTTP 5xx로 기록하지 않는다.
         assertThat(monitoringEvents.findAll()).noneMatch(event -> event.getEventCode() == MonitoringEventCode.HTTP_5XX);
+    }
+
+    @Test
+    void databaseSaveFailureRecordsSaveFailedAndTerminalFailureAndRollsBackSnapshots() throws Exception {
+        Fixture fixture = createFixture();
+        stubSuccessfulPubgLookup();
+        doThrow(new org.springframework.dao.DataAccessResourceFailureException("password=private-db-value DB unavailable"))
+                .when(snapshots).saveAll(org.mockito.ArgumentMatchers.any());
+        mvc.perform(post(syncPath(fixture)).session(ownerSession)).andExpect(status().isAccepted());
+        awaitSync(fixture, CommunityGameActivitySyncStatus.FAILED);
+        assertThat(snapshots.count()).isZero();
+        assertThat(accounts.count()).isZero();
+        var events = monitoringEvents.findAll();
+        assertThat(events).anyMatch(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_SAVE_FAILED);
+        var failure = events.stream().filter(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failure.getMetadata()).containsEntry("failureStage", "DB_SAVE")
+                .containsEntry("databaseError", true).containsEntry("pubgApiError", false)
+                .containsEntry("syncStatus", "FAILED").containsEntry("errorType", "DATABASE");
+        assertThat(failure.getMetadata().toString()).doesNotContain("private-db-value").contains("[REDACTED]");
+        assertThat(events).noneMatch(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_SAVE_COMPLETED
+                || event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_COMPLETED);
     }
 
     @Test
@@ -400,7 +441,7 @@ class CommunityMemberActivitySyncFlowTests {
             assertThat(snapshots.count()).isEqualTo(2);
             assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getLastSuccessfulSyncAt())
                     .isEqualTo(now.get());
-            assertThat(monitoringEvents.count()).isZero();
+            assertThat(monitoringEvents.findAll()).noneMatch(event -> event.getEventCode() == MonitoringEventCode.ACTIVITY_SYNC_FAILED);
         } finally { release.countDown(); }
     }
 

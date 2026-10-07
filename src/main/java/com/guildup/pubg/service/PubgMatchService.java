@@ -3,6 +3,7 @@ package com.guildup.pubg.service;
 import com.guildup.pubg.client.PubgApiClient;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.monitoring.logging.LogContext;
+import com.guildup.monitoring.logging.ActivitySyncLog;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -86,6 +87,8 @@ public class PubgMatchService {
                 Thread.ofVirtual().name("pubg-match-", 0).factory());
     }
 
+    public int getFetchConcurrency() { return fetchConcurrency; }
+
     public Map<String, PubgMatch> findUniqueMatches(String shard, Collection<String> matchIds) {
         return findUniqueMatches(shard, matchIds, false);
     }
@@ -131,14 +134,26 @@ public class PubgMatchService {
     }
 
     private Optional<PubgMatch> findOne(MatchCacheKey key, boolean refreshMissing) {
+        ActivitySyncLog operation = ActivitySyncLog.current();
         Optional<PubgMatch> cached = cached(key, refreshMissing);
         if (cached != null) {
+            if (operation != null) { operation.cacheHit(); operation.matchResult(cached.isPresent()); }
             return cached;
         }
 
         CompletableFuture<Optional<PubgMatch>> created = new CompletableFuture<>();
         CompletableFuture<Optional<PubgMatch>> existing = inFlight.putIfAbsent(key, created);
-        if (existing != null) return await(existing);
+        if (existing != null) {
+            if (operation != null) operation.sharedFetch();
+            try {
+                var match = await(existing);
+                if (operation != null) operation.matchResult(match.isPresent());
+                return match;
+            } catch (RuntimeException exception) {
+                if (operation != null) operation.matchFailed(key.matchId(), exception);
+                throw exception;
+            }
+        }
 
         try {
             acquire(fetchPermits, "PUBG Match 조회가 중단되었습니다.");
@@ -148,10 +163,12 @@ public class PubgMatchService {
             } finally {
                 fetchPermits.release();
             }
+            if (operation != null) operation.matchResult(loaded.isPresent());
             putCache(key, loaded);
             created.complete(loaded);
             return loaded;
         } catch (RuntimeException exception) {
+            if (operation != null) operation.matchFailed(key.matchId(), exception);
             created.completeExceptionally(exception);
             throw exception;
         } finally {

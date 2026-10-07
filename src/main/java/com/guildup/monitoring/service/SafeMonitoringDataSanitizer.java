@@ -14,7 +14,7 @@ public class SafeMonitoringDataSanitizer {
     private static final int MAX_DEPTH = 5;
     private static final int MAX_CONTAINER_ITEMS = 32;
     private static final Pattern SENSITIVE_KEY = Pattern.compile(
-            "(?i).*(password|passwd|secret|api[-_]?key|token|authorization|cookie|session[-_]?id|email[-_]?verification).*"
+            "(?i).*(password|passwd|secret|api[-_]?key|token|csrf|authorization|cookie|session[-_]?id|email[-_]?verification).*"
     );
 
     public String sanitizeText(String value) { return SafeLogText.limited(value, 1000); }
@@ -39,7 +39,11 @@ public class SafeMonitoringDataSanitizer {
             if (key.isBlank() || SENSITIVE_KEY.matcher(key).matches() || item == null) continue;
             String safeKey = budget.text(key, 100);
             if (safeKey.isEmpty()) break;
-            Object safeValue = value(item, depth + 1, budget);
+            Object safeValue;
+            if (key.equals("stackTrace") && item instanceof String trace && budget.nodes > 0 && budget.characters > 0) {
+                budget.nodes--;
+                safeValue = budget.text(trace, 6000);
+            } else safeValue = value(item, depth + 1, budget);
             if (safeValue != null) result.put(safeKey, safeValue);
         }
         return Collections.unmodifiableMap(result);

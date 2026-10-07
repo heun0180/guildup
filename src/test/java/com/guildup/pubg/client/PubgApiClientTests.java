@@ -2,6 +2,10 @@ package com.guildup.pubg.client;
 
 import com.guildup.pubg.config.PubgApiProperties;
 import com.guildup.pubg.exception.PubgApiException;
+import com.guildup.monitoring.domain.*;
+import com.guildup.monitoring.logging.ActivitySyncLog;
+import com.guildup.monitoring.repository.MonitoringEventRepository;
+import com.guildup.monitoring.service.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -31,6 +37,48 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class PubgApiClientTests {
 
     private static final MediaType PUBG_JSON = MediaType.parseMediaType("application/vnd.api+json");
+
+    @Test
+    void rateLimitAndRecoveryReuseCommonEventsWithSameSyncIdAndSafeHeaderDetails() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.pubg.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        var writer = mock(MonitoringEventWriter.class);
+        var monitoring = new MonitoringEventService(writer,
+                mock(MonitoringEventRepository.class),
+                new SafeMonitoringDataSanitizer(), Clock.systemUTC());
+        var client = new PubgApiClient(builder.build(), new PubgApiProperties("secret-api-key", "https://api.pubg.test"),
+                Clock.systemUTC(), PubgApiRequestGovernor.noOp(), ignored -> {}, () -> 0, monitoring);
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, "1")
+                        .header("X-RateLimit-Remaining", "0").header("X-RateLimit-Reset", "123")
+                        .header(HttpHeaders.AUTHORIZATION, "secret-header"));
+        server.expect(requestTo(org.hamcrest.Matchers.containsString("/shards/kakao/players")))
+                .andRespond(withSuccess("{\"data\":[]}", PUBG_JSON));
+        Instant attempt = Instant.now();
+        String syncId = ActivitySyncLog.syncId(31L, attempt);
+        var operation = new ActivitySyncLog(monitoring, 12L, 31L, 4L, attempt);
+        try (var ignored = operation.open()) {
+            assertThat(client.getPlayersByNames("kakao", List.of("nickname"))).isEmpty();
+            assertThat(operation.playerMetrics()).containsEntry("apiCalls", 2L);
+        }
+        verify(writer).write(eq(MonitoringSeverity.WARN),
+                eq(MonitoringCategory.PUBG_API),
+                eq(MonitoringEventCode.PUBG_API_RATE_LIMIT),
+                anyString(), eq(12L), eq(4L),
+                eq(syncId), argThat(metadata -> {
+                    assertThat(metadata).containsEntry("syncId", syncId).containsEntry("status", 429)
+                            .containsEntry("retryAfter", "1").containsEntry("remaining", "0").containsEntry("reset", "123")
+                            .containsEntry("retryCount", 0);
+                    assertThat(metadata.toString()).doesNotContain("secret-api-key", "secret-header");
+                    return true;
+                }), any());
+        verify(writer).write(eq(MonitoringSeverity.INFO),
+                any(), eq(MonitoringEventCode.PUBG_RATE_LIMIT_RECOVERED),
+                anyString(), eq(12L), eq(4L),
+                eq(syncId), argThat(metadata -> metadata.get("retryCount").equals(1)),
+                any());
+        server.verify();
+    }
 
     @Test
     void batchesPlayerNamesOnTheRequestedKakaoShardAndMapsAccountIds() {

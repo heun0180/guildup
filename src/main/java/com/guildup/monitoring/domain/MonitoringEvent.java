@@ -13,7 +13,8 @@ import java.util.Map;
         @Index(name = "idx_monitoring_events_occurred_at", columnList = "occurred_at"),
         @Index(name = "idx_monitoring_events_severity_occurred_at", columnList = "severity,occurred_at"),
         @Index(name = "idx_monitoring_events_category_code_occurred_at", columnList = "category,event_code,occurred_at"),
-        @Index(name = "idx_monitoring_events_community_occurred_at", columnList = "community_id,occurred_at")
+        @Index(name = "idx_monitoring_events_community_occurred_at", columnList = "community_id,occurred_at"),
+        @Index(name = "idx_monitoring_events_reference_occurred_at", columnList = "reference_id,occurred_at")
 })
 public class MonitoringEvent {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,6 +30,9 @@ public class MonitoringEvent {
     @Column(name = "community_id") private Long communityId;
     @Column(name = "user_id") private Long userId;
     @Column(name = "reference_id", length = 160) private String referenceId;
+    // Only queryable activity summaries are projected; all other detail stays in existing metadata.
+    @Column(name = "activity_game_type", length = 32) private String activityGameType;
+    @Column(name = "duration_ms") private Long durationMs;
     @JdbcTypeCode(SqlTypes.JSON) @Column
     private Map<String, Object> metadata;
     @Column(name = "occurred_at", nullable = false, updatable = false)
@@ -47,6 +51,10 @@ public class MonitoringEvent {
         this.userId = userId;
         this.referenceId = referenceId;
         this.metadata = metadata == null || metadata.isEmpty() ? null : new LinkedHashMap<>(metadata);
+        if (metadata != null && metadata.get("syncId") != null) {
+            if (metadata.get("gameType") instanceof String gameType && gameType.length() <= 32) this.activityGameType = gameType;
+            if (metadata.get("durationMs") instanceof Number duration) this.durationMs = Math.max(0, duration.longValue());
+        }
         this.occurredAt = occurredAt;
     }
 

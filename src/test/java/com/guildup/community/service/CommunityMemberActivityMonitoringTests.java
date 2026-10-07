@@ -33,7 +33,7 @@ class CommunityMemberActivityMonitoringTests {
     private final MonitoringEventService monitoring = new MonitoringEventService(writer,
             mock(MonitoringEventRepository.class), new SafeMonitoringDataSanitizer(), Clock.systemUTC());
     private final CommunityMemberActivitySyncService service = new CommunityMemberActivitySyncService(
-            coordinator, worker, activities, monitoring, executor);
+            coordinator, worker, activities, monitoring, executor, Clock.fixed(ATTEMPT, java.time.ZoneOffset.UTC));
 
     @BeforeEach
     void setUp() {
@@ -52,8 +52,8 @@ class CommunityMemberActivityMonitoringTests {
         verifyNoInteractions(worker);
         tasks.getFirst().run();
         verify(coordinator).fail(31L, ATTEMPT);
-        verify(writer).write(any(), any(), any(), anyString(), eq(12L), eq(4L),
-                eq("communityGameId=31"), anyMap(), any());
+        verify(writer).write(eq(com.guildup.monitoring.domain.MonitoringSeverity.ERROR), any(), eq(com.guildup.monitoring.domain.MonitoringEventCode.ACTIVITY_SYNC_FAILED), anyString(), eq(12L), eq(4L),
+                eq(com.guildup.monitoring.logging.ActivitySyncLog.syncId(31L, ATTEMPT)), anyMap(), any());
         verify(activities).getActivities(4L, 12L, 31L);
     }
 
@@ -66,13 +66,15 @@ class CommunityMemberActivityMonitoringTests {
     }
 
     @Test
-    void configurationRejectionDoesNotRecordAnOperationalFailure() {
+    void configurationFailureAfterAcceptanceRecordsTheReasonForFailedState() {
         var rejection = new ResponseStatusException(HttpStatus.BAD_REQUEST, "활동 규칙 설정 필요");
         doThrow(rejection).when(worker).synchronize(31L, ATTEMPT);
         service.sync(4L, 12L, 31L);
         tasks.getFirst().run();
         verify(coordinator).fail(31L, ATTEMPT);
-        verifyNoInteractions(writer);
+        verify(writer).write(eq(com.guildup.monitoring.domain.MonitoringSeverity.ERROR), any(),
+                eq(com.guildup.monitoring.domain.MonitoringEventCode.ACTIVITY_SYNC_FAILED), anyString(), eq(12L), eq(4L),
+                anyString(), argThat(metadata -> metadata.get("syncStatus").equals("FAILED") && metadata.get("status").equals(400)), any());
     }
 
     @Test

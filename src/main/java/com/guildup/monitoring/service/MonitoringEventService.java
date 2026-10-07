@@ -92,9 +92,11 @@ public class MonitoringEventService {
                     context.put(entry.getKey(), entry.getValue());
                 }
             }
-            for (String key : java.util.List.of("requestId", "jobName", "stage", "communityId", "userId", "bingoEventId", "killCompetitionId", "matchId")) {
+            for (String key : java.util.List.of("requestId", "syncId", "communityGameId", "gameType", "jobName", "stage", "communityId", "userId", "bingoEventId", "killCompetitionId", "matchId")) {
                 if (MDC.get(key) != null) context.putIfAbsent(key, MDC.get(key));
             }
+            // Activity and common PUBG events share the existing indexed reference field.
+            if (MDC.get("syncId") != null && category == MonitoringCategory.PUBG_API) referenceId = MDC.get("syncId");
             var safeMetadata = sanitizer.sanitize(context);
             String safeMessage = limited(sanitizer.sanitizeText(message), 500);
             String safeReference = referenceId == null ? null : limited(sanitizer.sanitizeText(referenceId), 160);

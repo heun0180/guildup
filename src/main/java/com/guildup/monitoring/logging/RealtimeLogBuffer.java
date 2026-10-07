@@ -13,7 +13,8 @@ import java.util.*;
 public class RealtimeLogBuffer {
     private static final Set<String> CONTEXT_KEYS = Set.of("requestId", "userId", "communityId", "communityMemberId",
             "bingoEventId", "bingoId", "killCompetitionId", "participantId", "matchId", "pubgPlayerId",
-            "discordGuildId", "discordUserId", "jobName", "stage", "endpoint", "method", "shard");
+            "discordGuildId", "discordUserId", "jobName", "stage", "endpoint", "method", "shard",
+            "syncId", "communityGameId", "gameType");
     private final LiveLogEntry[] entries;
     private final String instance = UUID.randomUUID().toString();
     private long sequence;

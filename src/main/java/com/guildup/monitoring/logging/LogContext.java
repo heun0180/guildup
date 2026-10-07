@@ -21,18 +21,20 @@ public final class LogContext {
 
     public static Runnable wrap(Runnable task) {
         Map<String, String> captured = MDC.getCopyOfContextMap();
+        ActivitySyncLog operation = ActivitySyncLog.current();
         return () -> {
             Map<String, String> previous = MDC.getCopyOfContextMap();
-            try { restore(captured); task.run(); }
+            try (var ignored = ActivitySyncLog.bind(operation)) { restore(captured); task.run(); }
             finally { restore(previous); }
         };
     }
 
     public static <T> Callable<T> wrapCallable(Callable<T> task) {
         Map<String, String> captured = MDC.getCopyOfContextMap();
+        ActivitySyncLog operation = ActivitySyncLog.current();
         return () -> {
             Map<String, String> previous = MDC.getCopyOfContextMap();
-            try { restore(captured); return task.call(); }
+            try (var ignored = ActivitySyncLog.bind(operation)) { restore(captured); return task.call(); }
             finally { restore(previous); }
         };
     }

@@ -8,6 +8,8 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import com.guildup.community.domain.GameType;
+import org.springframework.data.domain.Sort;
 
 @RestController
 @RequestMapping("/api/developer/monitoring")
@@ -32,8 +34,15 @@ public class DeveloperMonitoringController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return queries.events(severity, category, eventCode, communityId, from, to, page, size);
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "ALL") MonitoringQueryService.EventGroup group,
+            @RequestParam(required = false) GameType gameType,
+            @RequestParam(required = false) MonitoringQueryService.ActivityResult syncStatus,
+            @RequestParam(required = false) String syncId,
+            @RequestParam(required = false) Long minDurationMs,
+            @RequestParam(defaultValue = "DESC") Sort.Direction order) {
+        return queries.events(severity, category, eventCode, communityId, from, to, page, size,
+                group, gameType, syncStatus, syncId, minDurationMs, order);
     }
 
     @GetMapping("/events/{id}")

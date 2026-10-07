@@ -18,6 +18,7 @@ import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
 import com.guildup.monitoring.logging.LogContext;
+import com.guildup.monitoring.logging.ActivitySyncLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -100,7 +101,7 @@ public class PubgApiClient {
         this(restClient, properties, clock, requestGovernor, retrySleeper, jitterMillis, null);
     }
 
-    private PubgApiClient(
+    PubgApiClient(
             RestClient restClient,
             PubgApiProperties properties,
             Clock clock,
@@ -301,57 +302,71 @@ public class PubgApiClient {
 
     private <T> T requestWithRetries(String endpoint, boolean governed, Supplier<ResponseEntity<T>> request) {
         long startedNanos = System.nanoTime();
+        boolean rateLimited = false;
+        ActivitySyncLog operation = ActivitySyncLog.current();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             if (governed) requestGovernor.acquire();
             try {
+                if (operation != null) operation.apiAttempt(endpoint, attempt - 1);
                 ResponseEntity<T> response = request.get();
                 if (governed) requestGovernor.observe(response.getHeaders());
+                if (rateLimited && (operation == null || operation.allowApiDiagnostics())) {
+                    log.info("PUBG_RATE_LIMIT_RECOVERED endpoint={} httpStatus={} retryCount={} elapsedMs={}",
+                            endpoint, response.getStatusCode().value(), attempt - 1, elapsedMs(startedNanos));
+                    if (monitoring != null) monitoring.recordInfo(MonitoringCategory.PUBG_API,
+                            MonitoringEventCode.PUBG_RATE_LIMIT_RECOVERED, "PUBG Rate Limit 재시도 후 복구",
+                            null, null, endpoint, Map.of("endpoint", endpoint, "status", response.getStatusCode().value(),
+                                    "retryCount", attempt - 1, "elapsedMs", elapsedMs(startedNanos)));
+                }
                 return response.getBody();
             } catch (HttpClientErrorException.TooManyRequests exception) {
+                boolean report = operation == null || operation.allowApiDiagnostics();
+                rateLimited = true;
                 HttpHeaders headers = exception.getResponseHeaders();
-                recordWarn(MonitoringEventCode.PUBG_API_RATE_LIMIT, "PUBG API rate limit reached",
-                        endpoint, 429, attempt, null);
+                if (report) recordRateLimit(endpoint, headers, attempt - 1);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.warn(
-                            "PUBG API retry exhausted - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempts={}, "
+                    if (report) log.warn(
+                            "PUBG_RATE_LIMIT retry exhausted - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempts={}, "
                                     + "limit={}, remaining={}, reset={}, retryAfter={}",
                             endpoint, attempt, header(headers, "X-RateLimit-Limit"),
                             header(headers, "X-RateLimit-Remaining"), header(headers, "X-RateLimit-Reset"),
                             header(headers, HttpHeaders.RETRY_AFTER), exception
                     );
-                    recordFailure(endpoint, "RATE_LIMIT", 429, attempt);
+                    if (report) recordFailure(endpoint, "RATE_LIMIT", 429, attempt);
                     throw rateLimitException(exception);
                 }
                 long waitMillis = retryWaitMillis(headers, attempt);
                 if (governed) requestGovernor.cooldownUntil(clock.instant().plusMillis(waitMillis));
-                log.warn(
-                        "PUBG API retry - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempt={}/{}, waitMs={}, "
+                if (report) log.warn(
+                        "PUBG_RATE_LIMIT retry - endpoint={}, code=PUBG_RATE_LIMITED, status=429, attempt={}/{}, waitMs={}, "
                                 + "limit={}, remaining={}, reset={}, retryAfter={}",
                         endpoint, attempt + 1, MAX_ATTEMPTS, waitMillis,
                         header(headers, "X-RateLimit-Limit"), header(headers, "X-RateLimit-Remaining"),
                         header(headers, "X-RateLimit-Reset"), header(headers, HttpHeaders.RETRY_AFTER)
                 );
-                recordRetry(endpoint, "RATE_LIMIT", 429, attempt + 1, waitMillis);
+                if (report) recordRetry(endpoint, "RATE_LIMIT", 429, attempt, waitMillis);
                 waitBeforeRetry(waitMillis);
             } catch (RestClientResponseException exception) {
                 int status = exception.getStatusCode().value();
+                // A normal missing match emits no diagnostics and must not consume the error budget.
+                boolean report = status != 404 && (operation == null || operation.allowApiDiagnostics());
                 if (!isTransientStatus(exception.getStatusCode())) {
                     if (status != 404) {
-                        log.warn("PUBG API request rejected - endpoint={} httpStatus={} retryCount={} elapsedMs={}",
+                        if (report) log.warn("PUBG API request rejected - endpoint={} httpStatus={} retryCount={} elapsedMs={}",
                                 endpoint, status, attempt - 1, elapsedMs(startedNanos), exception);
-                        recordWarn(MonitoringEventCode.PUBG_API_CLIENT_ERROR,
-                                "PUBG API client error", endpoint, status, attempt, elapsedMs(startedNanos));
+                        if (report) recordWarn(MonitoringEventCode.PUBG_API_CLIENT_ERROR,
+                                "PUBG API client error", endpoint, status, attempt - 1, elapsedMs(startedNanos));
                     }
                     throw exception;
                 }
-                recordWarn(MonitoringEventCode.PUBG_API_SERVER_ERROR, "PUBG API server error",
-                        endpoint, status, attempt, null);
+                if (report) recordWarn(MonitoringEventCode.PUBG_API_SERVER_ERROR, "PUBG API server error",
+                        endpoint, status, attempt - 1, null);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.warn(
+                    if (report) log.warn(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempts={}, elapsedMs={}",
                             endpoint, exception.getStatusCode().value(), attempt, elapsedMs(startedNanos), exception
                     );
-                    recordFailure(endpoint, "HTTP_5XX", status, attempt);
+                    if (report) recordFailure(endpoint, "HTTP_5XX", status, attempt);
                     throw new PubgApiException(
                             PubgApiErrorCode.PUBG_UNAVAILABLE,
                             "PUBG API가 일시적으로 응답하지 않습니다.", exception,
@@ -359,37 +374,39 @@ public class PubgApiClient {
                     );
                 }
                 long waitMillis = exponentialBackoff(attempt);
-                log.warn(
+                if (report) log.warn(
                         "PUBG API retry - endpoint={}, code=PUBG_UNAVAILABLE, status={}, attempt={}/{}, waitMs={}",
                         endpoint, exception.getStatusCode().value(), attempt + 1, MAX_ATTEMPTS, waitMillis
                 );
-                recordRetry(endpoint, "HTTP_5XX", status, attempt + 1, waitMillis);
+                if (report) recordRetry(endpoint, "HTTP_5XX", status, attempt, waitMillis);
                 waitBeforeRetry(waitMillis);
             } catch (ResourceAccessException exception) {
-                recordWarn(MonitoringEventCode.PUBG_API_TIMEOUT, "PUBG API request timed out",
-                        endpoint, null, attempt, null);
+                boolean report = operation == null || operation.allowApiDiagnostics();
+                if (report) recordWarn(MonitoringEventCode.PUBG_API_TIMEOUT, "PUBG API request timed out",
+                        endpoint, null, attempt - 1, null);
                 if (attempt == MAX_ATTEMPTS) {
-                    log.warn(
+                    if (report) log.warn(
                             "PUBG API retry exhausted - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempts={}, elapsedMs={}",
                             endpoint, attempt, elapsedMs(startedNanos), exception
                     );
-                    recordFailure(endpoint, "TIMEOUT", null, attempt);
+                    if (report) recordFailure(endpoint, "TIMEOUT", null, attempt);
                     throw new PubgApiException(
                             PubgApiErrorCode.PUBG_TIMEOUT,
                             "PUBG API 응답 시간이 초과되었습니다.", exception, null, false
                     );
                 }
                 long waitMillis = exponentialBackoff(attempt);
-                log.warn(
+                if (report) log.warn(
                         "PUBG API retry - endpoint={}, code=PUBG_TIMEOUT, status=N/A, attempt={}/{}, waitMs={}",
                         endpoint, attempt + 1, MAX_ATTEMPTS, waitMillis
                 );
-                recordRetry(endpoint, "TIMEOUT", null, attempt + 1, waitMillis);
+                if (report) recordRetry(endpoint, "TIMEOUT", null, attempt, waitMillis);
                 waitBeforeRetry(waitMillis);
             } catch (RestClientException exception) {
-                log.warn("PUBG API response processing failed - endpoint={} stage=RESPONSE_PARSE retryCount={} elapsedMs={}",
+                boolean report = operation == null || operation.allowApiDiagnostics();
+                if (report) log.warn("PUBG API response processing failed - endpoint={} stage=RESPONSE_PARSE retryCount={} elapsedMs={}",
                         endpoint, attempt - 1, elapsedMs(startedNanos), exception);
-                recordFailure(endpoint, "RESPONSE_PARSE", null, attempt);
+                if (report) recordFailure(endpoint, "RESPONSE_PARSE", null, attempt);
                 throw exception;
             }
         }
@@ -397,6 +414,21 @@ public class PubgApiClient {
     }
 
     private long elapsedMs(long startedNanos) { return (System.nanoTime() - startedNanos) / 1_000_000; }
+
+    private void recordRateLimit(String endpoint, HttpHeaders headers, int retryCount) {
+        if (monitoring == null) return;
+        var metadata = new LinkedHashMap<String, Object>();
+        metadata.put("endpoint", endpoint);
+        metadata.put("status", 429);
+        metadata.put("retryCount", retryCount);
+        for (var pair : Map.of("retryAfter", HttpHeaders.RETRY_AFTER, "remaining", "X-RateLimit-Remaining",
+                "reset", "X-RateLimit-Reset").entrySet()) {
+            String value = header(headers, pair.getValue());
+            if (value != null) metadata.put(pair.getKey(), value);
+        }
+        monitoring.recordWarn(MonitoringCategory.PUBG_API, MonitoringEventCode.PUBG_API_RATE_LIMIT,
+                "PUBG_RATE_LIMIT", null, null, endpoint, metadata);
+    }
 
     private void recordRetry(String endpoint, String reason, Integer status, int retryCount, long waitMillis) {
         if (monitoring == null) return;

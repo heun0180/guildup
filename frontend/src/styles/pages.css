@@ -898,18 +898,18 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .monitoring-status-card strong { font-size: 1.05rem; overflow-wrap: anywhere; }
 .monitoring-count-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .monitoring-count-card strong { font-size: 1.55rem; }
-.monitoring-filters { display: grid; grid-template-columns: repeat(6, minmax(125px, 1fr)) auto; align-items: end; gap: 10px; margin-bottom: 14px; padding: 15px; }
+.monitoring-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; gap: 10px; margin-bottom: 14px; padding: 15px; }
 .monitoring-filters label { display: grid; gap: 5px; }
 .monitoring-filters label span { color: var(--color-text-secondary); font-size: .68rem; font-weight: 750; }
-.monitoring-table-wrap { overflow: hidden; }
+.monitoring-table-wrap { overflow-x: auto; }
 .monitoring-table tbody tr { cursor: pointer; }
 .monitoring-table tbody tr:focus { outline: 2px solid var(--color-primary); outline-offset: -2px; }
 .monitoring-table code { font-size: .69rem; }
 .monitoring-empty { padding: 30px !important; color: var(--color-text-secondary); text-align: center; }
 .monitoring-badge { display: inline-flex; min-height: 24px; align-items: center; border-radius: 999px; padding: 0 8px; background: #edf0f5; font-size: .64rem; font-weight: 800; }
-.monitoring-error, .monitoring-down { background: var(--color-error-soft); color: var(--color-error); }
+.monitoring-error, .monitoring-down, .monitoring-failed { background: var(--color-error-soft); color: var(--color-error); }
 .monitoring-warn { background: var(--color-warning-soft); color: var(--color-warning); }
-.monitoring-info, .monitoring-up { background: var(--color-success-soft); color: var(--color-success); }
+.monitoring-info, .monitoring-up, .monitoring-success { background: var(--color-success-soft); color: var(--color-success); }
 .monitoring-modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(23, 27, 36, .52); }
 .monitoring-modal { width: min(760px, 100%); max-height: calc(100vh - 48px); overflow-y: auto; padding: 22px; box-shadow: var(--shadow-elevated); }
 .monitoring-modal > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
@@ -1347,3 +1347,18 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .pubg-platform-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 1.25rem; border-bottom: 1px solid var(--border-color, #dbe3ec); }
 .pubg-platform-bar label { display: flex; align-items: center; gap: 0.6rem; }
 .pubg-platform-bar select { min-width: 7rem; padding: 0.4rem 0.6rem; }
+
+.monitoring-log-groups { margin-bottom: 14px; }
+.monitoring-content, .monitoring-content > section { min-width: 0; }
+.monitoring-table { min-width: 1450px; }
+.monitoring-table td:first-child, .monitoring-table td:nth-child(6) { white-space: nowrap; }
+.monitoring-sync-summary { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; padding: 16px; border-radius: 10px; background: var(--color-surface-soft); }
+.monitoring-sync-summary span { display: grid; gap: 6px; }
+.monitoring-sync-summary small { color: var(--color-text-secondary); font-size: .68rem; }
+.monitoring-link { min-height: 0; border: 0; padding: 0; background: transparent; color: var(--color-primary-dark); cursor: pointer; font: inherit; text-align: left; text-decoration: underline; overflow-wrap: anywhere; }
+.monitoring-sync-id { max-width: 160px; font-family: ui-monospace, monospace; font-size: .68rem; }
+.monitoring-timeline-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.monitoring-retention-note { color: var(--color-text-secondary); font-size: .72rem; }
+.monitoring-timeline { list-style: none; padding: 0; }
+.monitoring-timeline li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); padding: 12px 0; font-size: .72rem; }
+.monitoring-timeline li > span:last-child { width: 100%; color: var(--color-text-secondary); }

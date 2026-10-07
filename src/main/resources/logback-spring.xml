@@ -5,7 +5,7 @@
     <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="guildup-backend"/>
     <property name="LOG_PATH" value="${LOG_PATH:-logs}"/>
     <property name="LOG_FILE" value="${LOG_PATH}/guildup.log"/>
-    <property name="CONSOLE_PATTERN" value="%nopex%safe(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} requestId=%X{requestId} userId=%X{userId} communityId=%X{communityId} jobName=%X{jobName} stage=%X{stage} - %msg%n%ex)"/>
+    <property name="CONSOLE_PATTERN" value="%nopex%safe(%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} requestId=%X{requestId} syncId=%X{syncId} userId=%X{userId} communityId=%X{communityId} communityGameId=%X{communityGameId} gameType=%X{gameType} jobName=%X{jobName} stage=%X{stage} - %msg%n%ex)"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder><pattern>${CONSOLE_PATTERN}</pattern></encoder>

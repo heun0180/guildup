@@ -27,8 +27,9 @@ import com.guildup.community.service.nickname.GameNicknameRuleInferenceService;
 import com.guildup.community.service.nickname.NicknameRuleCandidate;
 import com.guildup.pubg.model.PubgMatch;
 import com.guildup.pubg.model.PubgPlayer;
-import com.guildup.pubg.exception.PubgApiException;
-import com.guildup.monitoring.logging.FailureLogContext;
+import com.guildup.monitoring.logging.ActivitySyncLog;
+import com.guildup.monitoring.logging.LogContext;
+import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.pubg.service.PubgMatchService;
 import com.guildup.pubg.service.PubgPlayerService;
 import com.guildup.pubg.support.PubgGameSupport;
@@ -106,11 +107,13 @@ public class CommunityMemberActivitySyncWorker {
     public void synchronize(Long communityGameId, Instant attemptedAt) {
         long startedAtNanos = System.nanoTime();
         Long communityId = null;
-        SyncStage stage = SyncStage.PREPARATION;
+        ActivitySyncLog operation = ActivitySyncLog.current();
+        String stage = "PREPARATION";
         try {
             Preparation preparation = transactions.execute(status -> prepare(communityGameId, attemptedAt));
             if (preparation == null) {
-                log.info("Superseded activity task skipped - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
+                if (operation != null) operation.superseded();
+                else log.info("Superseded activity task skipped - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
                 return;
             }
             CommunityGame game = preparation.game();
@@ -122,13 +125,34 @@ public class CommunityMemberActivitySyncWorker {
             String shard = preparation.shard();
             communityId = preparation.communityId();
 
+            int targetAccounts = (int) accountsByMemberId.values().stream()
+                    .map(CommunityMemberAccount::getExternalUserId).distinct().count()
+                    + (int) members.stream().filter(member -> !accountsByMemberId.containsKey(member.getId()))
+                    .map(member -> gameNicknames.get(member.getId())).filter(java.util.Objects::nonNull).distinct().count();
+            if (operation != null) {
+                operation.enrich(Map.of("gameType", game.getGameType().name(), "communityName", preparation.communityName(),
+                        "memberCount", members.size(), "targetAccounts", targetAccounts));
+                LogContext.put("gameType", game.getGameType().name());
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_STARTED, "인게임 활동 조회를 시작했습니다.", Map.of());
+            }
             Map<String, PubgPlayer> playersByAccountId = new LinkedHashMap<>();
-            stage = SyncStage.PLAYER_BY_NAME;
+            stage = "PLAYER_FETCH";
+            long phaseStarted = System.nanoTime();
+            if (operation != null) {
+                operation.stage(stage);
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_PLAYER_FETCH_STARTED, "PUBG Player 조회 시작", Map.of());
+            }
             resolveMissingAccounts(
                     shard, members, gameNicknames, accountsByMemberId, playersByAccountId
             );
-            stage = SyncStage.PLAYER_BY_ACCOUNT_ID;
             loadStoredPlayers(shard, accountsByMemberId, playersByAccountId);
+            if (operation != null) {
+                operation.enrich(Map.of("playersFound", playersByAccountId.size(),
+                        "playersMissing", Math.max(0, targetAccounts - playersByAccountId.size())));
+                var metrics = new LinkedHashMap<String, Object>(operation.playerMetrics());
+                metrics.put("elapsedMs", elapsedMillis(phaseStarted));
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_PLAYER_FETCH_COMPLETED, "PUBG Player 조회 완료", metrics);
+            }
 
             Map<String, ClanMemberIdentity> clanMembersByAccountId = accountsByMemberId.values().stream()
                     .collect(Collectors.toMap(
@@ -144,14 +168,32 @@ public class CommunityMemberActivitySyncWorker {
                     .flatMap(player -> player.matchIds().stream())
                     .distinct()
                     .toList();
-            stage = SyncStage.MATCH;
+            stage = "MATCH_FETCH";
+            phaseStarted = System.nanoTime();
+            if (operation != null) {
+                operation.stage(stage);
+                operation.enrich(Map.of("uniqueMatches", matchIds.size(), "fetchConcurrency", pubgMatchService.getFetchConcurrency()));
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_STARTED, "PUBG Match 조회 시작", Map.of());
+            }
             Map<String, PubgMatch> matches = pubgMatchService.findUniqueMatchesFresh(
                     shard, matchIds, communityId, communityGameId
             );
+            if (operation != null) {
+                var metrics = new LinkedHashMap<String, Object>(operation.matchMetrics());
+                metrics.put("successfulMatches", matches.size());
+                metrics.put("missingMatches", matchIds.size() - matches.size());
+                metrics.put("elapsedMs", elapsedMillis(phaseStarted));
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_COMPLETED, "PUBG Match 조회 완료", metrics);
+            }
             Instant synchronizedAt = clock.instant();
             Instant periodStart = synchronizedAt.minus(Duration.ofDays(rule.getActivityPeriodDays()));
 
-            stage = SyncStage.ACTIVITY_CALCULATION;
+            stage = "ACTIVITY_CALCULATION";
+            phaseStarted = System.nanoTime();
+            if (operation != null) {
+                operation.stage(stage);
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_CALCULATION_STARTED, "활동 스냅샷 계산 시작", Map.of());
+            }
             List<CommunityMemberActivitySnapshot> activitySnapshots = members.stream()
                     .map(member -> createSnapshot(
                             game, member, gameNicknames, accountsByMemberId, playersByAccountId,
@@ -160,7 +202,15 @@ public class CommunityMemberActivitySyncWorker {
                     ))
                     .toList();
 
-            stage = SyncStage.DB_SAVE;
+            if (operation != null) operation.info(MonitoringEventCode.ACTIVITY_SYNC_CALCULATION_COMPLETED,
+                    "활동 스냅샷 계산 완료", Map.of("plannedSnapshots", activitySnapshots.size(), "elapsedMs", elapsedMillis(phaseStarted)));
+            stage = "DB_SAVE";
+            phaseStarted = System.nanoTime();
+            if (operation != null) {
+                operation.stage(stage);
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_SAVE_STARTED, "활동 스냅샷 저장 시작",
+                        Map.of("plannedSnapshots", activitySnapshots.size()));
+            }
             Boolean saved = transactions.execute(status -> {
                 gameRepository.findByIdForUpdate(game.getId()).orElseThrow();
                 var sync = syncRepository.findByCommunityGameId(game.getId()).orElseThrow();
@@ -176,27 +226,24 @@ public class CommunityMemberActivitySyncWorker {
             });
 
             if (!Boolean.TRUE.equals(saved)) {
-                log.info("Superseded activity result discarded - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
+                if (operation != null) operation.superseded();
+                else log.info("Superseded activity result discarded - communityGameId={}, attemptAt={}", communityGameId, attemptedAt);
                 return;
             }
 
-            log.info(
-                    "PUBG activity sync completed - communityId={}, communityGameId={}, players={}, "
-                            + "uniqueMatches={}, durationMs={}",
-                    communityId, communityGameId, playersByAccountId.size(), matchIds.size(),
-                    elapsedMillis(startedAtNanos)
-            );
-        } catch (RuntimeException exception) {
-            boolean clientRejection = exception instanceof ResponseStatusException response
-                    && !(exception instanceof PubgApiException) && response.getStatusCode().is4xxClientError();
-            (clientRejection ? log.atDebug() : log.atError()).setCause(exception).log(
-                    "PUBG activity sync failed - communityId={}, communityGameId={}, stage={}, status={}, "
-                            + "exception={}, durationMs={}",
-                    communityId, communityGameId, stage, status(exception),
-                    exception.getClass().getSimpleName(),
-                    elapsedMillis(startedAtNanos)
-            );
-            if (!clientRejection) FailureLogContext.markLogged(exception);
+            if (operation != null) {
+                operation.enrich(Map.of("snapshotCount", activitySnapshots.size(), "successChanged", true));
+                operation.info(MonitoringEventCode.ACTIVITY_SYNC_SAVE_COMPLETED, "활동 스냅샷 저장 및 SUCCESS 변경 완료",
+                        Map.of("elapsedMs", elapsedMillis(phaseStarted)));
+                operation.completed();
+            } else {
+                log.info("PUBG activity sync completed - communityId={}, communityGameId={}, players={}, uniqueMatches={}, durationMs={}",
+                        communityId, communityGameId, playersByAccountId.size(), matchIds.size(), elapsedMillis(startedAtNanos));
+            }
+        } catch (RuntimeException | Error exception) {
+            if (operation != null) operation.stageFailed(exception);
+            else log.error("PUBG activity sync failed - communityId={}, communityGameId={}, stage={}, durationMs={}",
+                    communityId, communityGameId, stage, elapsedMillis(startedAtNanos), exception);
             throw exception;
         }
     }
@@ -231,31 +278,12 @@ public class CommunityMemberActivitySyncWorker {
         Map<Long, String> gameNicknames = extractGameNicknames(members, accountsByMemberId, nicknameCandidate);
         String shard = PubgGameSupport.requireShard(game.getGameType());
         return new Preparation(
-                communityId, game, rule, members, membersById, accountsByMemberId, gameNicknames, shard
+                communityId, game.getCommunity().getName(), game, rule, members, membersById, accountsByMemberId, gameNicknames, shard
         );
     }
 
     private long elapsedMillis(long startedAtNanos) {
         return (System.nanoTime() - startedAtNanos) / 1_000_000;
-    }
-
-    private Object status(RuntimeException exception) {
-        if (exception instanceof PubgApiException pubg && pubg.getUpstreamStatus() != null) {
-            return pubg.getUpstreamStatus();
-        }
-        if (exception instanceof ResponseStatusException response) {
-            return response.getStatusCode().value();
-        }
-        return "N/A";
-    }
-
-    private enum SyncStage {
-        PREPARATION,
-        PLAYER_BY_NAME,
-        PLAYER_BY_ACCOUNT_ID,
-        MATCH,
-        ACTIVITY_CALCULATION,
-        DB_SAVE
     }
 
     private CommunityMemberActivitySnapshot createSnapshot(
@@ -406,6 +434,7 @@ public class CommunityMemberActivitySyncWorker {
 
     private record Preparation(
             Long communityId,
+            String communityName,
             CommunityGame game,
             CommunityGameActivityRule rule,
             List<CommunityMember> members,

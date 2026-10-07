@@ -11,7 +11,7 @@ public final class SafeLogText {
     private static final String TRUNCATED = "…[truncated]";
     private static final Pattern HEADERS = Pattern.compile("(?im)(\\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\\s*[:=]\\s*)[^\\r\\n]+(?=\\r?$)");
     private static final Pattern VALUES = Pattern.compile("(?<![\\w.-])[\\\"']?([\\w.-]++)[\\\"']?\\s*[:=]\\s*");
-    private static final Pattern SENSITIVE_VALUE_KEY = Pattern.compile("(?i)password|passwd|secret|api[-_]?key|token|authorization|cookie|session[-_]?id|JSESSIONID");
+    private static final Pattern SENSITIVE_VALUE_KEY = Pattern.compile("(?i)password|passwd|secret|api[-_]?key|token|csrf|authorization|cookie|session[-_]?id|JSESSIONID");
     private static final Pattern BEARER = Pattern.compile("(?i)Bearer\\s+[^\\s,;\\\"'\\]}]+" );
     private static final Pattern JWT = Pattern.compile("\\beyJ[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]*){0,2}");
     private static final Pattern EMAIL = Pattern.compile("(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]++@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
@@ -20,7 +20,7 @@ public final class SafeLogText {
     private static final Pattern SQL_QUERY = Pattern.compile("(?is)\\[(?:\\s*(?:select|insert|update|delete|with|alter|create)\\b).*?(?:\\]|$)");
     private static final Pattern HTTP_BODY = Pattern.compile("(?is)(\\b(?:[45]\\d\\d|response body)\\b[^\\r\\n]{0,120}?[:=]\\s*)(?=\\\")");
     private static final Pattern SENSITIVE_PATH = Pattern.compile("(?i)(/(?:oauth/)?(?:results?|installations?|install-tokens?)/)[^/?\\s]+" );
-    private static final Pattern SENSITIVE_HINT = Pattern.compile("(?i)password|passwd|secret|api[-_]?key|token|authorization|cookie|session[-_]?id|JSESSIONID|bearer|eyJ|@|SQL|Detail:|Where:|\\[\\s*(?:select|insert|update|delete|with|alter|create)|\\b[45]\\d\\d\\b|response body|/(?:oauth/)?(?:results?|installations?|install-tokens?)/");
+    private static final Pattern SENSITIVE_HINT = Pattern.compile("(?i)password|passwd|secret|api[-_]?key|token|csrf|authorization|cookie|session[-_]?id|JSESSIONID|bearer|eyJ|@|SQL|Detail:|Where:|\\[\\s*(?:select|insert|update|delete|with|alter|create)|\\b[45]\\d\\d\\b|response body|/(?:oauth/)?(?:results?|installations?|install-tokens?)/");
     private static final List<String> CONFIGURED_SECRETS = System.getenv().entrySet().stream()
             .filter(entry -> Pattern.compile("(?i).*(?:password|passwd|secret|api_?key|token).*").matcher(entry.getKey()).matches())
             .map(java.util.Map.Entry::getValue).filter(value -> value.length() >= 8).distinct().toList();

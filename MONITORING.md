@@ -1,6 +1,6 @@
 # GuildUp 운영 모니터링
 
-개발자 모니터링 페이지에서 서버 상태, 최근 24시간 장애 수, 중요 이벤트 이력과 현재 서버의 실시간 로그를 조회한다. 전체 조사 및 변경 결과는 [MONITORING_REPORT.md](MONITORING_REPORT.md), 파일별 변경은 [MONITORING_CHANGED_FILES.md](MONITORING_CHANGED_FILES.md)에 정리했다.
+개발자 모니터링 페이지에서 서버 상태, 최근 24시간 장애 수, 중요 이벤트 이력과 현재 서버의 실시간 로그를 조회한다. 인게임 활동의 단계별 이력/성공·실패·SLOW 검색 및 배포 SQL은 [활동 조회 운영 로그 보고서](ACTIVITY_SYNC_OBSERVABILITY.md)에 정리했다. 전체 조사 및 변경 결과는 [MONITORING_REPORT.md](MONITORING_REPORT.md), 파일별 변경은 [MONITORING_CHANGED_FILES.md](MONITORING_CHANGED_FILES.md)에 정리했다.
 
 ## 로그의 역할
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | `logs/guildup.log` | 운영 INFO/WARN/ERROR와 전체 예외 stack trace | 파일 100MB, 30일, archive 총 5GB |
 | 서버 메모리 → SSE | 최근 INFO/WARN/ERROR, 안전한 context와 잘린 stack trace | 기본 1,000개, 설정값 500~2,000개로 제한 |
-| `monitoring_events` | 중요 장애·경고 이벤트 이력 | 기존 retention 정책 유지, 기본 30일 |
+| `monitoring_events` | 중요 장애·경고 및 활동 조회 단계/결과 이력 | 기존 retention 정책 유지, 기본 30일 |
 
 실시간 로그 한 건마다 DB에 INSERT하지 않는다. 메모리 로그 appender는 DB·HTTP 호출을 하지 않는다. DEBUG는 실시간 버퍼에 보관하지 않는다. 파일 로그도 기존 INFO root 수준을 유지한다.
 
@@ -38,7 +38,7 @@ PUBG 단계는 Player/Match/Telemetry 조회, `TELEMETRY_PARSE`, `TELEMETRY_FACT
 
 ## 중요 이벤트 저장과 장애 격리
 
-기존 `monitoring_events`와 event code를 유지한다. HTTP 5xx, PUBG retry/429/timeout/final failure, Bingo failure/partial/slow, Kill interim/final failure/RESULT_PENDING, Discord API/OAuth/member/JDA, DB/pool, 예상하지 못한 오류를 기록한다. 활동 조회 실패는 기존 `COMMUNITY_ACTIVITY_SYNC_FAILED`로 조회한다.
+기존 `monitoring_events`와 event code를 유지한다. HTTP 5xx, PUBG retry/429/timeout/final failure, Bingo failure/partial/slow, Kill interim/final failure/RESULT_PENDING, Discord API/OAuth/member/JDA, DB/pool, 예상하지 못한 오류를 기록한다. 활동 조회는 `ACTIVITY_SYNC_*` 단계/결과 이벤트를 저장하고 syncId로 공통 PUBG 이벤트와 연결한다. 과거 `COMMUNITY_ACTIVITY_SYNC_FAILED`도 실패 필터로 조회한다.
 
 운영에서는 전용 DB writer 1개와 최대 256개 queue로 중요 이벤트를 비동기 저장한다. 원래 업무 transaction과 분리한 `REQUIRES_NEW`, timeout 3초를 사용한다. 저장 실패/queue 초과는 업무 예외·계산 결과를 바꾸지 않고 WARN을 최대 분당 한 번 출력한다. 종료 시 최대 5초 동안 queue를 비우고 남은 작업은 중단한다. 갑작스러운 종료, DB 장애나 queue 초과에서는 일부 DB 이력이 누락될 수 있으므로 파일 로그도 함께 확인한다.
 
@@ -46,8 +46,9 @@ PUBG 단계는 Player/Match/Telemetry 조회, `TELEMETRY_PARSE`, `TELEMETRY_FACT
 
 ## 운영 서버 적용
 
-이번 변경은 DB schema/event code를 추가하지 않는다. 기존 monitoring schema가 적용되어 있다면 새 migration은 필요 없다. 이전 모니터링 배포가 누락된 DB는 기존 SQL 상태를 먼저 확인한다.
+활동 조회 관측 기능 배포 전에 기존 monitoring 테이블에 nullable 조회 컬럼 2개/인덱스와 enum CHECK 확장을 적용한다. 새 로그 테이블은 만들지 않는다. 이전 모니터링 배포가 누락된 DB는 기존 SQL 상태를 먼저 확인하고 활동 조회 migration을 마지막으로 실행한다.
 
+- `src/main/resources/db/manual/add_activity_sync_observability.sql` — 이번 활동 조회 로그/필터 배포 전에 적용.
 - `src/main/resources/db/manual/add_monitoring_events.sql`
 - `src/main/resources/db/manual/add_user_system_role.sql`
 - `src/main/resources/db/manual/add_community_activity_monitoring_event_code.sql` — 과거 Hibernate enum CHECK가 활동 조회 실패 코드를 허용하지 않을 때 필요.

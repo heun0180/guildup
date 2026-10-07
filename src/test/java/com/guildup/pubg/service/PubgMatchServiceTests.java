@@ -2,6 +2,9 @@ package com.guildup.pubg.service;
 
 import com.guildup.pubg.client.PubgApiClient;
 import com.guildup.pubg.model.PubgMatch;
+import com.guildup.monitoring.logging.ActivitySyncLog;
+import com.guildup.monitoring.domain.MonitoringEventCode;
+import com.guildup.monitoring.service.MonitoringEventService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -26,6 +29,34 @@ class PubgMatchServiceTests {
     private static final Clock FIXED_CLOCK = Clock.fixed(
             Instant.parse("2026-09-08T00:00:00Z"), ZoneOffset.UTC
     );
+
+    @Test
+    void thousandsOfSuccessfulMatchesPropagateSyncIdAndUseSummaryLogsAndCountCacheHits() {
+        PubgApiClient client = mock(PubgApiClient.class);
+        var monitoring = mock(MonitoringEventService.class);
+        var operation = new ActivitySyncLog(monitoring, 1L, 2L, 3L, FIXED_CLOCK.instant());
+        String syncId = ActivitySyncLog.syncId(2L, FIXED_CLOCK.instant());
+        when(client.getMatch(anyString(), anyString())).thenAnswer(call -> {
+            assertThat(org.slf4j.MDC.get("syncId")).isEqualTo(syncId);
+            assertThat(ActivitySyncLog.current()).isSameAs(operation);
+            operation.apiAttempt("MATCH", 0);
+            return match(call.getArgument(1));
+        });
+        PubgMatchService service = service(client, 4000);
+        List<String> ids = java.util.stream.IntStream.range(0, 3000).mapToObj(index -> "match-" + index).toList();
+        try (var ignored = operation.open()) {
+            operation.info(MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_STARTED, "시작", java.util.Map.of());
+            assertThat(service.findUniqueMatchesFresh("kakao", ids)).hasSize(3000);
+            assertThat(operation.matchMetrics()).containsEntry("apiCalls", 3000L).containsEntry("cacheHits", 0L);
+            assertThat(service.findUniqueMatchesFresh("kakao", ids)).hasSize(3000);
+            assertThat(operation.matchMetrics()).containsEntry("apiCalls", 3000L).containsEntry("cacheHits", 3000L);
+            operation.info(MonitoringEventCode.ACTIVITY_SYNC_MATCH_FETCH_COMPLETED, "완료", operation.matchMetrics());
+        } finally { service.shutdownExecutor(); }
+        org.mockito.Mockito.verify(monitoring, times(2)).recordInfo(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(syncId), org.mockito.ArgumentMatchers.anyMap());
+        org.mockito.Mockito.verifyNoMoreInteractions(monitoring);
+    }
 
     @Test
     void requestsTheSameMatchOnlyOnce() {

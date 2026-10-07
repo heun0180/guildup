@@ -88,6 +88,77 @@ class DeveloperMonitoringFlowTests {
                 .andExpect(jsonPath("$.referenceId").value("POST /api/example"));
     }
 
+    @Test
+    void activityFiltersIncludeSuccessfulSlowSyncsAndReturnChronologicalCorrelatedPubgEvents() throws Exception {
+        String syncId = "12345678-1234-1234-1234-123456789abc";
+        Instant start = Instant.parse("2026-10-07T01:00:00Z");
+        events.save(new MonitoringEvent(MonitoringSeverity.INFO, MonitoringCategory.SYSTEM,
+                MonitoringEventCode.ACTIVITY_SYNC_STARTED, "시작", 12L, admin.getId(), syncId,
+                Map.of("syncId", syncId, "gameType", "BATTLEGROUNDS_KAKAO", "communityGameId", 31), start));
+        events.save(new MonitoringEvent(MonitoringSeverity.WARN, MonitoringCategory.PUBG_API,
+                MonitoringEventCode.PUBG_API_RATE_LIMIT, "PUBG_RATE_LIMIT", 12L, admin.getId(), syncId,
+                Map.of("syncId", syncId, "status", 429), start.plusSeconds(1)));
+        var completed = events.save(new MonitoringEvent(MonitoringSeverity.INFO, MonitoringCategory.SYSTEM,
+                MonitoringEventCode.ACTIVITY_SYNC_COMPLETED, "완료", 12L, admin.getId(), syncId,
+                Map.of("syncId", syncId, "gameType", "BATTLEGROUNDS_KAKAO", "durationMs", 168500,
+                        "syncStatus", "SUCCESS", "snapshotCount", 78), start.plusSeconds(168)));
+        String failedId = "22345678-1234-1234-1234-123456789abc";
+        var failed = events.save(new MonitoringEvent(MonitoringSeverity.ERROR, MonitoringCategory.SYSTEM,
+                MonitoringEventCode.ACTIVITY_SYNC_FAILED, "실패", 13L, admin.getId(), failedId,
+                Map.of("syncId", failedId, "gameType", "BATTLEGROUNDS_STEAM", "durationMs", 72000,
+                        "syncStatus", "FAILED", "failureStage", "MATCH_FETCH", "stackTrace", "safe trace"), start.plusSeconds(72)));
+
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("group", "ACTIVITY").param("severity", "INFO").param("communityId", "12")
+                        .param("gameType", "BATTLEGROUNDS_KAKAO").param("syncStatus", "SUCCESS")
+                        .param("eventCode", "ACTIVITY_SYNC_COMPLETED").param("minDurationMs", "60000")
+                        .param("from", start.toString()).param("to", start.plusSeconds(180).toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(completed.getId()))
+                .andExpect(jsonPath("$.content[0].metadata.durationMs").value(168500));
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("syncId", syncId).param("order", "ASC").param("size", "1").param("page", "1"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(3))
+                .andExpect(jsonPath("$.content[0].eventCode").value("PUBG_API_RATE_LIMIT"));
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("group", "PUBG_API").param("syncId", syncId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("group", "ACTIVITY").param("syncStatus", "FAILED").param("gameType", "BATTLEGROUNDS_STEAM"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].metadata.stackTrace").doesNotExist());
+        mvc.perform(get("/api/developer/monitoring/events/{id}", failed.getId()).session(session(admin)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.metadata.failureStage").value("MATCH_FETCH"))
+                .andExpect(jsonPath("$.metadata.stackTrace").value("safe trace"));
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("group", "ACTIVITY").param("minDurationMs", "180000"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void activityLogEndpointsAndPageKeepExistingAdministratorAccessRules() throws Exception {
+        Long id = events.findAll().getFirst().getId();
+        for (String path : java.util.List.of("/api/developer/monitoring/events?group=ACTIVITY",
+                "/api/developer/monitoring/events?syncId=12345678-1234-1234-1234-123456789abc&order=ASC",
+                "/api/developer/monitoring/events/" + id, "/developer/monitoring")) {
+            mvc.perform(get(path)).andExpect(status().isUnauthorized());
+            mvc.perform(get(path).session(session(regular))).andExpect(status().isForbidden());
+        }
+    }
+
+    @Test
+    void rejectsInvalidActivityFiltersAndCapsPageSize() throws Exception {
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin)).param("syncId", "bad-id"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin)).param("minDurationMs", "-1"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("from", "2026-10-08T00:00:00Z").param("to", "2026-10-07T00:00:00Z"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin)).param("size", "10000"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.size").value(100));
+    }
+
     private MockHttpSession session(User user) {
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(CurrentUserSession.USER_ID, user.getId());
