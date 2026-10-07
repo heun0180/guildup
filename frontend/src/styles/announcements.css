@@ -1,0 +1,54 @@
+.announcements-main { width: min(100% - 48px, 920px); flex: 1; margin: 0 auto; padding: 40px 0 64px; }
+.announcement-list { display: grid; gap: 12px; }
+.announcement-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: var(--space-card); color: var(--color-text); text-decoration: none; }
+.announcement-card:hover { border-color: var(--color-primary); }
+.announcement-card.is-highlighted { border-left: 3px solid var(--color-primary); }
+.announcement-card > div { min-width: 0; }
+.announcement-card h2 { margin-top: 10px; }
+.announcement-card time, .announcement-notification time { flex-shrink: 0; color: var(--color-text-secondary); font-size: .75rem; }
+.announcement-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.announcement-type.type-update { background: var(--color-success-soft); color: var(--color-success); }
+.announcement-type.type-maintenance { background: var(--color-warning-soft); color: var(--color-warning); }
+.announcement-type.type-incident, .announcement-important { background: var(--color-error-soft); color: var(--color-error); }
+.announcement-type.type-event { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.announcement-new { background: var(--color-success-soft); color: var(--color-success); font-size: .65rem; }
+.announcement-read { color: var(--color-text-secondary); font-size: .7rem; }
+.announcement-detail, .announcement-admin-card { display: grid; gap: 12px; padding: var(--space-card); }
+.announcement-detail h2 { font-size: 1.4rem; }
+.announcement-detail > p, .announcement-admin-card > p { font-size: .8rem; }
+.announcement-detail > .secondary-button { justify-self: start; }
+.announcement-body { margin: 12px 0; border-top: 1px solid var(--color-border); padding-top: 20px; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.announcement-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 24px; }
+.announcement-pagination .secondary-button { margin: 0; }
+.announcement-back { display: inline-block; margin-top: 24px; font-size: .85rem; }
+.announcement-bell { position: relative; }
+.announcement-bell-button { position: relative; width: 42px; padding: 0; }
+.announcement-count { position: absolute; top: 1px; right: -2px; min-width: 18px; border: 2px solid var(--color-surface); border-radius: 999px; padding: 1px 4px; background: var(--color-error); color: white; font-size: .6rem; }
+.announcement-dropdown { position: absolute; top: calc(100% + 12px); right: 0; width: min(390px, calc(100vw - 28px)); max-height: min(640px, calc(100dvh - 90px)); overflow-y: auto; padding: 16px; box-shadow: var(--shadow-elevated); }
+.announcement-dropdown > h2 { margin-bottom: 12px; }
+.announcement-notification { display: grid; gap: 7px; border-bottom: 1px solid var(--color-border); border-radius: 8px; padding: 12px 8px; color: var(--color-text); text-decoration: none; }
+.announcement-notification strong { font-size: .85rem; overflow-wrap: anywhere; }
+.announcement-notification:hover { background: var(--color-surface-soft); }
+.announcement-notification.is-unread { background: var(--color-primary-soft); }
+.announcement-all { display: flex; margin-top: 14px; }
+.announcement-modal { width: min(100% - 32px, 620px); max-height: calc(100dvh - 40px); overflow-y: auto; padding: var(--space-card); color: var(--color-text); box-shadow: var(--shadow-elevated); }
+.announcement-modal::backdrop { background: rgba(24, 27, 38, .48); }
+.announcement-modal h2 { margin: 14px 0 8px; font-size: 1.25rem; }
+.announcement-modal .settings-actions { align-items: center; gap: 12px; }
+.announcement-modal .settings-actions p { font-size: .75rem; }
+.announcement-form { max-width: 920px; }
+@media (max-width: 768px) {
+  .announcement-dropdown { position: fixed; top: calc(var(--header-height) + 8px); right: 14px; width: min(390px, calc(100% - 28px)); }
+}
+@media (max-width: 560px) {
+  .announcements-main { width: calc(100% - 32px); padding-top: 28px; }
+  .announcement-card { align-items: flex-start; flex-direction: column; gap: 12px; padding: 18px; }
+  .announcement-detail, .announcement-admin-card, .announcement-modal { padding: 18px; }
+  .announcement-modal .settings-actions { align-items: stretch; flex-direction: column; }
+  .announcement-form .activity-rule-fields { grid-template-columns: 1fr; }
+  .announcement-bell-button { width: 36px; }
+  .header-inner { gap: 8px; }
+}
+@media (max-width: 360px) {
+  .header-actions .text-button { white-space: nowrap; }
+}

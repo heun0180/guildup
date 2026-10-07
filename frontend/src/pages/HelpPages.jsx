@@ -28,10 +28,10 @@ function HelpCardList({ guides, even = false, label }) {
 }
 
 export function HelpIndexPage() {
-  return <HelpLayout title="사용 설명" description="GuildUp의 기능별 사용 방법과 집계 기준을 확인해 보세요.">
+  return <HelpLayout title="GuildUp 가이드" description="GuildUp의 기능별 사용 방법과 집계 기준을 확인해 보세요.">
     <section className="help-category" aria-labelledby="common-help-title">
       <div className="help-category-heading"><h2 id="common-help-title">GuildUp</h2><p>모든 커뮤니티에서 공통으로 사용하는 기능입니다.</p></div>
-      <HelpCardList guides={commonGuides} label="GuildUp 공통 사용 설명" />
+      <HelpCardList guides={commonGuides} label="GuildUp 공통 가이드" />
     </section>
     <section className="help-category" aria-labelledby="game-help-title">
       <div className="help-category-heading"><h2 id="game-help-title">게임별 기능</h2><p>게임 데이터와 API를 사용하는 전용 기능입니다.</p></div>
@@ -40,7 +40,7 @@ export function HelpIndexPage() {
           <div><span className="help-game-badge">PUBG</span><h3>PUBG: BATTLEGROUNDS</h3><p>GuildUp에서 사용할 수 있는 PUBG 전용 기능입니다.</p></div>
           <AppLink href="/help/pubg">PUBG 전체 보기 <Icon name="arrow" size={16} /></AppLink>
         </div>
-        <HelpCardList guides={pubgGuides} even label="PUBG 사용 설명" />
+        <HelpCardList guides={pubgGuides} even label="GuildUp 가이드 · PUBG" />
       </div>
     </section>
   </HelpLayout>;
@@ -52,7 +52,7 @@ export function PubgHelpPage() {
       <span className="help-game-badge">PUBG</span>
       <div><h2>PUBG 계정 확인</h2><p>킬내기와 빙고 집계에는 PUBG 계정 정보가 필요합니다. 저장된 PUBG 계정이 있으면 그 정보를 사용하고, 없으면 커뮤니티에 설정된 닉네임 규칙으로 Discord 닉네임에서 인게임 닉네임을 확인합니다.</p></div>
     </section>
-    <HelpCardList guides={pubgGuides} even label="PUBG 기능별 사용 설명" />
+    <HelpCardList guides={pubgGuides} even label="GuildUp 가이드 · PUBG 기능" />
   </HelpLayout>;
 }
 
@@ -69,7 +69,7 @@ export function GeneralHelpPage() {
 }
 
 export function KillCompetitionHelpPage() {
-  return <HelpLayout detail backHref="/help/pubg" backLabel="PUBG 사용 설명" title="킬내기 사용 방법" description="정해진 시간 동안 PUBG 경기를 플레이하고 설정된 점수로 경쟁합니다.">
+  return <HelpLayout detail backHref="/help/pubg" backLabel="GuildUp 가이드 · PUBG" title="킬내기 사용 방법" description="정해진 시간 동안 PUBG 경기를 플레이하고 설정된 점수로 경쟁합니다.">
     <HelpSection title="킬내기란?">
       <p>클랜원끼리 일정 시간 동안 PUBG 게임을 진행하며 킬 점수와 선택한 등수 점수를 합산해 개인 또는 팀 순위를 정하는 기능입니다.</p>
     </HelpSection>
@@ -105,7 +105,7 @@ export function KillCompetitionHelpPage() {
 }
 
 export function BingoHelpPage() {
-  return <HelpLayout detail backHref="/help/pubg" backLabel="PUBG 사용 설명" title="빙고판 사용 방법" description="기간 안에 PUBG 미션을 완료하고 목표 빙고 줄을 달성합니다.">
+  return <HelpLayout detail backHref="/help/pubg" backLabel="GuildUp 가이드 · PUBG" title="빙고판 사용 방법" description="기간 안에 PUBG 미션을 완료하고 목표 빙고 줄을 달성합니다.">
     <HelpSection title="빙고란?">
       <p>정해진 기간 동안 PUBG 게임을 플레이하며 각 칸의 미션을 완료하고 가로, 세로 또는 대각선 빙고를 만드는 기능입니다.</p>
     </HelpSection>

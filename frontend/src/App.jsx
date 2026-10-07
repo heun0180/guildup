@@ -38,6 +38,9 @@ import GameScopeBoundary from "./community/GameScopeBoundary.jsx";
 import PubgPlatformBar from "./components/PubgPlatformBar.jsx";
 import { gamePageScopeKey } from "./pubgPlatform.js";
 import MonitoringPage from "./developer/MonitoringPage.jsx";
+import AnnouncementsPage from "./pages/AnnouncementsPage.jsx";
+import DeveloperAnnouncementsPage from "./developer/DeveloperAnnouncementsPage.jsx";
+import { AnnouncementProvider } from "./announcement/AnnouncementContext.jsx";
 
 const activeByPath = {
   "/community-dashboard.html": "dashboard",
@@ -104,7 +107,7 @@ function NotFound() {
 
 export default function App() {
   return (
-    <Routes>
+    <AnnouncementProvider><Routes>
       <Route path="/" element={<LoginPage />} />
       <Route path="/login.html" element={<LoginPage />} />
       <Route path="/about" element={<AboutPage />} />
@@ -118,10 +121,12 @@ export default function App() {
       <Route path="/help/attendance" element={<AttendanceHelpPage />} />
       <Route path="/help/ranking" element={<RankingHelpPage />} />
       <Route path="/communities.html" element={<CommunitiesPage />} />
+      <Route path="/announcements" element={<AnnouncementsPage />} />
       <Route path="/community-create.html" element={<CommunityCreatePage />} />
       <Route element={<DeveloperLayout />}>
         <Route path="/developer" element={<DeveloperDashboardPage />} />
         <Route path="/developer/monitoring" element={<MonitoringPage />} />
+        <Route path="/developer/announcements" element={<DeveloperAnnouncementsPage />} />
         <Route path="/developer/communities" element={<DeveloperCommunitiesPage />} />
         <Route path="/developer/communities/:communityId" element={<DeveloperCommunityDetailPage />} />
         <Route path="/developer/communities/:communityId/bingos/:bingoId" element={<DeveloperBingoDetailPage />} />
@@ -150,6 +155,6 @@ export default function App() {
         <Route path="/feedback.html" element={<FeedbackPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
-    </Routes>
+    </Routes></AnnouncementProvider>
   );
 }

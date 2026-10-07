@@ -2,10 +2,15 @@ import { useEffect, useState } from "react";
 import { api, redirectToLogin } from "../api/http.js";
 import AppLink from "./AppLink.jsx";
 import Icon from "./Icon.jsx";
+import AnnouncementBell from "./AnnouncementBell.jsx";
+import UserProfileMenu from "./UserProfileMenu.jsx";
+import { useAnnouncements } from "../announcement/AnnouncementContext.jsx";
 
 export default function AppHeader({ actions = false, communityId, onError }) {
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
+  const announcements = useAnnouncements();
+  const hasNewAnnouncements = announcements?.notifications?.recent?.some((item) => item?.newAnnouncement);
 
   function showError(message) {
     setError(message || "사용자 요청을 처리하지 못했습니다. 다시 시도해 주세요.");
@@ -41,20 +46,13 @@ export default function AppHeader({ actions = false, communityId, onError }) {
           <span>GuildUp</span>
         </AppLink>
         <nav className="header-actions" aria-label={actions ? "사용자 메뉴" : "공용 메뉴"}>
-          <AppLink className="header-link header-help-link" href="/help">
+          {(!actions || !user) && <AppLink className="header-link header-help-link" href="/help" aria-label="GuildUp 가이드">
             <Icon name="help" size={17} />
-            <span>사용 설명</span>
-          </AppLink>
-          {actions && <>
-            {user && (
-              <span className="user-summary">
-                <span className="header-avatar" aria-hidden="true">{user.nickname?.charAt(0) || "U"}</span>
-                <span>{user.nickname}</span>
-              </span>
-            )}
-            {user?.systemAdmin && <AppLink className="header-link" href="/developer">개발자</AppLink>}
-            <AppLink className="header-link" href="/communities.html">내 커뮤니티</AppLink>
-            <button className="text-button" type="button" onClick={logout}>로그아웃</button>
+            <span>GuildUp 가이드</span>
+          </AppLink>}
+          {actions && user && <>
+            <AnnouncementBell user={user} />
+            <UserProfileMenu user={user} onLogout={logout} hasNewAnnouncements={hasNewAnnouncements} />
           </>}
         </nav>
       </div>

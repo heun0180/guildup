@@ -1,4 +1,5 @@
 const paths = {
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
   dashboard: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
   discord: <><path d="M8.5 8.5a7.8 7.8 0 0 1 7 0M7 17.5c3.4 2 6.6 2 10 0"/><path d="M6.2 5.5c-2.2 3-3.1 6.1-3.2 9.7 2.2 2.1 4.2 3.1 6.1 3.7l1.1-1.6M17.8 5.5c2.2 3 3.1 6.1 3.2 9.7-2.2 2.1-4.2 3.1-6.1 3.7l-1.1-1.6"/><circle cx="8.5" cy="13" r="1" fill="currentColor" stroke="none"/><circle cx="15.5" cy="13" r="1" fill="currentColor" stroke="none"/></>,

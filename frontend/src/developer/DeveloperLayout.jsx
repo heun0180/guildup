@@ -51,6 +51,7 @@ export default function DeveloperLayout() {
   if (state === "error") return <AccessState title="페이지를 열 수 없습니다." message={message || "권한을 확인하지 못했습니다."} />;
 
   const active = location.pathname === "/developer" ? "dashboard"
+    : location.pathname.startsWith("/developer/announcements") ? "announcements"
     : location.pathname.startsWith("/developer/monitoring") ? "monitoring"
     : location.pathname.startsWith("/developer/communities") ? "communities" : "";
   return <DeveloperContext.Provider value={{ user }}>
@@ -60,9 +61,12 @@ export default function DeveloperLayout() {
         <aside className="sidebar developer-sidebar" aria-label="개발자 메뉴">
           <div className="developer-identity">
             <span className="community-mark">D</span>
-            <span><strong>개발자 도구</strong><small>READ ONLY</small></span>
+            <span><strong>개발자 도구</strong><small>GuildUp 관리</small></span>
           </div>
           <nav className="sidebar-nav">
+            <AppLink className={`sidebar-item${active === "announcements" ? " is-active" : ""}`} href="/developer/announcements">
+              <Icon name="bell" /><span>GuildUp 공지 관리</span>
+            </AppLink>
             <AppLink className={`sidebar-item${active === "dashboard" ? " is-active" : ""}`} href="/developer">
               <Icon name="dashboard" /><span>서비스 현황</span>
             </AppLink>

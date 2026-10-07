@@ -3,7 +3,7 @@ import AppLink from "./AppLink.jsx";
 import SiteFooter from "./SiteFooter.jsx";
 
 export default function HelpLayout({ title, description, children, detail = false,
-  backHref = "/help", backLabel = "사용 설명" }) {
+  backHref = "/help", backLabel = "GuildUp 가이드" }) {
   return (
     <div className="public-page help-page">
       <AppHeader />
