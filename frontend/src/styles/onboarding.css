@@ -138,6 +138,7 @@
 .account-danger h2 { margin: 8px 0 16px; }
 .account-danger .danger-button { background: #b42318; border-color: #b42318; color: white; }
 .account-danger .danger-button:hover { background: #912018; }
+.account-danger > button { margin-top: 16px; }
 .withdrawal-flow ul { padding-left: 24px; line-height: 1.8; }
 .withdrawal-flow button { margin: 12px 12px 0 0; }
 .withdrawal-ack { display: flex; align-items: center; gap: 10px; margin: 20px 0; }

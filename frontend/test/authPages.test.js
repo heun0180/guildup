@@ -55,6 +55,7 @@ async function mount({ Component = LoginPage, props = {}, path = "/login.html", 
     const result = await handle(url, options);
     if (result) return result;
     if (url === "/api/auth/csrf") return response({ token: "anonymous-or-current-session-token" });
+    if (url === "/api/account/profile") return response({ nickname: user.nickname, birthDate: null, avatarUrl: null });
     if (url === "/api/auth/me") return Component === LoginPage ? response({ message: "로그인이 필요합니다." }, 401) : response(user);
     throw new Error(`Unexpected request: ${url}`);
   };
@@ -79,13 +80,19 @@ async function fill(name, value) {
     input.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
 }
-async function submit() { await act(async () => document.querySelector("form").dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }))); }
+async function submit(selector = "form:not(#account-profile-form)") {
+  await act(async () => document.querySelector(selector).dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true })));
+}
 async function clickText(text) {
   const button = [...document.querySelectorAll("button")].find((item) => item.textContent === text);
   assert.ok(button, text); await act(async () => button.click());
 }
 
 const withdrawalAccount = { user, email: "private@example.com", emailVerified: false, discordConnected: true, memberLinkConflicts: [] };
+const profileAccount = { ...withdrawalAccount, discordUsername: "apple_123", discordDisplayName: "Discord Apple",
+  discordAvatarUrl: "https://cdn.discordapp.com/avatars/123/hash.webp", canDisconnectDiscord: true,
+  createdAt: "2026-10-07T00:00:00Z" };
+const profileData = { nickname: "GuildUp Apple", birthDate: null, avatarUrl: profileAccount.discordAvatarUrl };
 const withdrawalCheck = { canWithdraw: true, verificationMethod: "PASSWORD", verified: false, ownedCommunities: [] };
 
 test("withdrawal requires notice acknowledgement, password verification and a separate final click", async () => {
@@ -277,5 +284,148 @@ test("Discord absent community page keeps native memberships and shows account l
     assert.ok(document.querySelector('[href="/community-dashboard.html?communityId=1"]'));
     assert.ok(document.querySelector('.discord-account-notice [href="/account.html"]'));
     assert.equal(document.querySelector('[role="alert"]'), null);
+  } finally { await view.close(); }
+});
+
+test("account has four sections with separate GuildUp and Discord names and optional birthday", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/profile") return response(profileData);
+    return null;
+  } });
+  try {
+    assert.equal(document.querySelector("h1").textContent, "계정");
+    assert.deepEqual([...document.querySelectorAll(".account-main > .account-section > .account-section-heading > h2")]
+      .map((heading) => heading.textContent), ["프로필", "로그인 및 보안", "연결된 계정", "계정 관리"]);
+    assert.equal(document.querySelector('[name="profileNickname"]').value, "GuildUp Apple");
+    assert.equal(document.querySelector('[name="birthDate"]').required, false);
+    assert.equal(document.querySelector('[name="birthDate"]').value, "");
+    assert.equal(document.querySelector(".account-profile-image img").src, profileData.avatarUrl);
+    assert.match(document.querySelector(".account-discord-identity").textContent, /Discord Apple.*@apple_123/);
+    assert.ok(document.querySelector(".account-management time"));
+    assert.equal([...document.querySelectorAll("button")].some((item) => /업로드|비밀번호 변경/.test(item.textContent)), false);
+    assert.equal(document.querySelectorAll('[name="phone"], [name="gender"], [name="realName"], [name="address"]').length, 0);
+  } finally { await view.close(); }
+});
+
+test("profile saves only nickname and birthday with CSRF and updates the header immediately", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url, options) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/profile") return response(options.method === "PATCH"
+      ? { ...profileData, ...JSON.parse(options.body) } : profileData);
+    return null;
+  } });
+  try {
+    await fill("profileNickname", "  애플 Apple_123  "); await fill("birthDate", "1993-01-01");
+    await submit("#account-profile-form");
+    const request = view.requests.find(({ url, options }) => url === "/api/account/profile" && options.method === "PATCH");
+    assert.deepEqual(JSON.parse(request.options.body), { nickname: "애플 Apple_123", birthDate: "1993-01-01" });
+    assert.equal(new Headers(request.options.headers).get("X-CSRF-Token"), "anonymous-or-current-session-token");
+    assert.equal(document.querySelector(".profile-menu-name").textContent, "애플 Apple_123");
+    assert.equal(document.querySelector('[name="profileNickname"]').value, "애플 Apple_123");
+    assert.match(document.querySelector(".account-discord-identity").textContent, /Discord Apple/);
+    assert.match(document.querySelector(".auth-success").textContent, /프로필 변경사항을 저장/);
+  } finally { await view.close(); }
+});
+
+test("birthday can be removed without requiring other private information", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url, options) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/profile") return response(options.method === "PATCH"
+      ? { ...profileData, ...JSON.parse(options.body) } : { ...profileData, birthDate: "1993-01-01" });
+    return null;
+  } });
+  try {
+    await fill("birthDate", ""); await submit("#account-profile-form");
+    const request = view.requests.find(({ options }) => options.method === "PATCH");
+    assert.equal(JSON.parse(request.options.body).birthDate, null);
+    assert.equal(document.querySelector('[name="birthDate"]').value, "");
+  } finally { await view.close(); }
+});
+
+test("profile validation blocks blank nickname and failed server validation keeps draft values", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url, options) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/profile") return options.method === "PATCH"
+      ? response({ code: "INVALID_BIRTH_DATE", message: "생년월일은 미래가 아닌 실제 날짜로 입력해 주세요." }, 400) : response(profileData);
+    return null;
+  } });
+  try {
+    await fill("profileNickname", "   "); await submit("#account-profile-form");
+    assert.equal(view.requests.some(({ options }) => options.method === "PATCH"), false);
+    assert.match(document.querySelector('[role="alert"]').textContent, /닉네임/);
+    assert.equal(document.querySelector('[name="profileNickname"]').maxLength, 50);
+    await fill("profileNickname", "저장할 이름"); await fill("birthDate", "2999-01-01"); await submit("#account-profile-form");
+    assert.match(document.querySelector('[role="alert"]').textContent, /미래가 아닌/);
+    assert.equal(document.querySelector('[name="profileNickname"]').value, "저장할 이름");
+    assert.equal(document.querySelector(".profile-menu-name").textContent, user.nickname);
+  } finally { await view.close(); }
+});
+
+test("missing or broken Discord avatars fall back to the GuildUp avatar", async () => {
+  for (const avatarUrl of [null, profileData.avatarUrl]) {
+    const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+      if (url === "/api/auth/account") return response(profileAccount);
+      if (url === "/api/account/profile") return response({ ...profileData, avatarUrl });
+      return null;
+    } });
+    try {
+      if (avatarUrl) await act(async () => document.querySelector(".account-profile-image img").dispatchEvent(new window.Event("error")));
+      assert.equal(document.querySelector(".account-profile-image .account-avatar").tagName, "SPAN");
+      assert.equal(document.querySelector(".account-profile-image .account-avatar").textContent, "G");
+    } finally { await view.close(); }
+  }
+});
+
+test("Discord-only users see a disabled disconnect action and explanation", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response({ ...profileAccount, email: null, canDisconnectDiscord: false });
+    return null;
+  } });
+  try {
+    const button = [...document.querySelectorAll("button")].find((item) => item.textContent === "연결 해제");
+    assert.equal(button.disabled, true);
+    await act(async () => button.click());
+    assert.equal(document.querySelector('[aria-label="Discord 연결 해제 확인"]'), null);
+    assert.match(document.body.textContent, /먼저 이메일 로그인을 추가해야/);
+    assert.equal(view.requests.some(({ options }) => options.method === "DELETE"), false);
+    assert.equal(document.querySelector(".account-email"), null);
+  } finally { await view.close(); }
+});
+
+test("Discord disconnect requires explicit confirmation, uses CSRF, and preserves profile drafts", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/profile") return response(profileData);
+    if (url === "/api/account/connections/discord") return new Response(null, { status: 204 });
+    return null;
+  } });
+  try {
+    await fill("profileNickname", "저장 전 닉네임");
+    await clickText("연결 해제");
+    assert.equal(view.requests.some(({ options }) => options.method === "DELETE"), false);
+    assert.match(document.querySelector('[aria-label="Discord 연결 해제 확인"]').textContent, /private@example.com/);
+    await clickText("Discord 연결 해제");
+    const request = view.requests.find(({ options }) => options.method === "DELETE");
+    assert.equal(request.url, "/api/account/connections/discord");
+    assert.ok(new Headers(request.options.headers).get("X-CSRF-Token"));
+    assert.equal(document.querySelector(".account-profile-image .account-avatar").tagName, "SPAN");
+    assert.equal(document.querySelector('[name="profileNickname"]').value, "저장 전 닉네임");
+    assert.ok([...document.querySelectorAll("button")].find((item) => item.textContent === "Discord 연결"));
+    assert.equal(document.querySelector(".account-email").textContent, "private@example.com");
+  } finally { await view.close(); }
+});
+
+test("server-side last-login-method rejection is shown without removing Discord", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(profileAccount);
+    if (url === "/api/account/connections/discord") return response({ code: "LAST_LOGIN_METHOD", message: "먼저 이메일 로그인을 추가해 주세요." }, 409);
+    return null;
+  } });
+  try {
+    await clickText("연결 해제"); await clickText("Discord 연결 해제");
+    assert.match(document.querySelector('[role="alert"]').textContent, /이메일 로그인을 추가/);
+    assert.ok(document.querySelector(".account-discord-identity"));
+    assert.equal([...document.querySelectorAll("button")].some((item) => item.textContent === "Discord 연결"), false);
   } finally { await view.close(); }
 });

@@ -45,11 +45,14 @@ public class AccountSettingsService {
                 .toList()).orElse(List.of());
         return new AccountResponse(LoginUserResponse.from(user), credential.map(value -> value.getEmail()).orElse(null),
                 credential.map(value -> value.isEmailVerified()).orElse(false), discord.isPresent(),
-                discord.map(value -> value.getExternalUsername()).orElse(null), conflicts);
+                discord.map(value -> value.getExternalUsername()).orElse(null), conflicts,
+                user.getCreatedAt(), discord.map(value -> value.getExternalDisplayName()).orElse(null),
+                discord.map(value -> value.getExternalAvatarUrl()).orElse(null), discord.isPresent() && credential.isPresent());
     }
 
     public record AccountResponse(LoginUserResponse user, String email, boolean emailVerified,
                                   boolean discordConnected, String discordUsername,
-                                  List<MemberLinkConflict> memberLinkConflicts) {}
+                                  List<MemberLinkConflict> memberLinkConflicts, java.time.Instant createdAt,
+                                  String discordDisplayName, String discordAvatarUrl, boolean canDisconnectDiscord) {}
     public record MemberLinkConflict(Long communityId, String communityName) {}
 }

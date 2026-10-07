@@ -84,6 +84,8 @@ class AccountWithdrawalTests {
     @ParameterizedTest @EnumSource(value = CommunityUserRole.class, names = {"MEMBER", "ADMIN"})
     void memberAndAdminWithdrawalCleansLoginMethodsAndEndsMembershipWithoutDeletingClanRecords(CommunityUserRole role) throws Exception {
         User user = emailUser();
+        user.updateProfile(user.getNickname(), LocalDate.of(1993, 1, 1));
+        users.saveAndFlush(user);
         String discordId = "discord-" + user.getId();
         accounts.save(new UserExternalAccount(user, ExternalAccountProvider.DISCORD, discordId, "private-discord"));
         var result = oauthResults.saveResult(null, new com.guildup.discord.oauth.dto.DiscordOAuthResultResponse(
@@ -95,6 +97,7 @@ class AccountWithdrawalTests {
         assertThat(session.isInvalid()).isTrue();
         assertThat(users.findById(user.getId()).orElseThrow().getStatus()).isEqualTo(UserStatus.WITHDRAWN);
         assertThat(users.findById(user.getId()).orElseThrow().getNickname()).isEqualTo(User.WITHDRAWN_NAME);
+        assertThat(users.findById(user.getId()).orElseThrow().getBirthDate()).isNull();
         assertThat(users.findById(user.getId()).orElseThrow().getWithdrawnAt()).isEqualTo(NOW);
         assertThat(credentials.findByUserId(user.getId())).isEmpty();
         assertThat(accounts.findByUserId(user.getId())).isEmpty();

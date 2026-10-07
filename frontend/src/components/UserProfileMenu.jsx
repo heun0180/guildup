@@ -33,7 +33,7 @@ export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = 
   if (!user) return null;
   const links = [
     { href: "/communities.html", label: "내 커뮤니티", icon: "users" },
-    { href: "/account.html", label: "로그인 및 계정", icon: "settings" },
+    { href: "/account.html", label: "계정", icon: "settings" },
     { href: "/announcements", label: "GuildUp 공지", icon: "book", newBadge: hasNewAnnouncements },
     { href: "/help", label: "GuildUp 가이드", icon: "help" },
     ...(user.systemAdmin ? [{ href: "/developer", label: "개발자", icon: "dashboard" }] : []),

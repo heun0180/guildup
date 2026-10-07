@@ -70,7 +70,7 @@ export default function LoginPage({ signup = false }) {
         <p className="auth-links">{signup ? <>이미 계정이 있으신가요? <AppLink href="/login.html">로그인</AppLink></>
           : <AppLink href="/signup.html">회원가입</AppLink>}</p>
         {signup && <p className="auth-existing-account">이미 Discord로 GuildUp을 이용하고 계신가요?<br />
-          Discord로 로그인한 뒤 <strong>로그인 및 계정</strong>에서 이메일 로그인을 추가해 주세요. 기존 기록을 그대로 사용할 수 있습니다.</p>}
+          Discord로 로그인한 뒤 <strong>계정</strong>에서 이메일 로그인을 추가해 주세요. 기존 기록을 그대로 사용할 수 있습니다.</p>}
       </section>
     </main><SiteFooter showAbout={false} />
   </div>;

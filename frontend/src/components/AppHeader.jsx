@@ -6,7 +6,7 @@ import AnnouncementBell from "./AnnouncementBell.jsx";
 import UserProfileMenu from "./UserProfileMenu.jsx";
 import { useAnnouncements } from "../announcement/AnnouncementContext.jsx";
 
-export default function AppHeader({ actions = false, communityId, onError }) {
+export default function AppHeader({ actions = false, communityId, onError, currentUser }) {
   const [user, setUser] = useState(null);
   const [error, setError] = useState("");
   const announcements = useAnnouncements();
@@ -18,13 +18,15 @@ export default function AppHeader({ actions = false, communityId, onError }) {
   }
 
   useEffect(() => {
-    if (!actions) return;
+    if (!actions || currentUser) return;
     api("/api/auth/me")
       .then(setUser)
       .catch((error) => {
         if (!redirectToLogin(error)) showError(error.message);
       });
-  }, [actions, onError]);
+  }, [actions, onError, currentUser]);
+
+  const displayedUser = currentUser || user;
 
   async function logout() {
     setError("");
@@ -46,13 +48,13 @@ export default function AppHeader({ actions = false, communityId, onError }) {
           <span>GuildUp</span>
         </AppLink>
         <nav className="header-actions" aria-label={actions ? "사용자 메뉴" : "공용 메뉴"}>
-          {(!actions || !user) && <AppLink className="header-link header-help-link" href="/help" aria-label="GuildUp 가이드">
+          {(!actions || !displayedUser) && <AppLink className="header-link header-help-link" href="/help" aria-label="GuildUp 가이드">
             <Icon name="help" size={17} />
             <span>GuildUp 가이드</span>
           </AppLink>}
-          {actions && user && <>
-            <AnnouncementBell user={user} />
-            <UserProfileMenu user={user} onLogout={logout} hasNewAnnouncements={hasNewAnnouncements} />
+          {actions && displayedUser && <>
+            <AnnouncementBell user={displayedUser} />
+            <UserProfileMenu user={displayedUser} onLogout={logout} hasNewAnnouncements={hasNewAnnouncements} />
           </>}
         </nav>
       </div>

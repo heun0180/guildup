@@ -242,6 +242,10 @@ class DiscordLoginServiceTests {
                 "apple"
         );
 
+        when(userRepository.findForUpdate(existingUser.getId())).thenReturn(Optional.of(existingUser));
+        when(userExternalAccountRepository.findByUserIdAndProvider(existingUser.getId(), ExternalAccountProvider.DISCORD))
+                .thenReturn(Optional.of(account));
+
         when(userExternalAccountRepository
                 .findByProviderAndExternalUserId(
                         ExternalAccountProvider.DISCORD,

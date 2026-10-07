@@ -52,6 +52,12 @@ public class UserExternalAccount {
     @Column(name = "external_username")
     private String externalUsername;
 
+    @Column(name = "external_display_name")
+    private String externalDisplayName;
+
+    @Column(name = "external_avatar_url", length = 512)
+    private String externalAvatarUrl;
+
     protected UserExternalAccount() {
     }
 
@@ -85,5 +91,15 @@ public class UserExternalAccount {
 
     public String getExternalUsername() {
         return externalUsername;
+    }
+
+    public String getExternalDisplayName() { return externalDisplayName; }
+    public String getExternalAvatarUrl() { return externalAvatarUrl; }
+
+    /** 외부 프로필만 갱신한다. users.nickname이나 게임 계정에는 영향을 주지 않는다. */
+    public void updateExternalProfile(String username, String displayName, String avatarUrl) {
+        externalUsername = username;
+        externalDisplayName = displayName;
+        externalAvatarUrl = avatarUrl;
     }
 }

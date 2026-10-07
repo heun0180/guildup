@@ -85,7 +85,7 @@ public class AuthController {
     private void requireAnonymous(HttpSession session) {
         if (session.getAttribute(CurrentUserSession.USER_ID) instanceof Long) {
             throw new AuthException(HttpStatus.CONFLICT, "ALREADY_LOGGED_IN",
-                    "이미 로그인되어 있습니다. 기존 계정에 이메일 로그인을 추가하려면 로그인 및 계정 설정을 이용해 주세요.");
+                    "이미 로그인되어 있습니다. 기존 계정에 이메일 로그인을 추가하려면 계정 설정을 이용해 주세요.");
         }
     }
 

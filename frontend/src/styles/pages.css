@@ -26,6 +26,33 @@
 .account-method > p { margin-top: 12px; }
 .account-method > button, .account-method > form { margin-top: 20px; }
 .account-email { overflow-wrap: anywhere; }
+.account-main { max-width: 880px; }
+.account-section { min-width: 0; margin-bottom: 22px; padding: 28px; }
+.account-section-heading { margin-bottom: 24px; }
+.account-section-heading h2 { font-size: 1.1rem; }
+.account-section-heading p { margin-top: 6px; font-size: .8125rem; }
+.account-section .account-method-heading h3 { display: flex; align-items: center; gap: 8px; font-size: .9375rem; }
+.account-section > p, .account-section > button, .account-section > form { margin-top: 16px; }
+.account-profile-image { display: flex; align-items: center; gap: 18px; margin-bottom: 26px; }
+.account-profile-image strong { font-size: .875rem; }
+.account-profile-image .account-avatar { width: 72px; height: 72px; border-radius: 20px; font-size: 1.7rem; }
+.account-profile-fields { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 24px; }
+.account-profile-fields .auth-field { align-content: start; min-width: 0; }
+.account-profile-fields input { width: 100%; min-width: 0; }
+.account-optional { color: var(--color-text-secondary); font-weight: 400; }
+.account-save-bar { display: flex; justify-content: flex-end; margin-top: 24px; border-top: 1px solid var(--color-border); padding-top: 20px; }
+.account-details { display: grid; gap: 18px; margin: 24px 0; }
+.account-details > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 16px; }
+.account-details dt { color: var(--color-text-secondary); font-size: .8125rem; }
+.account-details dd { margin: 0; overflow-wrap: anywhere; font-size: .875rem; font-weight: 600; }
+.account-discord-identity { display: flex; align-items: center; gap: 12px; margin: 22px 0 16px; }
+.account-discord-identity > div { min-width: 0; overflow-wrap: anywhere; }
+.account-discord-identity p { font-size: .8125rem; }
+.account-disconnect-confirm { margin-top: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-control); padding: 18px; background: var(--color-surface-soft); }
+.account-disconnect-confirm p { overflow-wrap: anywhere; font-size: .8125rem; }
+.account-inline-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.account-management .account-danger { margin-top: 24px; box-shadow: none; background: #fffafb; }
+.account-management .account-danger h2 { font-size: 1rem; }
 .discord-account-notice { display: flex; align-items: center; gap: 20px; padding: 24px; margin-top: 28px; }
 .discord-account-notice h2 { font-size: .9375rem; }
 .discord-account-notice p { margin-top: 8px; font-size: .8125rem; }
@@ -34,6 +61,12 @@
   .discord-account-notice { flex-direction: column; align-items: stretch; padding: 20px; }
   .account-method { padding: 20px; }
   .account-method-heading { flex-wrap: wrap; }
+  .account-main { padding-top: 36px; }
+  .account-section { padding: 22px 18px; }
+  .account-profile-fields { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .account-save-bar > button, .account-section > button { width: 100%; }
+  .account-details > div { grid-template-columns: 80px minmax(0, 1fr); gap: 12px; }
+  .account-management .account-danger { padding: 20px 16px; }
   .login-card .auth-form { gap: 16px; }
 }
 .discord-button-mark { font-size: 1rem; }

@@ -37,6 +37,7 @@ GuildUp은 게임 커뮤니티와 클랜의 회원, 활동, 콘텐츠를 한곳�
 |---|---|---|
 | 공개 | 로그인, 서비스 소개, 이용약관, 개인정보 처리방침 | 전체 |
 | 커뮤니티 선택 | 내 커뮤니티, Discord 기반 가입 가능 커뮤니티, 커뮤니티 생성 | 로그인 사용자 |
+| 계정 | 프로필, 로그인 및 보안, 연결된 계정, 계정 관리·회원탈퇴 | 로그인한 본인 |
 | 공통 메뉴 | 대시보드, 공지·이벤트, 클랜원, 랭킹, 킬내기, 빙고, 문의/건의 | `OWNER`, `ADMIN`, `MEMBER` |
 | 관리 메뉴 | 활동, 팀 만들기, 연동 기능, 설정 | `OWNER`, `ADMIN` |
 | Discord 관리 | 서버 연결, 역할별 멤버, DM, 음성 활동 | `OWNER`, `ADMIN` |
@@ -101,6 +102,19 @@ flowchart LR
 
 `users`가 GuildUp 서비스의 사용자 Identity다. Discord는 로그인 수단이면서 `user_external_accounts`에 연결되는 외부 계정이다. Discord 서버의 클랜원은 GuildUp 로그인 사용자와 다른 개념이므로 `community_members`와 `community_member_accounts`에서 별도로 관리한다.
 
+`/account.html`에서 GuildUp 닉네임과 선택 생년월일을 수정한다. 닉네임은 가입 시와 같은 1~50자·제어 문자 제외 정책을 사용하고 앞뒤 공백을 제거한다. 닉네임 중복은 허용한다. `users.nickname`은 Discord/PUBG 이름과 독립적이며 Discord 이름 변경으로 덮어쓰지 않는다. `users.birth_date`는 nullable DATE이고 가입/게임 기능의 필수 정보가 아니다. 탈퇴 시 닉네임은 익명화하고 생년월일은 NULL로 지운다.
+
+프로필 이미지는 개인 Discord 연결에 저장한 아바타 URL을 사용하며 없거나 로딩에 실패하면 기본 아바타를 표시한다. 기존 사용자의 외부 표시 이름/이미지는 다음 Discord 로그인 또는 연결 인증 때 채워진다. 직접 이미지 업로드와 비밀번호 변경 기능은 아직 제공하지 않는다.
+
+| API | 역할 |
+|---|---|
+| `GET /api/account/profile` | 본인의 닉네임, 생년월일, 기본 프로필 이미지 조회 |
+| `PATCH /api/account/profile` | 닉네임·생년월일 수정. 생략한 필드는 유지하고 `birthDate: null` 또는 빈 문자열은 삭제 |
+| `GET /api/auth/account` | 인증수단, 외부 계정 이름, 가입일, Discord 해제 가능 여부 조회 |
+| `DELETE /api/account/connections/discord` | 이메일 로그인 수단이 남아 있을 때만 개인 Discord 연결 해제 |
+
+위 API는 `HttpSession.LOGIN_USER_ID`로 본인을 결정한다. 변경 요청은 기존 CSRF 보호를 사용한다. 개인 Discord 연결 해제는 커뮤니티 서버 연결이나 Discord/PUBG 클랜원 기록을 바꾸지 않는다.
+
 ```mermaid
 erDiagram
     users ||--o{ user_external_accounts : has
@@ -117,7 +131,8 @@ erDiagram
     community_members ||--o{ community_member_activity_snapshots : owns
 ```
 
-- `user_external_accounts`: GuildUp 사용자와 외부 계정의 연결. 현재 실제 로그인 흐름은 Discord만 사용한다.
+- `user_credentials`: GuildUp 사용자의 이메일·비밀번호 로그인 수단.
+- `user_external_accounts`: GuildUp 사용자와 외부 계정의 연결. 외부 로그인은 현재 Discord를 지원하며 외부 이름과 아바타를 별도로 저장한다.
 - `community_users`: GuildUp 사용자와 커뮤니티의 가입 및 권한 관계.
 - `community_games`: 현재 `BATTLEGROUNDS_KAKAO`, `BATTLEGROUNDS_STEAM`을 지원한다.
 - `community_members`: 커뮤니티가 관리하는 실제 클랜원. Discord 역할 동기화 또는 수동 등록으로 생성된다.
@@ -309,6 +324,8 @@ sequenceDiagram
 
 PUBG Kakao/Steam 계정 및 Match 경계 변경의 두 단계 SQL, 데이터 감사, 신규 설치 절차는 [플랫폼 분리 배포 안내](PUBG_PLATFORM_DEPLOYMENT.md)를 따른다. 새 앱을 시작하기 전에 migration과 PostgreSQL 부분 unique index 적용을 완료해야 한다.
 변경 파일과 회귀 검증 결과는 [플랫폼 분리 구현 결과](PUBG_PLATFORM_IMPLEMENTATION.md)에 정리했다.
+
+계정 프로필 배포 전 [add_account_profile.sql](src/main/resources/db/manual/add_account_profile.sql)을 운영자가 별도로 실행한다. `users.birth_date DATE NULL`과 `user_external_accounts.external_display_name VARCHAR(255) NULL`, `external_avatar_url VARCHAR(512) NULL`을 추가하며 재실행할 수 있다. 기존 데이터 삭제나 닉네임 UNIQUE 추가는 없다. 기존 이메일 인증수단·탈퇴 관련 배포 SQL은 각각 `add_user_credentials.sql`, `add_account_withdrawal.sql`이다.
 
 ## 프로젝트 구조
 

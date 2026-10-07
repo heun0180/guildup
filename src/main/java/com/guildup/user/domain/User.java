@@ -12,6 +12,7 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 /** Discord 등 외부 계정과 구분되는 GuildUp 자체 사용자다. */
 @Entity
@@ -24,6 +25,10 @@ public class User {
 
     @Column(nullable = false)
     private String nickname;
+
+    /** 선택 프로필 정보. 로그인/가입/게임 계정과는 독립적이다. */
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "system_role", nullable = false, length = 20)
@@ -60,6 +65,13 @@ public class User {
         return nickname;
     }
 
+    public LocalDate getBirthDate() { return birthDate; }
+
+    public void updateProfile(String nickname, LocalDate birthDate) {
+        this.nickname = nickname;
+        this.birthDate = birthDate;
+    }
+
     public SystemRole getSystemRole() {
         return systemRole;
     }
@@ -76,6 +88,7 @@ public class User {
         status = UserStatus.WITHDRAWN;
         withdrawnAt = at;
         nickname = WITHDRAWN_NAME;
+        birthDate = null;
         systemRole = SystemRole.USER;
     }
 
