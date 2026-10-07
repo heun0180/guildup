@@ -44,6 +44,10 @@ public class DiscordVoiceSession {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @jakarta.persistence.Version
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "community_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -106,6 +110,11 @@ public class DiscordVoiceSession {
     public Instant getJoinedAt() { return joinedAt; }
     public Instant getLeftAt() { return leftAt; }
     public boolean isOpen() { return leftAt == null; }
+
+    public void anonymize(String surrogate, Instant at) {
+        close(at);
+        discordUserId = surrogate;
+    }
 
     /** 이벤트 시각이 입장 시각보다 빠를 수 없도록 보정해 세션을 종료한다. */
     public void close(Instant eventTime) {

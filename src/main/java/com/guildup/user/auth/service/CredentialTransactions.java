@@ -31,7 +31,7 @@ public class CredentialTransactions {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User addCredential(Long userId, String email, String passwordHash) {
-        User user = users.findForUpdate(userId).orElseThrow(() ->
+        User user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new AuthException(HttpStatus.UNAUTHORIZED, "LOGIN_REQUIRED", "로그인이 필요합니다."));
         if (credentials.existsByUserId(userId)) throw credentialAlreadyAdded();
         if (credentials.existsByEmail(email)) throw duplicateEmail();

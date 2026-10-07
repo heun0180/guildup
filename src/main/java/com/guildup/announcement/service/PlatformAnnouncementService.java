@@ -71,7 +71,7 @@ public class PlatformAnnouncementService {
     /** 기존 UserRepository의 사용자 잠금으로 여러 탭의 동시 최초 읽음을 직렬화한다. */
     @Transactional
     public Detail markRead(Long userId, Long id, boolean confirmPopup) {
-        User user = users.findForUpdate(userId).orElseThrow(() -> unauthorized());
+        User user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() -> unauthorized());
         Instant now = clock.instant();
         var a = requireVisible(id, now);
         if (confirmPopup && (!a.isImportant() || !a.isPopup())) {
@@ -143,7 +143,7 @@ public class PlatformAnnouncementService {
     private PlatformAnnouncement requireItem(Long id) {
         return announcements.findById(id).orElseThrow(() -> notFound());
     }
-    private User requireUser(Long id) { return users.findById(id).orElseThrow(() -> unauthorized()); }
+    private User requireUser(Long id) { return users.findById(id).filter(com.guildup.user.domain.User::isActive).orElseThrow(() -> unauthorized()); }
     private ResponseStatusException unauthorized() {
         return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다.");
     }

@@ -44,6 +44,14 @@ public class CommunityMemberAccount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @jakarta.persistence.Version
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
+
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    private boolean anonymized;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "community_member_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -150,8 +158,17 @@ public class CommunityMemberAccount {
         return externalJoinedAt;
     }
 
+    public void anonymize(String discordSurrogate) {
+        anonymized = true;
+        if (provider == ExternalAccountProvider.DISCORD) externalUserId = discordSurrogate;
+        externalUsername = null;
+        externalDisplayName = null;
+        externalJoinedAt = null;
+    }
+
     /** 외부 서비스 사용자 이름이 실제로 달라졌을 때만 갱신한다. */
     public boolean updateExternalUsername(String externalUsername) {
+        if (anonymized) return false;
         if (Objects.equals(this.externalUsername, externalUsername)) {
             return false;
         }
@@ -166,6 +183,7 @@ public class CommunityMemberAccount {
             String externalDisplayName,
             Instant externalJoinedAt
     ) {
+        if (anonymized) return;
         this.externalUsername = externalUsername;
         this.externalDisplayName = externalDisplayName;
         if (externalJoinedAt != null) {

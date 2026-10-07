@@ -56,7 +56,7 @@ public class CredentialAuthService {
         boolean validInput = CredentialPolicy.isEncodablePassword(request.password());
         boolean matches = encoder.matches(validInput ? request.password() : "invalid-login",
                 credential.map(value -> value.getPasswordHash()).orElse(dummyHash));
-        if (!validInput || credential.isEmpty() || !matches) throw invalidLogin();
+        if (!validInput || credential.isEmpty() || !matches || !credential.get().getUser().isActive()) throw invalidLogin();
         // 이메일 인증 전에도 로그인은 허용한다. 인증됨으로 표시하거나 권한 근거로 삼지 않는다.
         return credential.get().getUser();
     }

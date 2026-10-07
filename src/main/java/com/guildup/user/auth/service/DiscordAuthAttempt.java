@@ -10,7 +10,7 @@ import java.security.MessageDigest;
 public record DiscordAuthAttempt(String state, String redirectUri, Purpose purpose, Long userId,
                                  Instant createdAt) implements Serializable {
     public static final String ATTRIBUTE = "DISCORD_AUTH_ATTEMPT";
-    public enum Purpose { LOGIN, LINK_ACCOUNT }
+    public enum Purpose { LOGIN, LINK_ACCOUNT, WITHDRAWAL }
 
     public boolean matches(String received) {
         return received != null && received.length() == state.length()

@@ -1,6 +1,7 @@
 package com.guildup.monitoring.domain;
 
 public enum MonitoringEventCode {
+    USER_WITHDRAWN,
     HTTP_5XX,
     PUBG_API_RATE_LIMIT, PUBG_API_TIMEOUT, PUBG_API_RETRY, PUBG_API_CLIENT_ERROR, PUBG_API_SERVER_ERROR,
     PUBG_API_FAILED,

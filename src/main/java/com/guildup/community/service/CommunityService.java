@@ -78,7 +78,7 @@ public class CommunityService {
         if (requestId == null || !requestId.matches("[a-zA-Z0-9_-]{16,64}")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "유효한 Idempotency-Key가 필요합니다.");
         }
-        users.findForUpdate(userId).orElseThrow(() ->
+        users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         String key = userId + ":" + requestId;
         String hash = creationHash(request);
@@ -127,7 +127,7 @@ public class CommunityService {
         if (gameType == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "게임을 선택해 주세요.");
         }
-        var user = users.findById(userId).orElseThrow(() ->
+        var user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         Community community = communityRepository.save(new Community(name.trim(), key, hash));
         CommunityGame communityGame = communityGames.save(new CommunityGame(community, gameType));
@@ -183,7 +183,7 @@ public class CommunityService {
         if (code == null || !code.trim().matches("(?i)[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "올바른 초대 코드를 입력해 주세요.");
         }
-        var user = users.findForUpdate(userId).orElseThrow(() ->
+        var user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         var community = communityRepository.findByInviteCode(code.trim().toLowerCase(java.util.Locale.ROOT))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "초대 코드를 확인해 주세요."));

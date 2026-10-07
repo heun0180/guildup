@@ -240,7 +240,7 @@ public class BingoEventService {
         List<BingoDetailResponse.Participant> summaries = includeParticipants ? participantRows.stream().map(p -> {
             int completed = (int) byParticipant.get(p.getId()).stream().filter(BingoProgress::isCompleted).count();
             return new BingoDetailResponse.Participant(p.getId(), p.getCommunityUser().getUser().getNickname(),
-                    p.getPubgNickname(), completed,
+                    (p.getCommunityUser().getUser().isActive() ? p.getPubgNickname() : null), completed,
                     p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt(),
                     p.getLastAggregatedAt());
         }).toList() : List.of();
@@ -256,7 +256,7 @@ public class BingoEventService {
                 row.getCell().getId(), row.getCurrentValue(), row.getOccurrenceCount(), row.isCompleted(),
                 row.getCompletedAt(), row.getEvidenceMatchId(), row.getEvidenceEventAt())).toList();
         return new BingoDetailResponse.PlayerBoard(p.getId(), p.getCommunityUser().getUser().getNickname(),
-                p.getPubgAccountId() != null, p.getPubgNickname(), (int) rows.stream().filter(BingoProgress::isCompleted).count(),
+                p.getPubgAccountId() != null, (p.getCommunityUser().getUser().isActive() ? p.getPubgNickname() : null), (int) rows.stream().filter(BingoProgress::isCompleted).count(),
                 p.getLineCount(), p.getTargetLinesCompletedAt(), p.getBlackoutCompletedAt(),
                 p.getLastAggregatedAt(), values);
     }

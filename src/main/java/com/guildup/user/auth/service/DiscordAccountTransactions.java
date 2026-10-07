@@ -27,13 +27,13 @@ public class DiscordAccountTransactions {
     @Transactional(readOnly = true, propagation = Propagation.REQUIRES_NEW)
     public Optional<User> findExisting(DiscordApiUser discord) {
         return accounts.findByProviderAndExternalUserId(ExternalAccountProvider.DISCORD, discord.id())
-                .map(UserExternalAccount::getUser);
+                .map(UserExternalAccount::getUser).map(AuthSessionService::requireActive);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User resolveLogin(DiscordApiUser discord) {
         return accounts.findByProviderAndExternalUserId(ExternalAccountProvider.DISCORD, discord.id())
-                .map(UserExternalAccount::getUser).orElseGet(() -> create(discord));
+                .map(UserExternalAccount::getUser).map(AuthSessionService::requireActive).orElseGet(() -> create(discord));
     }
 
     private User create(DiscordApiUser discord) {
@@ -48,7 +48,7 @@ public class DiscordAccountTransactions {
     /** 기존 User만 잠그고 인증수단만 추가한다. User/커뮤니티/클랜원 생성이나 병합은 없다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User link(Long userId, DiscordApiUser discord) {
-        User user = users.findForUpdate(userId).orElseThrow(() ->
+        User user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new AuthException(HttpStatus.UNAUTHORIZED, "LOGIN_REQUIRED", "로그인이 필요합니다."));
         var discordOwner = accounts.findByProviderAndExternalUserId(ExternalAccountProvider.DISCORD, discord.id());
         if (discordOwner.isPresent()) {

@@ -33,12 +33,15 @@ public class DiscordLoginController {
     private final DiscordOAuthProperties properties;
     private final DiscordLoginService discord;
     private final AuthSessionService sessions;
+    private final AccountWithdrawalService withdrawal;
     private MonitoringEventService monitoring;
 
-    public DiscordLoginController(DiscordOAuthProperties properties, DiscordLoginService discord, AuthSessionService sessions) {
+    public DiscordLoginController(DiscordOAuthProperties properties, DiscordLoginService discord, AuthSessionService sessions,
+                                  AccountWithdrawalService withdrawal) {
         this.properties = properties;
         this.discord = discord;
         this.sessions = sessions;
+        this.withdrawal = withdrawal;
     }
 
     @Autowired
@@ -72,10 +75,23 @@ public class DiscordLoginController {
         String redirectUri = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/api/auth/discord/callback").build().toUriString();
         session.setAttribute(DiscordAuthAttempt.ATTRIBUTE, new DiscordAuthAttempt(state, redirectUri, purpose, userId, Instant.now()));
-        return UriComponentsBuilder.fromUriString("https://discord.com/oauth2/authorize")
+        var builder = UriComponentsBuilder.fromUriString("https://discord.com/oauth2/authorize")
                 .queryParam("response_type", "code").queryParam("client_id", properties.clientId())
-                .queryParam("scope", "identify").queryParam("state", state).queryParam("redirect_uri", redirectUri)
-                .build().encode().toUri();
+                .queryParam("scope", "identify").queryParam("state", state).queryParam("redirect_uri", redirectUri);
+        if (purpose == DiscordAuthAttempt.Purpose.WITHDRAWAL) builder.queryParam("prompt", "consent");
+        return builder.build().encode().toUri();
+    }
+
+    @PostMapping("/discord/withdrawal")
+    public ResponseEntity<LinkStartResponse> verifyWithdrawal(HttpServletRequest request) {
+        var session = request.getSession(false);
+        var id = sessions.requireUser(session).getId();
+        synchronized (session) {
+            session.removeAttribute(WithdrawalVerification.ATTRIBUTE);
+            withdrawal.requireDiscordVerification(id);
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(new LinkStartResponse(start(session, DiscordAuthAttempt.Purpose.WITHDRAWAL, id).toString()));
+        }
     }
 
     @GetMapping("/discord/callback")
@@ -85,23 +101,33 @@ public class DiscordLoginController {
         HttpSession session = request.getSession(false);
         DiscordAuthAttempt attempt = consume(session);
         boolean linking = attempt != null && attempt.purpose() == DiscordAuthAttempt.Purpose.LINK_ACCOUNT;
-        String errorPage = linking ? "/account.html" : "/login.html";
+        boolean verifying = attempt != null && attempt.purpose() == DiscordAuthAttempt.Purpose.WITHDRAWAL;
+        String errorPage = linking || verifying ? "/account.html" : "/login.html";
         if (attempt == null || !attempt.matches(state) || !boundToCurrentUser(session, attempt)) {
             recordRejectedLogin();
             return errorRedirect(errorPage, "session");
         }
         if (error != null || code == null || code.isBlank()) return errorRedirect(errorPage, "discord");
 
-        var discordUser = discord.getDiscordUser(code, attempt.redirectUri());
+        com.guildup.discord.oauth.client.dto.DiscordApiUser discordUser;
+        try { discordUser = discord.getDiscordUser(code, attempt.redirectUri()); }
+        catch (org.springframework.web.client.RestClientException exception) {
+            if (!verifying) throw exception;
+            return errorRedirect(errorPage, "discord");
+        }
         synchronized (session) {
             // token 교환 중 로그아웃/다른 로그인으로 문맥이 바뀐 경우도 거부한다.
             if (!boundToCurrentUser(session, attempt)) return errorRedirect(errorPage, "session");
             try {
+                if (verifying) {
+                    session.setAttribute(WithdrawalVerification.ATTRIBUTE, withdrawal.verifyDiscord(attempt.userId(), discordUser));
+                    return redirect("/account.html?withdrawalVerified=true");
+                }
                 var user = linking ? discord.linkAccount(attempt.userId(), discordUser) : discord.findOrCreateUser(discordUser);
                 sessions.authenticate(request, user);
                 return redirect(linking ? "/account.html?discordLinked=true" : "/communities.html");
             } catch (AuthException exception) {
-                if (!linking) throw exception;
+                if (!linking && !verifying) throw exception;
                 return errorRedirect(errorPage, exception.getCode());
             }
         }

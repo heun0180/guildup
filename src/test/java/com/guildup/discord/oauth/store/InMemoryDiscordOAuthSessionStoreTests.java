@@ -16,6 +16,17 @@ class InMemoryDiscordOAuthSessionStoreTests {
 
     private final InMemoryDiscordOAuthSessionStore store = new InMemoryDiscordOAuthSessionStore();
 
+    @Test void withdrawalPurgesDiscordProfileCopiesAcrossCommunitiesAndCreationResults() {
+        var withdrawn = new DiscordOAuthResultResponse(new DiscordOAuthUserResponse("10", "private", "private", null), List.of());
+        var retained = new DiscordOAuthResultResponse(new DiscordOAuthUserResponse("20", "other", "other", null), List.of());
+        var first = store.saveResult(1L, withdrawn); var creation = store.saveResult(null, withdrawn);
+        var other = store.saveResult(2L, retained);
+        store.discardResultsForDiscordUser("10");
+        assertThatThrownBy(() -> store.getResult(1L, first)).isInstanceOf(com.guildup.discord.oauth.exception.DiscordOAuthResultNotFoundException.class);
+        assertThatThrownBy(() -> store.getResult(null, creation)).isInstanceOf(com.guildup.discord.oauth.exception.DiscordOAuthResultNotFoundException.class);
+        assertThat(store.getResult(2L, other)).isSameAs(retained);
+    }
+
     @Test
     void createsOpaqueStateAndResolvesCommunityOnlyOnce() {
         String state = store.createState(1L);

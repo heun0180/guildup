@@ -18,6 +18,9 @@ public interface DiscordOAuthSessionStore {
     /** 커뮤니티와 결과 ID가 일치하는 유효한 OAuth 결과를 조회한다. */
     DiscordOAuthResultResponse getResult(Long communityId, String resultId);
 
+    /** 탈퇴 후 메모리에도 Discord 프로필 복제를 남기지 않는다. */
+    void discardResultsForDiscordUser(String discordUserId);
+
     /** 결과를 소비하지 않고 선택 서버의 Discord 관리 권한 증명을 확인한다. */
     DiscordManageableGuildResponse getSelectedGuild(
             Long communityId,

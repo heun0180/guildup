@@ -24,11 +24,12 @@ public record MemberActivityMatchResponse(
         return new MemberActivityMatchResponse(
                 match.getMatchId(), match.getPlayedAt(), match.getGameMode(),
                 match.getClanMemberCountInTeam(),
-                players.stream()
-                        .filter(MemberActivityPlayerResponse::clanMember)
+                match.getPlayers().stream()
+                        .filter(com.guildup.community.domain.CommunityMemberActivityMatchPlayer::isClanMember)
                         .filter(player -> !java.util.Objects.equals(
-                                player.pubgAccountId(), targetAccountId
+                                player.getPubgAccountId(), targetAccountId
                         ))
+                        .map(MemberActivityPlayerResponse::from)
                         .map(MemberActivityPlayerResponse::pubgNickname)
                         .toList(),
                 players,

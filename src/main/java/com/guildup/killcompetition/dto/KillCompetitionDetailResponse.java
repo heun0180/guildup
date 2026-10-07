@@ -46,7 +46,7 @@ public record KillCompetitionDetailResponse(
                 .filter(KillCompetitionParticipant::isApproved).toList();
         List<Participant> participantDtos = competition.getParticipants().stream().map(p -> new Participant(
                 p.getId(), p.getCommunityMember().getId(), p.getCommunityMember().getNickname(),
-                p.getPubgNickname(), p.getTeam() == null ? null : p.getTeam().getId(),
+                (p.getCommunityMember().isAnonymized() ? null : p.getPubgNickname()), p.getTeam() == null ? null : p.getTeam().getId(),
                 p.getParticipationStatus(), p.getEligibleFrom(),
                 p.getInterimKills(), p.getInterimMatchCount(),
                 placementPoints(p.getInterimPoints(), p.getInterimKills(), competition.getKillPoint()), p.getInterimPoints(),

@@ -5,13 +5,16 @@ import AppLink from "../components/AppLink.jsx";
 import SiteFooter from "../components/SiteFooter.jsx";
 import Icon from "../components/Icon.jsx";
 import CredentialFields from "../components/CredentialFields.jsx";
+import AccountWithdrawalPanel from "../components/AccountWithdrawalPanel.jsx";
 import { credentialError } from "../authValidation.js";
 
 const oauthMessages = {
-  session: "계정 연결 인증 정보가 만료되었습니다. Discord 연결을 다시 시작해 주세요.",
-  discord: "Discord 연결이 취소되었거나 완료되지 않았습니다. 다시 시도해 주세요.",
+  session: "Discord 인증 정보가 만료되었습니다. 인증을 다시 시작해 주세요.",
+  discord: "Discord 인증이 취소되었거나 완료되지 않았습니다. 다시 시도해 주세요.",
   DISCORD_ACCOUNT_CONFLICT: "이미 다른 GuildUp 계정에 연결된 Discord 계정입니다. 기존 계정으로 로그인해 주세요.",
   DISCORD_ALREADY_LINKED: "현재 GuildUp 계정에는 다른 Discord 계정이 이미 연결되어 있습니다.",
+  DISCORD_IDENTITY_MISMATCH: "현재 계정에 연결된 Discord 계정으로 본인 확인을 진행해 주세요.",
+  WITHDRAWAL_VERIFICATION_REQUIRED: "회원탈퇴를 위해 본인 확인을 다시 진행해 주세요.",
 };
 
 export default function AccountSettingsPage() {
@@ -93,6 +96,7 @@ export default function AccountSettingsPage() {
           <p>아래 커뮤니티에는 Discord 계정과 연결된 별도 클랜원 기록이 있습니다. 기존 클랜원 연결과 기록을 보존했으며 자동으로 합치지 않았습니다. 운영자에게 클랜원 연결 확인을 요청해 주세요.</p>
           <ul>{account.memberLinkConflicts.map((item) => <li key={item.communityId}>{item.communityName}</li>)}</ul>
         </aside>}
+        <AccountWithdrawalPanel />
       </>}
       <AppLink className="onboarding-restart" href="/communities.html">내 커뮤니티로 돌아가기</AppLink>
     </main><SiteFooter />

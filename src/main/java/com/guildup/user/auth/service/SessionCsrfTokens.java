@@ -17,8 +17,12 @@ public final class SessionCsrfTokens {
 
     public static String getOrCreate(HttpSession session) {
         synchronized (session) {
-            Object existing = session.getAttribute(ATTRIBUTE);
-            return existing instanceof String token ? token : rotate(session);
+            try {
+                Object existing = session.getAttribute(ATTRIBUTE);
+                return existing instanceof String token ? token : rotate(session);
+            } catch (IllegalStateException expired) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Login is required");
+            }
         }
     }
 
@@ -33,7 +37,9 @@ public final class SessionCsrfTokens {
     }
 
     public static boolean matches(HttpSession session, String supplied) {
-        Object stored = session.getAttribute(ATTRIBUTE);
+        Object stored;
+        try { stored = session.getAttribute(ATTRIBUTE); }
+        catch (IllegalStateException expired) { return false; }
         return stored instanceof String token && supplied != null && supplied.length() == token.length()
                 && MessageDigest.isEqual(token.getBytes(StandardCharsets.UTF_8), supplied.getBytes(StandardCharsets.UTF_8));
     }

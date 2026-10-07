@@ -10,7 +10,9 @@ public final class CurrentUserSession {
     private CurrentUserSession() {}
 
     public static Long requireUserId(HttpSession session) {
-        Object value = session == null ? null : session.getAttribute(USER_ID);
+        Object value;
+        try { value = session == null ? null : session.getAttribute(USER_ID); }
+        catch (IllegalStateException exception) { value = null; }
         if (!(value instanceof Long userId)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login is required");
         }

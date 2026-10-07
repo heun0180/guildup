@@ -157,7 +157,7 @@ public class CommunityMemberDiscordStateService {
 
         int left = 0;
         for (CommunityMemberAccount storedAccount : storedByDiscordUserId.values()) {
-            if (!matchedMembers.containsKey(storedAccount.getExternalUserId())
+            if (!storedAccount.getCommunityMember().isAnonymized() && !matchedMembers.containsKey(storedAccount.getExternalUserId())
                     && storedAccount.getCommunityMember().markLeft(synchronizedAt)) {
                 left++;
             }

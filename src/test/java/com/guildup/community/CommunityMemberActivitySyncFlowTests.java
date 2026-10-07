@@ -333,7 +333,7 @@ class CommunityMemberActivitySyncFlowTests {
                 fixture.apple().getId(), com.guildup.account.domain.ExternalAccountProvider.PUBG, PubgPlatform.KAKAO
         ).orElseThrow();
         previous.updateExternalUsername("sa-gwa-renamed");
-        accounts.saveAndFlush(previous);
+        previous = accounts.saveAndFlush(previous);
         mvc.perform(get(listPath(fixture)).session(ownerSession))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.members[0].gameNickname").value("sa-gwa-renamed"));

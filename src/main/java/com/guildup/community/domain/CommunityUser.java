@@ -57,6 +57,19 @@ public class CommunityUser {
     @Column(name = "joined_at")
     private Instant joinedAt;
 
+    @Column(name = "ended_at")
+    private Instant endedAt;
+
+    public Instant getEndedAt() { return endedAt; }
+    public boolean isActive() { return endedAt == null && user.isActive(); }
+
+    /** 과거 참가/작성자 FK를 유지하면서 GuildUp 접근과 클랜원 연결을 종료한다. */
+    public void endMembership(Instant at) {
+        endedAt = at;
+        communityMember = null;
+        role = CommunityUserRole.MEMBER;
+    }
+
     protected CommunityUser() {
     }
 

@@ -12,6 +12,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface DiscordVoiceSessionRepository extends JpaRepository<DiscordVoiceSession, Long> {
+    List<DiscordVoiceSession> findByCommunityIdAndDiscordUserId(Long communityId, String discordUserId);
+    List<DiscordVoiceSession> findByDiscordUserId(String discordUserId);
 
     Optional<DiscordVoiceSession> findByCommunityIdAndDiscordUserIdAndLeftAtIsNull(
             Long communityId,

@@ -138,7 +138,7 @@ public class CommunityMembershipService {
         if (existingMembership.isPresent()) {
             throw new AlreadyCommunityMemberException(targetCommunityId);
         }
-        var user = users.findById(userId).orElseThrow(() ->
+        var user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         CommunityUser joined;
         try {
@@ -198,7 +198,7 @@ public class CommunityMembershipService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Discord guild membership is required to join this Community");
         }
-        var user = users.findById(userId).orElseThrow(() ->
+        var user = users.findForUpdate(userId).filter(com.guildup.user.domain.User::isActive).orElseThrow(() ->
                 new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
         try {
             return CommunityJoinResponse.from(memberships.saveAndFlush(new CommunityUser(

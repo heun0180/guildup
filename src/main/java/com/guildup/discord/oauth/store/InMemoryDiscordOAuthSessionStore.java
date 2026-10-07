@@ -84,6 +84,11 @@ public class InMemoryDiscordOAuthSessionStore implements DiscordOAuthSessionStor
         return pendingResult.result();
     }
 
+    @Override public void discardResultsForDiscordUser(String discordUserId) {
+        results.entrySet().removeIf(entry -> entry.getValue().result().user() != null
+                && java.util.Objects.equals(discordUserId, entry.getValue().result().user().discordUserId()));
+    }
+
     @Override
     public DiscordManageableGuildResponse getSelectedGuild(
             Long communityId,

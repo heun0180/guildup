@@ -32,6 +32,10 @@ public class CommunityMember {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @jakarta.persistence.Version
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long version;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "community_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -43,6 +47,18 @@ public class CommunityMember {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private CommunityMemberStatus status;
+
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    private boolean anonymized;
+
+    public boolean isAnonymized() { return anonymized; }
+
+    /** 클랜원 상태와 점수는 유지한다. 동기화로 개인정보가 복원되지 않게 표시한다. */
+    public void anonymize() {
+        anonymized = true;
+        nickname = com.guildup.user.domain.User.WITHDRAWN_NAME;
+    }
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -86,6 +102,7 @@ public class CommunityMember {
 
     /** 닉네임이 실제로 달라졌을 때만 수정하고 변경 여부를 반환한다. */
     public boolean updateNickname(String nickname) {
+        if (anonymized) return false;
         if (Objects.equals(this.nickname, nickname)) {
             return false;
         }
@@ -96,6 +113,7 @@ public class CommunityMember {
 
     /** Discord 프로필과 현재 클랜원 상태를 기존 행에 반영한다. */
     public void synchronizeDiscordProfile(String discordDisplayName, Instant synchronizedAt) {
+        if (anonymized) return;
         if (Objects.equals(this.nickname, discordDisplayName) && status == CommunityMemberStatus.ACTIVE) {
             return;
         }

@@ -23,8 +23,12 @@ public class SessionCsrfInterceptor implements HandlerInterceptor {
         boolean publicAuthentication = com.guildup.user.auth.controller.AuthController.class.isAssignableFrom(method.getBeanType())
                 && PUBLIC_AUTH_MUTATIONS.contains(method.getMethod().getName());
         // 회원가입/로그인 CSRF도 보호한다. 다른 익명 API의 기존 401 정책은 유지한다.
-        if (!publicAuthentication && (session == null
-                || !(session.getAttribute(CurrentUserSession.USER_ID) instanceof Long))) return true;
+        try {
+            if (!publicAuthentication && (session == null
+                    || !(session.getAttribute(CurrentUserSession.USER_ID) instanceof Long))) return true;
+        } catch (IllegalStateException expired) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Login is required");
+        }
 
         String supplied = request.getHeader(SessionCsrfTokens.HEADER);
         if (session != null && SessionCsrfTokens.matches(session, supplied)) return true;

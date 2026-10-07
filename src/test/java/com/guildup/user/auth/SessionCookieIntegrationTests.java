@@ -129,6 +129,32 @@ class SessionCookieIntegrationTests {
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    @Test void withdrawalImmediatelyRejectsTheOldJsessionidAndOtherAuthenticatedSessions() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String email = UUID.randomUUID() + "@example.com", password = "GuildUp123!";
+        var bootstrap = get("/api/auth/csrf", null);
+        var signup = postJson("/api/auth/signup", sessionCookie(bootstrap), json.readTree(bootstrap.body()).get("token").asText(),
+                Map.of("email", email, "password", password, "passwordConfirmation", password, "nickname", "탈퇴 테스트"));
+        assertThat(signup.statusCode()).isEqualTo(201);
+        String firstCookie = sessionCookie(signup);
+        var otherBootstrap = get("/api/auth/csrf", null);
+        var loginResponse = postJson("/api/auth/login", sessionCookie(otherBootstrap), json.readTree(otherBootstrap.body()).get("token").asText(),
+                Map.of("email", email, "password", password));
+        assertThat(loginResponse.statusCode()).isEqualTo(200);
+        String otherCookie = sessionCookie(loginResponse);
+        String token = json.readTree(get("/api/auth/csrf", firstCookie).body()).get("token").asText();
+        assertThat(postJson("/api/account/withdrawal/verify", firstCookie, token, Map.of("password", password)).statusCode()).isEqualTo(204);
+        var request = HttpRequest.newBuilder(uri("/api/account")).header("Cookie", firstCookie)
+                .header("X-CSRF-Token", token).header("Content-Type", "application/json")
+                .method("DELETE", HttpRequest.BodyPublishers.ofString("{\"acknowledged\":true}")).build();
+        assertThat(client.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(204);
+        assertThat(get("/api/auth/me", firstCookie).statusCode()).isEqualTo(401);
+        assertThat(get("/api/account/withdrawal/check", firstCookie).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/me", otherCookie).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/account", otherCookie).statusCode()).isEqualTo(401);
+        assertThat(client.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
+    }
+
     private void assertCookieFlags(HttpResponse<?> response) {
         String cookie = response.headers().firstValue("Set-Cookie").orElseThrow();
         assertThat(cookie).contains("HttpOnly", "Path=/", "SameSite=Lax");

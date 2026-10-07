@@ -11,6 +11,7 @@ export default function LoginPage({ signup = false }) {
   const [values, setValues] = useState({ email: "", password: "", passwordConfirmation: "", nickname: "" });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(() => {
+    if (new URLSearchParams(window.location.search).get("withdrawn") === "true") return "회원탈퇴가 완료되었습니다.";
     const oauthError = new URLSearchParams(window.location.search).get("oauthError");
     if (oauthError === "session") return "로그인 인증 정보가 만료되었습니다. Discord 로그인을 다시 시작해 주세요.";
     if (oauthError === "discord") return "Discord 로그인이 취소되었거나 완료되지 않았습니다. 다시 시도해 주세요.";

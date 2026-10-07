@@ -43,7 +43,8 @@ class DiscordLoginControllerTests {
                     new DiscordLoginController(
                             discordOAuthProperties,
                             discordLoginService,
-                            sessions
+                            sessions,
+                            mock(com.guildup.user.auth.service.AccountWithdrawalService.class)
                     ), new AuthController(sessions,
                             mock(com.guildup.user.auth.service.CredentialAuthService.class),
                             mock(com.guildup.user.auth.service.AccountSettingsService.class))
@@ -68,6 +69,8 @@ class DiscordLoginControllerTests {
         User user = mock(User.class);
 
         when(user.getId()).thenReturn(10L);
+        when(user.isActive()).thenReturn(true);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
 
         when(discordLoginService.getDiscordUser(
                 "authorization-code",
@@ -190,6 +193,8 @@ class DiscordLoginControllerTests {
         User user = mock(User.class);
 
         when(user.getId()).thenReturn(10L);
+        when(user.isActive()).thenReturn(true);
+        when(users.findById(10L)).thenReturn(Optional.of(user));
         when(user.getNickname()).thenReturn("애플");
 
         when(users.findById(10L))

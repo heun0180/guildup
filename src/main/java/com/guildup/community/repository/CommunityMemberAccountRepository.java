@@ -12,6 +12,9 @@ import java.util.Optional;
 
 /** 클랜원과 외부 서비스 계정의 연결을 저장하고 조회한다. */
 public interface CommunityMemberAccountRepository extends JpaRepository<CommunityMemberAccount, Long> {
+    List<CommunityMemberAccount> findByCommunityMemberId(Long communityMemberId);
+    @EntityGraph(attributePaths = {"communityMember", "communityMember.community"})
+    List<CommunityMemberAccount> findByProviderAndExternalUserId(ExternalAccountProvider provider, String externalUserId);
 
     /** 한 Community의 외부 계정을 멤버와 함께 읽어 동기화와 목록 변환의 N+1을 막는다. */
     @EntityGraph(attributePaths = "communityMember")

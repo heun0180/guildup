@@ -19,7 +19,7 @@ public class DeveloperAccessService {
 
     public void requireSystemAdmin(Long userId) {
         boolean allowed = users.findById(userId)
-                .map(user -> user.getSystemRole() == SystemRole.SYSTEM_ADMIN)
+                .map(user -> user.isActive() && user.getSystemRole() == SystemRole.SYSTEM_ADMIN)
                 .orElse(false);
         if (!allowed) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "System administrator access required");

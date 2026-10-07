@@ -34,6 +34,7 @@ public record CommunityMemberResponse(
 
     public static CommunityMemberResponse fromAccounts(CommunityMember member,
             CommunityMemberAccount discordAccount, List<CommunityMemberAccount> gameAccounts) {
+        if (member.isAnonymized()) discordAccount = null;
         List<PubgAccountResponse> accounts = gameAccounts.stream()
                 .sorted(Comparator.comparing(CommunityMemberAccount::getPlatform))
                 .map(PubgAccountResponse::from).toList();

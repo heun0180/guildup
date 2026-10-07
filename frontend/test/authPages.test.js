@@ -85,6 +85,102 @@ async function clickText(text) {
   assert.ok(button, text); await act(async () => button.click());
 }
 
+const withdrawalAccount = { user, email: "private@example.com", emailVerified: false, discordConnected: true, memberLinkConflicts: [] };
+const withdrawalCheck = { canWithdraw: true, verificationMethod: "PASSWORD", verified: false, ownedCommunities: [] };
+
+test("withdrawal requires notice acknowledgement, password verification and a separate final click", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(withdrawalAccount);
+    if (url === "/api/account/withdrawal/check") return response(withdrawalCheck);
+    if (url === "/api/account/withdrawal/verify" || url === "/api/account") return new Response(null, { status: 204 });
+    return null;
+  } });
+  try {
+    await clickText("회원탈퇴");
+    assert.equal(view.requests.filter(({ options }) => options.method === "DELETE").length, 0);
+    assert.equal([...document.querySelectorAll("button")].find((button) => button.textContent === "다음").disabled, true);
+    await act(async () => document.querySelector('.withdrawal-ack input').click());
+    await clickText("다음");
+    await fill("withdrawalPassword", "GuildUp123!"); await submit();
+    assert.ok(document.querySelector('[aria-label="회원탈퇴 최종 확인"]'));
+    assert.equal(document.querySelector('[name="withdrawalPassword"]'), null);
+    assert.equal(view.requests.filter(({ options }) => options.method === "DELETE").length, 0);
+    await clickText("회원탈퇴");
+    const request = view.requests.find(({ options }) => options.method === "DELETE");
+    assert.equal(request.url, "/api/account");
+    assert.deepEqual(JSON.parse(request.options.body), { acknowledged: true });
+    assert.equal(new Headers(request.options.headers).get("X-CSRF-Token"), "anonymous-or-current-session-token");
+    assert.deepEqual(view.redirects, ["/login.html?withdrawn=true"]);
+  } finally { await view.close(); }
+});
+
+test("withdrawal lists all owned communities and blocks progress", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(withdrawalAccount);
+    if (url === "/api/account/withdrawal/check") return response({ ...withdrawalCheck, canWithdraw: false,
+      ownedCommunities: [{ communityId: 3, communityName: "치즈 클랜" }, { communityId: 4, communityName: "ABC 클랜" }] });
+    return null;
+  } });
+  try {
+    await clickText("회원탈퇴");
+    assert.match(document.querySelector(".account-danger").textContent, /치즈 클랜/);
+    assert.match(document.querySelector(".account-danger").textContent, /ABC 클랜/);
+    assert.equal(document.querySelector('.withdrawal-ack'), null);
+    await clickText("취소");
+    assert.equal(view.requests.filter(({ options }) => options.method === "DELETE").length, 0);
+  } finally { await view.close(); }
+});
+
+test("wrong withdrawal password leaves user on verification step and clears the password", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response(withdrawalAccount);
+    if (url === "/api/account/withdrawal/check") return response(withdrawalCheck);
+    if (url === "/api/account/withdrawal/verify") return response({ code: "INVALID_CURRENT_PASSWORD", message: "현재 비밀번호가 올바르지 않습니다." }, 400);
+    return null;
+  } });
+  try {
+    await clickText("회원탈퇴"); await act(async () => document.querySelector('.withdrawal-ack input').click());
+    await clickText("다음"); await fill("withdrawalPassword", "wrong"); await submit();
+    assert.equal(document.querySelector('[name="withdrawalPassword"]').value, "");
+    assert.equal(document.querySelector('[aria-label="회원탈퇴 최종 확인"]'), null);
+    assert.deepEqual(view.redirects, []);
+  } finally { await view.close(); }
+});
+
+test("Discord-only withdrawal starts a CSRF-protected separate OAuth verification", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: (url) => {
+    if (url === "/api/auth/account") return response({ ...withdrawalAccount, email: null });
+    if (url === "/api/account/withdrawal/check") return response({ ...withdrawalCheck, verificationMethod: "DISCORD" });
+    if (url === "/api/auth/discord/withdrawal") return response({ authorizationUrl: "https://discord.com/oauth2/authorize?state=withdrawal" });
+    return null;
+  } });
+  try {
+    await clickText("회원탈퇴"); await act(async () => document.querySelector('.withdrawal-ack input').click());
+    await clickText("다음");
+    assert.equal(document.querySelector('[name="withdrawalPassword"]'), null);
+    await clickText("Discord로 본인 확인");
+    const request = view.requests.find(({ url }) => url === "/api/auth/discord/withdrawal");
+    assert.equal(request.options.method, "POST");
+    assert.ok(new Headers(request.options.headers).get("X-CSRF-Token"));
+    assert.equal(view.requests.filter(({ options }) => options.method === "DELETE").length, 0);
+  } finally { await view.close(); }
+});
+
+test("OAuth return still requires acknowledgement and final confirmation without automatic deletion", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html?withdrawalVerified=true", handle: (url) => {
+    if (url === "/api/auth/account") return response(withdrawalAccount);
+    if (url === "/api/account/withdrawal/check") return response({ ...withdrawalCheck, verificationMethod: "DISCORD", verified: true });
+    return null;
+  } });
+  try {
+    assert.ok(document.querySelector('.withdrawal-ack'));
+    assert.equal(document.querySelector('[aria-label="회원탈퇴 최종 확인"]'), null);
+    await act(async () => document.querySelector('.withdrawal-ack input').click()); await clickText("다음");
+    assert.ok(document.querySelector('[aria-label="회원탈퇴 최종 확인"]'));
+    assert.equal(view.requests.filter(({ options }) => options.method === "DELETE").length, 0);
+  } finally { await view.close(); }
+});
+
 for (const signup of [false, true]) {
   test(`${signup ? "signup" : "login"} sends public authentication through CSRF and keeps Discord available`, async () => {
     const view = await mount({ props: { signup }, handle: (url) => url === (signup ? "/api/auth/signup" : "/api/auth/login") ? response(user, signup ? 201 : 200) : null });

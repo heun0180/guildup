@@ -141,16 +141,16 @@ public class CommunityMemberActivityService {
         if (!isCurrentSnapshot(snapshot, account)) {
             return new MemberActivitySummaryResponse(
                     member.getId(), member.getNickname(),
-                    account == null ? null : account.getExternalUserId(),
-                    account == null ? null : account.getExternalUsername(),
+                    account == null || member.isAnonymized() ? null : account.getExternalUserId(),
+                    account == null || member.isAnonymized() ? null : account.getExternalUsername(),
                     ClanActivityStatus.ACCOUNT_VERIFICATION_REQUIRED,
                     null, null, null
             );
         }
         return new MemberActivitySummaryResponse(
                 member.getId(), member.getNickname(),
-                account == null ? null : account.getExternalUserId(),
-                account == null ? snapshot.getGameNickname() : account.getExternalUsername(),
+                account == null || member.isAnonymized() ? null : account.getExternalUserId(),
+                member.isAnonymized() ? null : account == null ? snapshot.getGameNickname() : account.getExternalUsername(),
                 snapshot.getActivityStatus(),
                 snapshot.getLastPubgMatchAt(), snapshot.getLastClanActivityAt(),
                 snapshot.getSynchronizedAt()

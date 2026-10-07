@@ -23,6 +23,7 @@ public class CommunityAccessService {
 
     public CommunityUser requireCommunityMember(Long userId, Long communityId) {
         return memberships.findByCommunityIdAndUserId(communityId, userId)
+                .filter(CommunityUser::isActive)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Community access denied"));
     }

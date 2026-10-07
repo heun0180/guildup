@@ -134,6 +134,7 @@ public class CommunityGameNicknameSyncService {
         int createdAccounts = 0;
         int updatedAccounts = 0;
         for (CommunityMember member : members) {
+            if (member.isAnonymized()) continue;
             PubgPlayer player = verifiedPlayers.get(member.getId());
             if (player == null) continue;
 

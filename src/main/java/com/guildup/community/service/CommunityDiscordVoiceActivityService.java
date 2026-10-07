@@ -159,7 +159,7 @@ public class CommunityDiscordVoiceActivityService {
         long totalSeconds = responses.stream().mapToLong(DiscordVoiceSessionResponse::durationSeconds).sum();
         return new DiscordVoiceActivityDetailResponse(
                 member.getId(), member.getNickname(),
-                account == null ? null : account.getExternalUserId(),
+                account == null || member.isAnonymized() ? null : account.getExternalUserId(),
                 totalSeconds, responses
         );
     }
@@ -189,7 +189,7 @@ public class CommunityDiscordVoiceActivityService {
                 .orElse(null);
         boolean connected = currentPeriod && sessions.stream().anyMatch(DiscordVoiceSession::isOpen);
         return new DiscordVoiceActivitySummaryResponse(
-                member.getId(), member.getNickname(), account.getExternalUserId(),
+                member.getId(), member.getNickname(), member.isAnonymized() ? null : account.getExternalUserId(),
                 total, lastJoinedAt, connected
         );
     }

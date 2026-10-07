@@ -29,6 +29,16 @@ public class User {
     @Column(name = "system_role", nullable = false, length = 20)
     private SystemRole systemRole = SystemRole.USER;
 
+    public static final String WITHDRAWN_NAME = "탈퇴한 사용자";
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @org.hibernate.annotations.ColumnDefault("'ACTIVE'")
+    private UserStatus status = UserStatus.ACTIVE;
+
+    @Column(name = "withdrawn_at")
+    private Instant withdrawnAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -55,7 +65,18 @@ public class User {
     }
 
     public boolean isSystemAdmin() {
-        return systemRole == SystemRole.SYSTEM_ADMIN;
+        return isActive() && systemRole == SystemRole.SYSTEM_ADMIN;
+    }
+
+    public UserStatus getStatus() { return status; }
+    public Instant getWithdrawnAt() { return withdrawnAt; }
+    public boolean isActive() { return status == UserStatus.ACTIVE; }
+
+    public void withdraw(Instant at) {
+        status = UserStatus.WITHDRAWN;
+        withdrawnAt = at;
+        nickname = WITHDRAWN_NAME;
+        systemRole = SystemRole.USER;
     }
 
     public Instant getCreatedAt() {

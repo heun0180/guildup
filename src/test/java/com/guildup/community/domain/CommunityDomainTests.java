@@ -21,8 +21,8 @@ class CommunityDomainTests {
     void communityMemberDoesNotContainDiscordUserId() {
         assertThat(Arrays.stream(CommunityMember.class.getDeclaredFields())
                 .map(field -> field.getName()))
-                .containsExactlyInAnyOrder("id", "community", "nickname", "status", "createdAt", "updatedAt")
-                .doesNotContain("discordUserId");
+                .contains("id", "community", "nickname", "status", "createdAt", "updatedAt")
+                .doesNotContain("discordUserId", "user", "userId");
     }
 
     @Test

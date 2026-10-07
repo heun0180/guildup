@@ -10,6 +10,7 @@ export class ApiError extends Error {
     this.code = details.code ?? null;
     this.communityId = details.communityId ?? null;
     this.communityName = details.communityName ?? null;
+    this.ownedCommunities = details.ownedCommunities ?? [];
     this.requestId = safeRequestId(details.requestId);
     this.endpoint = details.endpoint ?? null;
     this.method = details.method ?? null;
