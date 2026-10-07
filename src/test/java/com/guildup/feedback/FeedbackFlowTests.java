@@ -26,7 +26,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.transaction.annotation.Transactional;
+import com.guildup.feedback.repository.FeedbackRepository;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -39,7 +40,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -51,11 +52,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 @com.guildup.support.SessionCsrfTestClient.WithSessionCsrf
-@Transactional
 class FeedbackFlowTests {
     private static final Instant RECEIVED_AT = Instant.parse("2026-09-14T18:30:00Z");
 
     @Autowired MockMvc mvc;
+    @Autowired FeedbackRepository feedbacks;
+    @Autowired JdbcTemplate jdbc;
     @Autowired CommunityRepository communities;
     @Autowired CommunityUserRepository memberships;
     @Autowired UserRepository users;
@@ -73,6 +75,11 @@ class FeedbackFlowTests {
 
     @BeforeEach
     void setUp() {
+        feedbacks.deleteAll();
+        memberships.deleteAll();
+        externalAccounts.deleteAll();
+        communities.deleteAll();
+        users.deleteAll();
         reset(mailService);
         when(clock.instant()).thenReturn(RECEIVED_AT);
         member = users.save(new User("권성현"));
@@ -85,9 +92,10 @@ class FeedbackFlowTests {
 
     @ParameterizedTest
     @CsvSource({
+            "SERVICE,서비스 문의,서비스 이용 문의",
             "FEATURE,기능 건의,랭킹 기능을 추가해주세요",
-            "BUG,버그 제보,활동 조회가 되지 않습니다",
-            "ETC,기타 문의,문의드립니다"
+            "BUG,오류 신고,활동 조회가 되지 않습니다",
+            "ETC,기타,문의드립니다"
     })
     void sendsEveryFeedbackType(String type, String typeName, String title) throws Exception {
         externalAccounts.save(new UserExternalAccount(
@@ -96,7 +104,7 @@ class FeedbackFlowTests {
         mvc.perform(post(path(community)).session(memberSession).contentType("application/json")
                         .content(body(type, title, "사용자가 작성한 내용입니다.")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("소중한 의견 감사합니다. 개발자에게 전달되었습니다."));
+                .andExpect(jsonPath("$.message").value("소중한 의견 감사합니다. 문의가 접수되었습니다."));
 
         var captor = org.mockito.ArgumentCaptor.forClass(FeedbackMailMessage.class);
         verify(mailService).send(captor.capture());
@@ -197,34 +205,134 @@ class FeedbackFlowTests {
     }
 
     @Test
-    void returnsNotFoundForMissingCommunity() throws Exception {
+    void staleCommunityContextDoesNotPreventRegistration() throws Exception {
         mvc.perform(post("/api/communities/999999/feedback").session(memberSession)
                         .contentType("application/json").content(body("BUG", "제목", "내용")))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.message").value("커뮤니티를 찾을 수 없습니다."));
-        verifyNoInteractions(mailService);
+                .andExpect(status().isOk());
+        assertThat(feedbacks.findAll().getFirst().getCommunityId()).isNull();
     }
 
     @Test
-    void rejectsNonMemberAndAnonymousUser() throws Exception {
+    void acceptsNonMemberButRejectsAnonymousUser() throws Exception {
         mvc.perform(post(path(community)).session(outsiderSession).contentType("application/json")
                         .content(body("BUG", "제목", "내용")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
+        assertThat(feedbacks.findAll().getFirst().getCommunityId()).isNull();
         mvc.perform(post(path(community)).contentType("application/json")
                         .content(body("BUG", "제목", "내용")))
                 .andExpect(status().isUnauthorized());
-        verifyNoInteractions(mailService);
+        verify(mailService).send(any());
     }
 
     @Test
-    void hidesMailFailureDetailsFromClient() throws Exception {
+    void mailFailureDoesNotLosePersistedFeedbackOrExposeDetails() throws Exception {
         doThrow(new FeedbackMailException(new IllegalStateException("SMTP password rejected")))
                 .when(mailService).send(any());
 
         mvc.perform(post(path(community)).session(memberSession).contentType("application/json")
                         .content(body("BUG", "제목", "내용")))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.message").value("문의 전송에 실패했습니다."));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("소중한 의견 감사합니다. 문의가 접수되었습니다."));
+        assertThat(feedbacks.count()).isEqualTo(1);
+    }
+
+
+    @Test
+    void loggedInUserWithoutAnyCommunityCanRegisterAndReadOwnFeedback() throws Exception {
+        mvc.perform(post("/api/feedback").session(outsiderSession).contentType("application/json")
+                .content(body("SERVICE", "커뮤니티 생성 문제", "내용"))).andExpect(status().isOk());
+        var f = feedbacks.findAll().getFirst();
+        assertThat(f.getUser().getId()).isEqualTo(outsider.getId());
+        assertThat(f.getAuthorNickname()).isEqualTo("외부인");
+        assertThat(f.getCreatedAt()).isEqualTo(RECEIVED_AT);
+        assertThat(f.getCommunityId()).isNull();
+        mvc.perform(get("/api/feedback").session(outsiderSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].title").value("커뮤니티 생성 문제"));
+        mvc.perform(get("/api/feedback/" + f.getId()).session(outsiderSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content").value("내용"));
+        mvc.perform(get("/api/feedback/" + f.getId()).session(memberSession)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/feedback").session(memberSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
+    }
+
+    @Test
+    void savesTrustedCommunityAndNicknameSnapshotsAndStripsSensitiveUrlParts() throws Exception {
+        String content = """
+                {"type":"BUG","title":"오류","content":"내용","communityId":%d,
+                 "communityName":"forged","userId":999,"authorNickname":"forged",
+                 "pageRoute":"https://user:password@guildup.com/members.html?access_token=secret#refresh_token=secret"}
+                """.formatted(community.getId());
+        mvc.perform(post("/api/feedback").session(memberSession).contentType("application/json").content(content))
+                .andExpect(status().isOk());
+        var f = feedbacks.findAll().getFirst();
+        assertThat(f.getCommunityId()).isEqualTo(community.getId());
+        assertThat(f.getCommunityName()).isEqualTo("치즈 클랜");
+        assertThat(f.getAuthorNickname()).isEqualTo("권성현");
+        assertThat(f.getUser().getId()).isEqualTo(member.getId());
+        assertThat(f.getPageRoute()).isEqualTo("/members.html");
+        var captor = org.mockito.ArgumentCaptor.forClass(FeedbackMailMessage.class);
+        verify(mailService).send(captor.capture());
+        assertThat(captor.getValue().body()).doesNotContain("secret", "password", "forged");
+        memberships.deleteAll();
+        communities.deleteAll();
+        mvc.perform(get("/api/feedback/" + f.getId()).session(memberSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.feedback.communityId").value(community.getId()))
+                .andExpect(jsonPath("$.feedback.communityName").value("치즈 클랜"));
+    }
+
+    @Test
+    void developerCanListAnswerAndChangeStatusButCommunityOwnerCannot() throws Exception {
+        mvc.perform(post(path(community)).session(memberSession).contentType("application/json")
+                .content(body("FEATURE", "기능 요청", "내용"))).andExpect(status().isOk());
+        var f = feedbacks.findAll().getFirst();
+        User owner = users.save(new User("운영자"));
+        memberships.save(new CommunityUser(community, owner, CommunityUserRole.OWNER));
+        for (var forbidden : new MockHttpSession[]{memberSession, outsiderSession, session(owner)}) {
+            mvc.perform(get("/api/developer/feedback").session(forbidden)).andExpect(status().isForbidden());
+            mvc.perform(get("/api/developer/feedback/" + f.getId()).session(forbidden)).andExpect(status().isForbidden());
+            mvc.perform(put("/api/developer/feedback/" + f.getId()).session(forbidden).contentType("application/json")
+                    .content("{\"status\":\"CLOSED\",\"version\":0}")).andExpect(status().isForbidden());
+        }
+        jdbc.update("update users set system_role = 'SYSTEM_ADMIN' where id = ?", outsider.getId());
+        mvc.perform(get("/api/developer/feedback").session(outsiderSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].communityId").value(community.getId()));
+        mvc.perform(get("/api/developer/feedback/" + f.getId()).session(outsiderSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content").value("내용"));
+        mvc.perform(put("/api/developer/feedback/" + f.getId()).session(outsiderSession).contentType("application/json")
+                .content("{\"status\":\"ANSWERED\",\"answer\":\"답변입니다\",\"version\":0}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.feedback.status").value("ANSWERED"))
+                .andExpect(jsonPath("$.version").value(1));
+        mvc.perform(get("/api/feedback/" + f.getId()).session(memberSession))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.answer").value("답변입니다"));
+        mvc.perform(put("/api/developer/feedback/" + f.getId()).session(outsiderSession).contentType("application/json")
+                .content("{\"status\":\"CLOSED\",\"answer\":\"답변입니다\",\"version\":1}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.feedback.status").value("CLOSED"));
+        mvc.perform(put("/api/developer/feedback/" + f.getId()).session(outsiderSession).contentType("application/json")
+                .content("{\"status\":\"IN_PROGRESS\",\"version\":1}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void rejectsAnonymousAndWithdrawnUsersOnGlobalEndpoints() throws Exception {
+        mvc.perform(post("/api/feedback").contentType("application/json").content(body("SERVICE", "제목", "내용")))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/feedback")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/developer/feedback")).andExpect(status().isUnauthorized());
+        outsider.withdraw(RECEIVED_AT);
+        users.saveAndFlush(outsider);
+        mvc.perform(post("/api/feedback").session(outsiderSession).contentType("application/json")
+                .content(body("SERVICE", "제목", "내용"))).andExpect(status().isUnauthorized());
+        assertThat(feedbacks.count()).isZero();
+    }
+
+    @Test
+    void malformedOptionalContextDoesNotBlockRegistrationAndPagingIsBounded() throws Exception {
+        mvc.perform(post("/api/feedback").session(outsiderSession).contentType("application/json")
+                .content("{\"type\":\"SERVICE\",\"title\":\"제목\",\"content\":\"내용\",\"communityId\":-1,\"pageRoute\":\"not a route\"}"))
+                .andExpect(status().isOk());
+        assertThat(feedbacks.findAll().getFirst().getPageRoute()).isNull();
+        mvc.perform(get("/api/feedback?size=101").session(outsiderSession)).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/feedback?page=-1").session(outsiderSession)).andExpect(status().isBadRequest());
     }
 
     private MockHttpSession session(User user) {

@@ -166,7 +166,7 @@ class SessionCsrfFlowTests {
                 post(game + "/nickname-rule/preview"), post(game + "/activities/sync"), put(game + "/activity-rule"),
                 post(game + "/team-maker/generate"), post(game + "/team-maker/rebalance"),
                 post("/api/community-discoveries/discord/" + community.getId() + "/join"),
-                post(base + "/feedback"), post("/api/auth/logout"))) {
+                post(base + "/feedback"), post("/api/feedback"), post("/api/auth/logout"))) {
             mvc.perform(request.session(session)).andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("CSRF_TOKEN_MISSING"));
         }

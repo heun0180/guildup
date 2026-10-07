@@ -1,18 +1,21 @@
-import { useCallback, useState } from "react";
+import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
-import DashboardLayout from "../components/DashboardLayout.jsx";
-import { FEEDBACK_TYPES, feedbackPayload } from "../feedbackForm.js";
+import AppHeader from "../components/AppHeader.jsx";
+import SiteFooter from "../components/SiteFooter.jsx";
+import FeedbackHistory from "../components/FeedbackHistory.jsx";
+import { FEEDBACK_TYPES, feedbackPayload, supportContext, safeSupportRoute } from "../feedbackForm.js";
 
-const EMPTY_FORM = { type: "FEATURE", title: "", content: "" };
+const EMPTY_FORM = { type: "SERVICE", title: "", content: "" };
 
 export default function FeedbackPage() {
-  const communityId = new URLSearchParams(window.location.search).get("communityId");
-  const validId = /^\d+$/.test(communityId ?? "");
+  const location = useLocation();
+  const context = location.state?.supportContext ?? supportContext(location);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const [form, setForm] = useState(EMPTY_FORM);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
+  const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const handleLayoutError = useCallback((message) => setError(message || "커뮤니티 정보를 불러오지 못했습니다."), []);
   const set = (key, value) => {
     setForm((current) => ({ ...current, [key]: value }));
     setError("");
@@ -21,7 +24,7 @@ export default function FeedbackPage() {
 
   async function submit(event) {
     event.preventDefault();
-    if (sending || !validId) return;
+    if (sending) return;
     let payload;
     try {
       payload = feedbackPayload(form);
@@ -34,16 +37,20 @@ export default function FeedbackPage() {
     setError("");
     setSuccess("");
     try {
-      await api(`/api/communities/${encodeURIComponent(communityId)}/feedback`, {
+      const response = await api("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload,
+          communityId: Number.isSafeInteger(context.communityId) && context.communityId > 0 ? context.communityId : null,
+          pageRoute: safeSupportRoute(context.pageRoute),
+        }),
       });
       setForm((current) => ({ ...current, title: "", content: "" }));
-      setSuccess("소중한 의견 감사합니다.\n개발자에게 전달되었습니다.");
+      setSuccess(response.message);
+      setHistoryRevision((value) => value + 1);
     } catch (failure) {
       if (!redirectToLogin(failure)) {
-        setError("문의 전송에 실패했습니다.\n잠시 후 다시 시도해주세요.");
+        setError(failure.message || "문의 접수에 실패했습니다. 잠시 후 다시 시도해 주세요.");
       }
     } finally {
       setSending(false);
@@ -51,11 +58,13 @@ export default function FeedbackPage() {
   }
 
   return (
-    <DashboardLayout active="feedback" communityId={communityId} onError={handleLayoutError}>
-      <div className="dashboard-content narrow-content feedback-content">
+    <div className="public-page">
+      <AppHeader actions />
+      <main className="public-main feedback-content">
         <div className="page-heading is-compact">
           <p className="eyebrow">Feedback</p>
-          <h1>문의/건의</h1>
+          <h1>문의 / 건의</h1>
+          <p>GuildUp 서비스 이용 문의, 오류 신고와 기능 건의를 보내주세요.</p>
         </div>
 
         {error && <p className="message feedback-notice" role="alert">{error}</p>}
@@ -64,7 +73,7 @@ export default function FeedbackPage() {
         <form className="panel feedback-form" onSubmit={submit} aria-label="문의 및 건의 작성">
           <div className="feedback-form-heading">
             <h2>문의 내용</h2>
-            <p>로그인 사용자와 현재 커뮤니티 정보는 자동으로 함께 전달됩니다.</p>
+            <p>로그인 사용자와 접수 시각, 이용하던 페이지가 함께 전달됩니다. 커뮤니티 가입 없이도 문의할 수 있습니다.</p>
           </div>
 
           <label className="feedback-field" htmlFor="feedback-type">
@@ -94,10 +103,14 @@ export default function FeedbackPage() {
           </label>
 
           <div className="feedback-actions">
-            <button type="submit" disabled={sending || !validId}>{sending ? "보내는 중…" : "보내기"}</button>
+            <button type="submit" disabled={sending}>{sending ? "보내는 중…" : "보내기"}</button>
           </div>
         </form>
-      </div>
-    </DashboardLayout>
+        <section className="support-history"><h2>내 문의 내역</h2>
+          <FeedbackHistory revision={historyRevision} />
+        </section>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }

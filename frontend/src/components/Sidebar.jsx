@@ -28,9 +28,6 @@ export default function Sidebar({ community, communityId, active, loading = fals
   const rankingsUrl = validId
     ? `/rankings.html?communityId=${encodeURIComponent(communityId)}`
     : "/communities.html";
-  const feedbackUrl = validId
-    ? `/feedback.html?communityId=${encodeURIComponent(communityId)}`
-    : "/communities.html";
 
   const mainItems = [
     { id: "dashboard", label: "대시보드", icon: "dashboard", href: dashboardUrl },
@@ -38,7 +35,6 @@ export default function Sidebar({ community, communityId, active, loading = fals
     { id: "board", label: "게시판", icon: "message", href: boardUrl },
     { id: "members", label: "클랜원", icon: "users", href: membersUrl },
     { id: "rankings", label: "랭킹", icon: "ranking", href: rankingsUrl },
-    { id: "feedback", label: "문의/건의", icon: "message", href: feedbackUrl },
   ];
   const managementItems = [
     ...gameManagementMenuItems(community, communityId),

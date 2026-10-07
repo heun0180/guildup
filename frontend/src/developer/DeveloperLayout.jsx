@@ -52,6 +52,7 @@ export default function DeveloperLayout() {
 
   const active = location.pathname === "/developer" ? "dashboard"
     : location.pathname.startsWith("/developer/announcements") ? "announcements"
+    : location.pathname.startsWith("/developer/feedback") ? "feedback"
     : location.pathname.startsWith("/developer/monitoring") ? "monitoring"
     : location.pathname.startsWith("/developer/communities") ? "communities" : "";
   return <DeveloperContext.Provider value={{ user }}>
@@ -64,6 +65,9 @@ export default function DeveloperLayout() {
             <span><strong>개발자 도구</strong><small>GuildUp 관리</small></span>
           </div>
           <nav className="sidebar-nav">
+            <AppLink className={`sidebar-item${active === "feedback" ? " is-active" : ""}`} href="/developer/feedback">
+              <Icon name="message" /><span>문의 / 건의 관리</span>
+            </AppLink>
             <AppLink className={`sidebar-item${active === "announcements" ? " is-active" : ""}`} href="/developer/announcements">
               <Icon name="bell" /><span>GuildUp 공지 관리</span>
             </AppLink>

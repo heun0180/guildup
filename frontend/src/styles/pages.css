@@ -649,6 +649,22 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .settings-notice { margin-top: 14px; font-size: 0.8rem; }
 .success-message { margin-top: 18px; border: 1px solid #cde9da; border-radius: var(--radius-control); padding: 12px 14px; background: var(--color-success-soft); color: var(--color-success); font-size: 0.875rem; line-height: 1.5; overflow-wrap: anywhere; }
 .feedback-notice { white-space: pre-line; }
+.public-main.feedback-content { max-width: 860px; }
+.support-history { margin-top: 36px; }
+.support-history > h2 { margin-bottom: 16px; }
+.feedback-history { min-width: 0; }
+.feedback-history > .message { margin-bottom: 16px; }
+.support-detail { overflow: hidden; }
+.support-body { padding: 20px 24px; overflow-wrap: anywhere; }
+.support-body h3 { margin-bottom: 8px; }
+.support-body p { margin-bottom: 20px; white-space: pre-wrap; }
+.support-title { text-align: left; overflow-wrap: anywhere; white-space: normal; }
+.support-table { min-width: 700px; }
+.support-context.developer-definition-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 600px) {
+  .support-context.developer-definition-grid { grid-template-columns: 1fr; }
+  .support-body { padding: 18px; }
+}
 .feedback-form { overflow: hidden; }
 .feedback-form-heading { border-bottom: 1px solid var(--color-border); padding: 22px 24px; }
 .feedback-form-heading p { margin-top: 4px; font-size: 0.82rem; }

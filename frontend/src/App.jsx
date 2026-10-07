@@ -41,6 +41,7 @@ import { gamePageScopeKey } from "./pubgPlatform.js";
 import MonitoringPage from "./developer/MonitoringPage.jsx";
 import AnnouncementsPage from "./pages/AnnouncementsPage.jsx";
 import DeveloperAnnouncementsPage from "./developer/DeveloperAnnouncementsPage.jsx";
+import DeveloperFeedbackPage from "./developer/DeveloperFeedbackPage.jsx";
 import { AnnouncementProvider } from "./announcement/AnnouncementContext.jsx";
 
 const activeByPath = {
@@ -51,7 +52,6 @@ const activeByPath = {
   "/rankings.html": "rankings",
   "/kill-competitions.html": "kill-competitions",
   "/bingos.html": "bingos",
-  "/feedback.html": "feedback",
   "/member-activities.html": "activity",
   "/member-activity.html": "activity",
   "/team-maker.html": "team-maker",
@@ -125,11 +125,14 @@ export default function App() {
       <Route path="/help/ranking" element={<RankingHelpPage />} />
       <Route path="/communities.html" element={<CommunitiesPage />} />
       <Route path="/announcements" element={<AnnouncementsPage />} />
+      <Route path="/support" element={<FeedbackPage />} />
+      <Route path="/feedback.html" element={<FeedbackPage />} />
       <Route path="/community-create.html" element={<CommunityCreatePage />} />
       <Route element={<DeveloperLayout />}>
         <Route path="/developer" element={<DeveloperDashboardPage />} />
         <Route path="/developer/monitoring" element={<MonitoringPage />} />
         <Route path="/developer/announcements" element={<DeveloperAnnouncementsPage />} />
+        <Route path="/developer/feedback" element={<DeveloperFeedbackPage />} />
         <Route path="/developer/communities" element={<DeveloperCommunitiesPage />} />
         <Route path="/developer/communities/:communityId" element={<DeveloperCommunityDetailPage />} />
         <Route path="/developer/communities/:communityId/bingos/:bingoId" element={<DeveloperBingoDetailPage />} />
@@ -155,7 +158,6 @@ export default function App() {
         <Route path="/rankings.html" element={<RankingsPage />} />
         <Route path="/kill-competitions.html" element={<KillCompetitionsPage />} />
         <Route path="/bingos.html" element={<BingoPage />} />
-        <Route path="/feedback.html" element={<FeedbackPage />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes></AnnouncementProvider>

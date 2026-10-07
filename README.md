@@ -14,7 +14,7 @@ GuildUp은 게임 커뮤니티와 클랜의 회원, 활동, 콘텐츠를 한곳�
 - Discord 계정과 동기화된 클랜원 기준 일일 출석, 점수, 랭킹 조회
 - PUBG 킬내기 생성·참가와 생성자 권한의 모집·팀 편성·정산·결과 발표
 - 진행 중이거나 예정된 PUBG 빙고 조회와 개인 진행도 확인
-- 문의/건의를 SMTP 메일로 전송
+- 공용 문의/건의 접수·본인 내역·개발자 답변/상태 관리와 SMTP 알림
 
 ### 운영진 (`OWNER`, `ADMIN`)
 
@@ -38,7 +38,7 @@ GuildUp은 게임 커뮤니티와 클랜의 회원, 활동, 콘텐츠를 한곳�
 | 공개 | 로그인, 서비스 소개, 이용약관, 개인정보 처리방침 | 전체 |
 | 커뮤니티 선택 | 내 커뮤니티, Discord 기반 가입 가능 커뮤니티, 커뮤니티 생성 | 로그인 사용자 |
 | 계정 | 프로필, 로그인 및 보안, 연결된 계정, 계정 관리·회원탈퇴 | 로그인한 본인 |
-| 공통 메뉴 | 대시보드, 공지·이벤트, 클랜원, 랭킹, 킬내기, 빙고, 문의/건의 | `OWNER`, `ADMIN`, `MEMBER` |
+| 공통 메뉴 | 대시보드, 공지·이벤트, 클랜원, 랭킹, 킬내기, 빙고 | `OWNER`, `ADMIN`, `MEMBER` |
 | 관리 메뉴 | 활동, 팀 만들기, 연동 기능, 설정 | `OWNER`, `ADMIN` |
 | Discord 관리 | 서버 연결, 역할별 멤버, DM, 음성 활동 | `OWNER`, `ADMIN` |
 
@@ -342,7 +342,7 @@ guildup-backend/
 │   │   ├── pubg/              # PUBG HTTP client, DTO, model, cache service
 │   │   ├── killcompetition/   # 킬내기 도메인과 정산
 │   │   ├── bingo/             # PUBG 빙고와 미션 엔진
-│   │   └── feedback/          # 문의 검증과 SMTP 발송
+│   │   └── feedback/          # 공용 문의 저장·권한별 조회·답변·SMTP 알림
 │   ├── main/resources/
 │   │   ├── application.properties
 │   │   ├── db/manual/         # 자동 실행되지 않는 PostgreSQL 보조 DDL
@@ -545,7 +545,7 @@ Vite build 뒤의 검증 스크립트는 React Router에 등록된 모든 `.html
 | 공지·이벤트 | ✅ 구현 | 조회와 운영진 CRUD, 대시보드 요약 |
 | 킬내기 | ✅ 구현 | SOLO/DUO/SQUAD, 생성자의 참가 승인·팀 편성·중간/최종 정산과 운영진의 취소 |
 | PUBG 빙고 | ✅ 구현 | 3×3~5×5 미션, Match/Telemetry 집계, 진행도 |
-| 문의/건의 | ✅ 구현 | 로그인·커뮤니티 정보를 포함한 SMTP 메일 발송 |
+| 문의/건의 | ✅ 구현 | `/support` 공용 접수, 본인 내역, SYSTEM_ADMIN 관리, 선택적 커뮤니티 context, SMTP 알림 |
 | DB migration 체계 | 🚧 개발 중 | 일부 수동 DDL과 `ddl-auto=update`만 존재 |
 | 프로덕션 배포 자동화 | 📋 예정 | 저장소에 Nginx/systemd/Docker/CI 설정 없음 |
 | 이메일/비밀번호 가입 | 📋 예정 | 현재 Discord 로그인만 구현 |
@@ -584,3 +584,5 @@ Vite build 뒤의 검증 스크립트는 React Router에 등록된 모든 `.html
 - Discord 역할: 커뮤니티 기준 `/api/communities/{communityId}/discord/roles`와 Guild ID 직접 경로 `/api/discord/guilds/{guildId}/roles`
 
 React의 정상 커뮤니티 흐름은 커뮤니티 기준 API를 사용한다. Guild ID 직접 화면 흐름과 Spring 정적 화면은 정리 전에 실제 운영 routing을 확인해야 한다.
+
+공용 문의/건의의 구조 조사, API, 변경 파일, 데이터 보존 및 배포 SQL 검증은 [SUPPORT.md](SUPPORT.md)를 참고한다.

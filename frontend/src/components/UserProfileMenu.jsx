@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import AppLink from "./AppLink.jsx";
 import Avatar from "./Avatar.jsx";
 import Icon from "./Icon.jsx";
+import { supportContext } from "../feedbackForm.js";
 
 export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = false }) {
   const location = useLocation();
@@ -36,6 +37,7 @@ export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = 
     { href: "/account.html", label: "계정", icon: "settings" },
     { href: "/announcements", label: "GuildUp 공지", icon: "book", newBadge: hasNewAnnouncements },
     { href: "/help", label: "GuildUp 가이드", icon: "help" },
+    { href: "/support", label: "문의 / 건의", icon: "message", state: { supportContext: supportContext(location) } },
     ...(user.systemAdmin ? [{ href: "/developer", label: "개발자", icon: "dashboard" }] : []),
   ];
 
@@ -72,7 +74,7 @@ export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = 
     {open && <div className="panel profile-menu-dropdown">
       <div className="profile-menu-identity"><strong>{user.nickname || "사용자"}</strong></div>
       <div ref={menu} id={id} role="menu" aria-label="사용자 메뉴" onKeyDown={navigateMenu}>
-        {links.map(({ href, label, icon, newBadge }) => <AppLink key={href} href={href} role="menuitem"
+        {links.map(({ href, label, icon, newBadge, state }) => <AppLink key={href} href={href} state={state} role="menuitem"
           tabIndex={-1} className="profile-menu-item" onClick={() => setOpen(false)}>
           <Icon name={icon} size={18} /><span>{label}</span>
           {newBadge && <span className="role-badge profile-menu-new">NEW</span>}

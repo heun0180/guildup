@@ -12,7 +12,7 @@ public class CommunityWebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(interceptor)
                 .addPathPatterns("/api/communities", "/api/communities/**", "/api/discord/guilds/**")
-                // 문의 API는 컨트롤러에서 같은 세션 인증을 하고, 서비스에서 404와 403을 구분한다.
+                // 구버전 문의 URL도 공용 고객지원으로 접수한다. 커뮤니티 권한은 필요하지 않다.
                 .excludePathPatterns("/api/communities/*/feedback");
     }
 }
