@@ -192,7 +192,7 @@ for (const signup of [false, true]) {
   test(`${signup ? "signup" : "login"} sends public authentication through CSRF and keeps Discord available`, async () => {
     const view = await mount({ props: { signup }, handle: (url) => url === (signup ? "/api/auth/signup" : "/api/auth/login") ? response(user, signup ? 201 : 200) : null });
     try {
-      assert.equal(document.querySelector('[href="/api/auth/discord/authorize"]').textContent.trim(), "Discord로 계속하기");
+      assert.equal(document.querySelector('[href="/api/auth/discord/authorize"]').textContent.trim(), "Discord로 로그인");
       assert.equal(document.body.textContent.includes("비밀번호 찾기"), false);
       await fill("email", "new@example.com"); await fill("password", "GuildUp123!");
       if (signup) { await fill("passwordConfirmation", "GuildUp123!"); await fill("nickname", "신규 사용자"); }

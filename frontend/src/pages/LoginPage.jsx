@@ -55,7 +55,7 @@ export default function LoginPage({ signup = false }) {
         <span className="login-brand-mark" aria-hidden="true">G</span>
         <p className="eyebrow">GuildUp</p>
         <h1 id="login-title">{signup ? "GuildUp 회원가입" : "로그인"}</h1>
-        <p className="login-description">{signup ? "Discord 없이도 커뮤니티와 함께 시작하세요." : "이메일 또는 Discord로 계속 이용하세요."}</p>
+        <p className="login-description">{signup ? "Discord 없이도 커뮤니티와 함께 시작하세요." : "이메일 또는 Discord 계정으로 로그인하세요."}</p>
         {message && <p className="message" role="alert">{message}</p>}
         <form className="auth-form" onSubmit={submit} noValidate aria-busy={busy}>
           <CredentialFields values={values} signup={signup} nickname={signup} disabled={busy}
@@ -65,7 +65,7 @@ export default function LoginPage({ signup = false }) {
         <div className="auth-divider">또는</div>
         <a className={`button-link login-button${busy ? " disabled-link" : ""}`} href="/api/auth/discord/authorize"
           aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }}>
-          <Icon name="discord" size={20} />Discord로 계속하기
+          <Icon name="discord" size={20} />Discord로 로그인
         </a>
         <p className="auth-links">{signup ? <>이미 계정이 있으신가요? <AppLink href="/login.html">로그인</AppLink></>
           : <AppLink href="/signup.html">회원가입</AppLink>}</p>
