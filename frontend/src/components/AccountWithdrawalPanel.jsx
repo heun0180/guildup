@@ -75,13 +75,16 @@ export default function AccountWithdrawalPanel() {
           <p><strong>회원탈퇴를 진행할 수 없습니다.</strong></p><p>소유 중인 커뮤니티가 있습니다.</p>
           <ul>{check.ownedCommunities.map((item) => <li key={item.communityId}>
             <AppLink href={`/community-settings.html?communityId=${item.communityId}`}>{item.communityName}</AppLink>
-          </li>)}</ul><p>소유권을 이전하거나 커뮤니티를 삭제한 후 다시 시도해주세요.</p>
+          </li>)}</ul><p>현재는 소유한 커뮤니티를 삭제한 후 회원탈퇴할 수 있습니다. 각 커뮤니티의 설정에서 확인해 주세요.</p>
         </div> : check && <>
           {step === "notice" && <>
             <p>회원탈퇴 시 GuildUp에 더 이상 로그인할 수 없습니다.</p>
             <ul><li>모든 GuildUp 커뮤니티 멤버십이 종료됩니다.</li><li>이메일 로그인 정보가 삭제됩니다.</li>
-              <li>Discord 연결이 해제됩니다.</li><li>일부 게임·이벤트 기록은 결과 보존을 위해 익명화된 상태로 남을 수 있습니다.</li>
+              <li>Discord 로그인 연결과 생년월일 등 계정 프로필 정보가 삭제됩니다.</li>
+              <li>게임·이벤트·게시글 등의 과거 기록은 표시 이름을 변경한 상태로 남을 수 있습니다.</li>
+              <li>PUBG 원본 경기 자료와 계산용 계정 식별자, 문의 접수 기록·발송된 메일, 본문에 직접 작성한 개인정보는 자동 삭제되지 않습니다.</li>
               <li>다시 가입하면 새 계정이 생성되며 과거 계정과 기록은 복구되지 않습니다.</li></ul>
+            <p>남는 기록과 개인정보 삭제 요청 방법은 <AppLink href="/privacy">개인정보 처리방침</AppLink>에서 확인할 수 있습니다.</p>
             <label className="withdrawal-ack"><input type="checkbox" checked={acknowledged} disabled={busy}
               onChange={(event) => setAcknowledged(event.target.checked)} />위 내용을 확인했습니다.</label>
             <button type="button" disabled={!acknowledged || !check.canWithdraw || busy}
