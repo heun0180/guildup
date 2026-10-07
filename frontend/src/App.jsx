@@ -1,5 +1,6 @@
 import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage.jsx";
+import AccountSettingsPage from "./pages/AccountSettingsPage.jsx";
 import CommunitiesPage from "./pages/CommunitiesPage.jsx";
 import CommunityCreatePage from "./pages/CommunityCreatePage.jsx";
 import CommunityDashboardPage from "./pages/CommunityDashboardPage.jsx";
@@ -108,8 +109,10 @@ function NotFound() {
 export default function App() {
   return (
     <AnnouncementProvider><Routes>
-      <Route path="/" element={<LoginPage />} />
-      <Route path="/login.html" element={<LoginPage />} />
+      <Route path="/" element={<LoginPage key="login" />} />
+      <Route path="/login.html" element={<LoginPage key="login" />} />
+      <Route path="/signup.html" element={<LoginPage key="signup" signup />} />
+      <Route path="/account.html" element={<AccountSettingsPage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />

@@ -1,101 +1,48 @@
 package com.guildup.user.auth.service;
 
 import com.guildup.discord.oauth.client.DiscordApiClient;
-import com.guildup.discord.oauth.client.dto.DiscordAccessTokenResponse;
 import com.guildup.discord.oauth.client.dto.DiscordApiUser;
-import org.springframework.stereotype.Service;
-import com.guildup.account.domain.ExternalAccountProvider;
 import com.guildup.user.domain.User;
-import com.guildup.user.domain.UserExternalAccount;
-import com.guildup.user.repository.UserExternalAccountRepository;
-import org.springframework.transaction.annotation.Transactional;
-import com.guildup.user.repository.UserRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+/** Discord 인증, 기존 사용자 조회/생성과 로그인 수단 연결을 담당한다. */
 @Service
 public class DiscordLoginService {
+    private final DiscordApiClient client;
+    private final DiscordAccountTransactions transactions;
 
-    private final DiscordApiClient discordApiClient;
-    private final UserExternalAccountRepository userExternalAccountRepository;
-    private final UserRepository userRepository;
-
-    public DiscordLoginService(
-            DiscordApiClient discordApiClient,
-            UserExternalAccountRepository userExternalAccountRepository,
-            UserRepository userRepository
-    ) {
-        this.discordApiClient = discordApiClient;
-        this.userExternalAccountRepository = userExternalAccountRepository;
-        this.userRepository = userRepository;
+    public DiscordLoginService(DiscordApiClient client, DiscordAccountTransactions transactions) {
+        this.client = client;
+        this.transactions = transactions;
     }
 
-    /**
-     * Discord 인증 코드를 access token으로 교환한 뒤
-     * 로그인한 Discord 사용자 정보를 조회한다.
-     */
-    public DiscordApiUser getDiscordUser(
-            String code,
-            String redirectUri
-    ) {
-        DiscordAccessTokenResponse tokenResponse =
-                discordApiClient.exchangeCode(code, redirectUri);
-
-        return discordApiClient.getCurrentUser(
-                tokenResponse.accessToken()
-        );
+    public DiscordApiUser getDiscordUser(String code, String redirectUri) {
+        var token = client.exchangeCode(code, redirectUri);
+        return client.getCurrentUser(token.accessToken());
     }
 
-    /**
-     * Discord 고유 사용자 ID로 기존 GuildUp 회원을 조회한다.
-     */
-    @Transactional(readOnly = true)
-    public Optional<User> findExistingUser(
-            DiscordApiUser discordUser
-    ) {
-        return userExternalAccountRepository
-                .findByProviderAndExternalUserId(
-                        ExternalAccountProvider.DISCORD,
-                        discordUser.id()
-                )
-                .map(UserExternalAccount::getUser);
+    public Optional<User> findExistingUser(DiscordApiUser discord) {
+        return transactions.findExisting(discord);
     }
 
-    @Transactional
-    public User findOrCreateUser(DiscordApiUser discordUser) {
-        return userExternalAccountRepository
-                .findByProviderAndExternalUserId(
-                        ExternalAccountProvider.DISCORD,
-                        discordUser.id()
-                )
-                .map(UserExternalAccount::getUser)
-                .orElseGet(() -> createNewUser(discordUser));
-    }
-
-    @Transactional
-    public User createNewUser(DiscordApiUser discordUser) {
-        String nickname = discordUser.globalName();
-
-        if (nickname == null || nickname.isBlank()) {
-            nickname = discordUser.username();
+    public User findOrCreateUser(DiscordApiUser discord) {
+        try {
+            return transactions.resolveLogin(discord);
+        } catch (DataIntegrityViolationException exception) {
+            // 패자의 User는 외부 계정과 함께 롤백된다. 승자는 새 트랜잭션에서 조회한다.
+            return transactions.findExisting(discord).orElseThrow(() -> exception);
         }
-
-        User user = userRepository.save(new User(nickname));
-
-        UserExternalAccount account = new UserExternalAccount(
-                user,
-                ExternalAccountProvider.DISCORD,
-                discordUser.id(),
-                discordUser.username()
-        );
-
-        userExternalAccountRepository.save(account);
-
-        return user;
     }
 
-    @Transactional(readOnly = true)
-    public Optional<User> findUserById(Long userId) {
-        return userRepository.findById(userId);
+    public User linkAccount(Long userId, DiscordApiUser discord) {
+        try {
+            return transactions.link(userId, discord);
+        } catch (DataIntegrityViolationException exception) {
+            // 경쟁의 승자를 재조회: 같은 연결은 성공, 다른 User는 사용자용 충돌이다.
+            return transactions.link(userId, discord);
+        }
     }
 }

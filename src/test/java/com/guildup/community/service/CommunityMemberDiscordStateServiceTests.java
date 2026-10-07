@@ -38,7 +38,9 @@ class CommunityMemberDiscordStateServiceTests {
     private final CommunityMemberRepository members = mock(CommunityMemberRepository.class);
     private final CommunityMemberAccountRepository accounts = mock(CommunityMemberAccountRepository.class);
     private final CommunityMemberDiscordStateService service = new CommunityMemberDiscordStateService(
-            connections, members, accounts, new DiscordMemberService()
+            connections, members, accounts, new DiscordMemberService(),
+            mock(com.guildup.user.repository.UserExternalAccountRepository.class),
+            mock(com.guildup.community.repository.CommunityUserRepository.class)
     );
     private final Community community = new Community("GuildUp");
 

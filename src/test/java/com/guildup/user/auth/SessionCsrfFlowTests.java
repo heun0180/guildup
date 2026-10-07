@@ -113,7 +113,8 @@ class SessionCsrfFlowTests {
         mvc.perform(head("/api/auth/me").session(session)).andExpect(status().isOk());
         mvc.perform(get("/login.html")).andExpect(status().isOk());
         mvc.perform(post("/api/auth/logout")).andExpect(status().isNoContent());
-        mvc.perform(get("/api/auth/csrf")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/csrf")).andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"));
         mvc.perform(post("/api/communities/" + community.getId() + "/attendance"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/auth/discord/callback").param("code", "code").param("state", "wrong"))

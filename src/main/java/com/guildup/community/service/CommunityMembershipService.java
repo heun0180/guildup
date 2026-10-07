@@ -49,6 +49,7 @@ public class CommunityMembershipService {
     private final UserExternalAccountRepository externalAccounts;
     private final DiscordGuildService discordGuilds;
     private final DiscordMemberService discordMembers;
+    private final CommunityNativeMembershipService nativeMemberships;
     private MonitoringEventService monitoring;
 
     @Autowired
@@ -64,7 +65,8 @@ public class CommunityMembershipService {
             CommunityDeletionStore deletionStore,
             UserExternalAccountRepository externalAccounts,
             DiscordGuildService discordGuilds,
-            DiscordMemberService discordMembers
+            DiscordMemberService discordMembers,
+            CommunityNativeMembershipService nativeMemberships
     ) {
         this.access = access;
         this.oauthResults = oauthResults;
@@ -76,6 +78,7 @@ public class CommunityMembershipService {
         this.externalAccounts = externalAccounts;
         this.discordGuilds = discordGuilds;
         this.discordMembers = discordMembers;
+        this.nativeMemberships = nativeMemberships;
     }
 
     /** OAuth가 증명한 관리 가능 서버가 GuildUp에 등록되어 있는지 조회한다. */
@@ -128,6 +131,7 @@ public class CommunityMembershipService {
 
         var existingMembership = memberships.findByCommunityIdAndUserId(targetCommunityId, userId);
         if (existingMembership.isPresent() && discardSourceCommunity) {
+            nativeMemberships.provisionIfDiscordAbsent(existingMembership.get());
             discardNewUnconnectedSource(sourceMembership, targetCommunityId);
             return CommunityJoinResponse.from(existingMembership.get());
         }
@@ -145,6 +149,7 @@ public class CommunityMembershipService {
             CommunityOperationLogging.integrityFailure(log, monitoring, "communityOAuthJoin", targetCommunityId, userId, exception);
             throw new AlreadyCommunityMemberException(targetCommunityId);
         }
+        nativeMemberships.provisionIfDiscordAbsent(joined);
         if (discardSourceCommunity) discardNewUnconnectedSource(sourceMembership, targetCommunityId);
         return CommunityJoinResponse.from(joined);
     }
@@ -152,7 +157,9 @@ public class CommunityMembershipService {
     /** 현재 Discord 계정이 실제로 속한 서버와 연결된, 아직 가입하지 않은 Community를 찾는다. */
     @Transactional(readOnly = true)
     public List<DiscoverableCommunityResponse> discoverByDiscordMembership(Long userId) {
-        String discordUserId = requireDiscordUserId(userId);
+        var discord = externalAccounts.findByUserIdAndProvider(userId, ExternalAccountProvider.DISCORD);
+        if (discord.isEmpty()) return List.of();
+        String discordUserId = discord.get().getExternalUserId();
         List<DiscoverableCommunityResponse> discovered = new ArrayList<>();
         for (var connection : connections.findAllWithCommunity()) {
             Long communityId = connection.getCommunity().getId();
@@ -235,8 +242,7 @@ public class CommunityMembershipService {
     private String requireDiscordUserId(Long userId) {
         return externalAccounts.findByUserIdAndProvider(userId, ExternalAccountProvider.DISCORD)
                 .map(account -> account.getExternalUserId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "A linked Discord account is required"));
+                .orElseThrow(com.guildup.user.auth.exception.AuthException::discordNotLinked);
     }
 
     /** 방금 만든 빈 연결용 Community만 정리해 중복 시도 뒤 고아 Community가 남지 않게 한다. */

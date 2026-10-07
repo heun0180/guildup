@@ -207,16 +207,15 @@ public class CommunityGameNicknameRuleService {
     }
 
     private DiscordContext loadDiscordContext(Long userId, Long communityId) {
+        String discordUserId = userAccountRepository
+                .findByUserIdAndProvider(userId, ExternalAccountProvider.DISCORD)
+                .orElseThrow(com.guildup.user.auth.exception.AuthException::discordNotLinked)
+                .getExternalUserId();
         var connection = connectionService.getRequiredConnection(communityId);
         Guild guild = discordGuildService.getGuildById(connection.getDiscordGuildId());
         List<Member> members = discordMemberService.getMembers(guild).stream()
                 .filter(member -> !member.getUser().isBot())
                 .toList();
-        String discordUserId = userAccountRepository
-                .findByUserIdAndProvider(userId, ExternalAccountProvider.DISCORD)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "현재 로그인 사용자의 Discord 계정 정보를 찾을 수 없습니다."))
-                .getExternalUserId();
         Member currentMember = members.stream()
                 .filter(member -> member.getUser().getId().equals(discordUserId))
                 .findFirst()

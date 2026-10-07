@@ -16,7 +16,6 @@ public final class SessionCsrfTokens {
     private SessionCsrfTokens() {}
 
     public static String getOrCreate(HttpSession session) {
-        CurrentUserSession.requireUserId(session);
         synchronized (session) {
             Object existing = session.getAttribute(ATTRIBUTE);
             return existing instanceof String token ? token : rotate(session);

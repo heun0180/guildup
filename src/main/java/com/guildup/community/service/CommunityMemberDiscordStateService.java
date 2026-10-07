@@ -36,17 +36,23 @@ public class CommunityMemberDiscordStateService {
     private final CommunityMemberRepository memberRepository;
     private final CommunityMemberAccountRepository accountRepository;
     private final DiscordMemberService discordMemberService;
+    private final com.guildup.user.repository.UserExternalAccountRepository userAccounts;
+    private final com.guildup.community.repository.CommunityUserRepository memberships;
 
     public CommunityMemberDiscordStateService(
             DiscordCommunityConnectionRepository connectionRepository,
             CommunityMemberRepository memberRepository,
             CommunityMemberAccountRepository accountRepository,
-            DiscordMemberService discordMemberService
+            DiscordMemberService discordMemberService,
+            com.guildup.user.repository.UserExternalAccountRepository userAccounts,
+            com.guildup.community.repository.CommunityUserRepository memberships
     ) {
         this.connectionRepository = connectionRepository;
         this.memberRepository = memberRepository;
         this.accountRepository = accountRepository;
         this.discordMemberService = discordMemberService;
+        this.userAccounts = userAccounts;
+        this.memberships = memberships;
     }
 
     /** 현재 역할 전체를 기준으로 한 사용자만 활성화하거나 LEFT 처리한다. */
@@ -170,6 +176,20 @@ public class CommunityMemberDiscordStateService {
             List<PendingMember> pendingMembers
     ) {
         if (storedAccount == null) {
+            // 이메일 가입 후 Discord를 연결한 경우 내부 클랜원을 재사용한다.
+            // 이미 다른 클랜원에 Discord ID가 있으면 이 분기로 오지 않으며 자동 병합하지 않는다.
+            var nativeMember = userAccounts.findByProviderAndExternalUserId(
+                            ExternalAccountProvider.DISCORD, discordMember.getUser().getId())
+                    .flatMap(account -> memberships.findByCommunityIdAndUserId(community.getId(), account.getUser().getId()))
+                    .map(membership -> membership.getCommunityMember());
+            if (nativeMember.isPresent() && accountRepository.findByCommunityMemberIdAndProvider(
+                    nativeMember.get().getId(), ExternalAccountProvider.DISCORD).isEmpty()) {
+                CommunityMember member = nativeMember.get();
+                boolean wasLeft = member.getStatus() == CommunityMemberStatus.LEFT;
+                member.synchronizeDiscordProfile(discordMemberService.getDisplayName(discordMember), synchronizedAt);
+                pendingMembers.add(new PendingMember(member, discordMember));
+                return wasLeft ? MemberSyncOutcome.REACTIVATED : MemberSyncOutcome.UPDATED;
+            }
             CommunityMember member = new CommunityMember(
                     community, discordMemberService.getDisplayName(discordMember)
             );

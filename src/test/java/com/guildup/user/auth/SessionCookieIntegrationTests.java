@@ -15,10 +15,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Optional;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /** Real servlet-container cookies: MockMvc alone cannot resolve an old session ID. */
@@ -35,18 +35,16 @@ class SessionCookieIntegrationTests {
     @MockitoBean JDA jda;
     @MockitoBean DiscordBot bot;
     @MockitoBean DiscordLoginService login;
+    @org.springframework.beans.factory.annotation.Autowired com.guildup.user.repository.UserRepository users;
     final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     @Test
     void rotatesCookieAndRejectsOldCookieAndLoggedOutCookie() throws Exception {
         var discordUser = new DiscordApiUser("discord-id", "test", "test", null);
-        User user = mock(User.class);
-        when(user.getId()).thenReturn(10L);
-        when(user.getNickname()).thenReturn("test");
+        User user = users.save(new User("test"));
         when(login.getDiscordUser("code", "http://localhost:" + port + "/api/auth/discord/callback"))
                 .thenReturn(discordUser);
         when(login.findOrCreateUser(discordUser)).thenReturn(user);
-        when(login.findUserById(10L)).thenReturn(Optional.of(user));
 
         var authorize = get("/api/auth/discord/authorize", null);
         assertThat(authorize.statusCode()).isEqualTo(302);
@@ -77,6 +75,65 @@ class SessionCookieIntegrationTests {
         assertThat(logout.statusCode()).isEqualTo(204);
         assertThat(get("/api/auth/me", newCookie).statusCode()).isEqualTo(401);
         assertThat(get("/api/auth/me", oldCookie).statusCode()).isEqualTo(401);
+    }
+
+    @Test
+    void anonymousEmailSignupAndLoginRotateRealCookiesAndLogoutRevokesBoth() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String email = "cookie-" + UUID.randomUUID() + "@example.com";
+        String password = "CookiePass123!";
+        var bootstrap = get("/api/auth/csrf", null);
+        assertThat(bootstrap.statusCode()).isEqualTo(200);
+        assertThat(bootstrap.headers().firstValue("Cache-Control")).contains("no-store");
+        String oldCookie = sessionCookie(bootstrap);
+        String anonymousToken = json.readTree(bootstrap.body()).get("token").asText();
+        assertThat(postJson("/api/auth/signup", oldCookie, null, Map.of("email", email)).statusCode()).isEqualTo(403);
+        var signup = postJson("/api/auth/signup", oldCookie, anonymousToken,
+                Map.of("email", email, "password", password, "passwordConfirmation", password, "nickname", "cookie-user"));
+        assertThat(signup.statusCode()).isEqualTo(201);
+        long userId = json.readTree(signup.body()).get("id").asLong();
+        String signupCookie = sessionCookie(signup);
+        assertThat(signupCookie).isNotEqualTo(oldCookie);
+        assertCookieFlags(signup);
+        assertThat(get("/api/auth/me", oldCookie).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/me", signupCookie).statusCode()).isEqualTo(200);
+        assertThat(postJson("/api/auth/logout", signupCookie, anonymousToken, Map.of()).statusCode()).isEqualTo(403);
+        String signupToken = json.readTree(get("/api/auth/csrf", signupCookie).body()).get("token").asText();
+        assertThat(postJson("/api/auth/logout", signupCookie, signupToken, Map.of()).statusCode()).isEqualTo(204);
+        assertThat(get("/api/auth/me", signupCookie).statusCode()).isEqualTo(401);
+
+        var loginBootstrap = get("/api/auth/csrf", null);
+        String loginCookie = sessionCookie(loginBootstrap);
+        String loginToken = json.readTree(loginBootstrap.body()).get("token").asText();
+        assertThat(postJson("/api/auth/login", loginCookie, loginToken,
+                Map.of("email", email, "password", "WrongPass123!")).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/me", loginCookie).statusCode()).isEqualTo(401);
+        var loggedIn = postJson("/api/auth/login", loginCookie, loginToken, Map.of("email", email, "password", password));
+        assertThat(loggedIn.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(loggedIn.body()).get("id").asLong()).isEqualTo(userId);
+        String authenticatedCookie = sessionCookie(loggedIn);
+        assertThat(authenticatedCookie).isNotEqualTo(loginCookie);
+        assertCookieFlags(loggedIn);
+        assertThat(get("/api/auth/me", loginCookie).statusCode()).isEqualTo(401);
+        String currentToken = json.readTree(get("/api/auth/csrf", authenticatedCookie).body()).get("token").asText();
+        assertThat(currentToken).isNotEqualTo(loginToken);
+        assertThat(postJson("/api/auth/logout", authenticatedCookie, currentToken, Map.of()).statusCode()).isEqualTo(204);
+        assertThat(get("/api/auth/me", authenticatedCookie).statusCode()).isEqualTo(401);
+    }
+
+    private HttpResponse<String> postJson(String path, String cookie, String csrf, Map<String, ?> body) throws Exception {
+        var request = HttpRequest.newBuilder(uri(path)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(new tools.jackson.databind.ObjectMapper().writeValueAsString(body)));
+        if (cookie != null) request.header("Cookie", cookie);
+        if (csrf != null) request.header("X-CSRF-Token", csrf);
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private void assertCookieFlags(HttpResponse<?> response) {
+        String cookie = response.headers().firstValue("Set-Cookie").orElseThrow();
+        assertThat(cookie).contains("HttpOnly", "Path=/", "SameSite=Lax");
+        if (secureCookieExpected()) assertThat(cookie).contains("Secure");
+        else assertThat(cookie).doesNotContain("Secure");
     }
 
     private HttpResponse<String> get(String path, String cookie) throws Exception {

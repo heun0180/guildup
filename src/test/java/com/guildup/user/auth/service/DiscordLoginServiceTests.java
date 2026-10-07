@@ -39,8 +39,7 @@ class DiscordLoginServiceTests {
     private final DiscordLoginService discordLoginService =
             new DiscordLoginService(
                     discordApiClient,
-                    userExternalAccountRepository,
-                    userRepository
+                    new DiscordAccountTransactions(userExternalAccountRepository, userRepository)
             );
 
 
@@ -173,10 +172,10 @@ class DiscordLoginServiceTests {
         when(userRepository.save(any(User.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        when(userExternalAccountRepository.save(any(UserExternalAccount.class)))
+        when(userExternalAccountRepository.saveAndFlush(any(UserExternalAccount.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        User result = discordLoginService.createNewUser(discordUser);
+        User result = discordLoginService.findOrCreateUser(discordUser);
 
         ArgumentCaptor<User> userCaptor =
                 ArgumentCaptor.forClass(User.class);
@@ -189,7 +188,7 @@ class DiscordLoginServiceTests {
 
         order.verify(userRepository).save(userCaptor.capture());
         order.verify(userExternalAccountRepository)
-                .save(accountCaptor.capture());
+                .saveAndFlush(accountCaptor.capture());
 
         User savedUser = userCaptor.getValue();
         UserExternalAccount savedAccount = accountCaptor.getValue();
@@ -217,10 +216,10 @@ class DiscordLoginServiceTests {
         when(userRepository.save(any(User.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        when(userExternalAccountRepository.save(any(UserExternalAccount.class)))
+        when(userExternalAccountRepository.saveAndFlush(any(UserExternalAccount.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        User result = discordLoginService.createNewUser(discordUser);
+        User result = discordLoginService.findOrCreateUser(discordUser);
 
         assertThat(result.getNickname()).isEqualTo("fallback-name");
     }
@@ -259,7 +258,7 @@ class DiscordLoginServiceTests {
                 .save(any(User.class));
 
         verify(userExternalAccountRepository, never())
-                .save(any(UserExternalAccount.class));
+                .saveAndFlush(any(UserExternalAccount.class));
     }
 
     @Test
@@ -282,7 +281,7 @@ class DiscordLoginServiceTests {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         when(userExternalAccountRepository
-                .save(any(UserExternalAccount.class)))
+                .saveAndFlush(any(UserExternalAccount.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         User result =
@@ -294,34 +293,7 @@ class DiscordLoginServiceTests {
                 .save(any(User.class));
 
         verify(userExternalAccountRepository)
-                .save(any(UserExternalAccount.class));
+                .saveAndFlush(any(UserExternalAccount.class));
     }
 
-    @Test
-    void findsLoginUserById() {
-        User user = new User("애플");
-
-        when(userRepository.findById(10L))
-                .thenReturn(Optional.of(user));
-
-        Optional<User> result =
-                discordLoginService.findUserById(10L);
-
-        assertThat(result).containsSame(user);
-
-        verify(userRepository).findById(10L);
-    }
-
-    @Test
-    void returnsEmptyWhenLoginUserDoesNotExist() {
-        when(userRepository.findById(999L))
-                .thenReturn(Optional.empty());
-
-        Optional<User> result =
-                discordLoginService.findUserById(999L);
-
-        assertThat(result).isEmpty();
-
-        verify(userRepository).findById(999L);
-    }
 }

@@ -4,11 +4,13 @@ import { api, redirectToLogin } from "../api/http.js";
 import AppHeader from "../components/AppHeader.jsx";
 import Icon from "../components/Icon.jsx";
 import SiteFooter from "../components/SiteFooter.jsx";
+import DiscordAccountNotice from "../components/DiscordAccountNotice.jsx";
 
 export default function CommunitiesPage() {
   const navigate = useNavigate();
   const [communities, setCommunities] = useState([]);
   const [discoverable, setDiscoverable] = useState([]);
+  const [discordConnected, setDiscordConnected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
@@ -18,12 +20,14 @@ export default function CommunitiesPage() {
 
   const loadCommunities = useCallback(async () => {
     try {
-      const [memberships, candidates] = await Promise.allSettled([
+      const [memberships, candidates, account] = await Promise.allSettled([
         api("/api/auth/me/communities"),
         api("/api/community-discoveries/discord"),
+        api("/api/auth/account"),
       ]);
       if (memberships.status === "rejected") throw memberships.reason;
       setCommunities(memberships.value);
+      if (account.status === "fulfilled") setDiscordConnected(account.value.discordConnected);
       setDiscoverable(candidates.status === "fulfilled" ? candidates.value : []);
       if (candidates.status === "rejected" && !redirectToLogin(candidates.reason)) {
         setMessage("내 커뮤니티는 확인했지만 Discord 가입 가능 목록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.");
@@ -128,6 +132,7 @@ export default function CommunitiesPage() {
             </article>)}
           </div>
         </section>}
+        {!loading && discordConnected === false && <DiscordAccountNotice />}
       </main>
       <SiteFooter />
     </div>

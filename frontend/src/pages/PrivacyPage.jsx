@@ -9,6 +9,7 @@ export default function PrivacyPage() {
       </div>
 
       <section><h2>1. 수집하는 개인정보</h2>
+        <h3>이메일 회원가입 및 로그인</h3><p>이메일, 닉네임과 비밀번호 해시를 저장합니다. 비밀번호 원문은 저장하지 않습니다. 이메일 소유 인증은 아직 제공되지 않으며 이메일을 인증된 것으로 처리하지 않습니다.</p>
         <h3>Discord 로그인</h3><p>Discord 계정을 이용하여 로그인하는 경우 다음 정보가 수집될 수 있습니다.</p><ul>
           <li>Discord 사용자 ID</li><li>Discord 사용자명</li><li>Discord 표시 이름</li><li>Discord 프로필 이미지</li><li>사용자가 참여 중인 Discord 서버 관련 정보</li><li>Discord 서버 내 권한 정보</li>
         </ul><p>GuildUp은 Discord 비밀번호를 수집하거나 저장하지 않습니다.</p>

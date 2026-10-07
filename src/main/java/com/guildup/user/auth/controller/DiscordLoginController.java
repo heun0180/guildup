@@ -1,306 +1,144 @@
 package com.guildup.user.auth.controller;
 
-
 import com.guildup.discord.oauth.config.DiscordOAuthProperties;
-import jakarta.servlet.http.HttpSession;
-import com.guildup.user.auth.service.CurrentUserSession;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
-import org.springframework.web.util.UriComponentsBuilder;
-import org.springframework.web.server.ResponseStatusException;
-
-import java.net.URI;
-import java.security.SecureRandom;
-import java.util.Base64;
-
-import com.guildup.discord.oauth.client.dto.DiscordApiUser;
-import com.guildup.user.auth.service.DiscordLoginService;
-import com.guildup.user.auth.service.SessionCsrfTokens;
-import com.guildup.user.domain.User;
-import com.guildup.user.auth.dto.LoginUserResponse;
-
-import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import com.guildup.monitoring.domain.MonitoringCategory;
 import com.guildup.monitoring.domain.MonitoringEventCode;
 import com.guildup.monitoring.service.MonitoringEventService;
+import com.guildup.user.auth.exception.AuthException;
+import com.guildup.user.auth.service.*;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.Objects;
+
+/** 개인 Discord 인증만 담당한다. 커뮤니티 서버 OAuth와 별개의 세션 문맥이다. */
 @RestController
 @RequestMapping("/api/auth")
 public class DiscordLoginController {
     private static final Logger log = LoggerFactory.getLogger(DiscordLoginController.class);
-
-    // Discord OAuth 인증 페이지 주소
-    private static final String DISCORD_AUTHORIZE_URL =
-            "https://discord.com/oauth2/authorize";
-
-    // 로그인 요청 시 생성한 OAuth state를 Session에 저장할 때 사용하는 키
-    private static final String DISCORD_LOGIN_STATE =
-            "DISCORD_LOGIN_STATE";
-
-    // 로그인 callback 주소를 Session에 저장할 때 사용하는 키
-    private static final String DISCORD_LOGIN_REDIRECT_URI =
-            "DISCORD_LOGIN_REDIRECT_URI";
-
-    // 예측하기 어려운 OAuth state 값을 만들기 위한 난수 생성기
-    private final SecureRandom secureRandom = new SecureRandom();
-
-    // 기존 Discord OAuth 환경설정 재사용
-    private final DiscordOAuthProperties discordOAuthProperties;
-
-    private final DiscordLoginService discordLoginService;
+    private final SecureRandom random = new SecureRandom();
+    private final DiscordOAuthProperties properties;
+    private final DiscordLoginService discord;
+    private final AuthSessionService sessions;
     private MonitoringEventService monitoring;
+
+    public DiscordLoginController(DiscordOAuthProperties properties, DiscordLoginService discord, AuthSessionService sessions) {
+        this.properties = properties;
+        this.discord = discord;
+        this.sessions = sessions;
+    }
 
     @Autowired
     void configureMonitoring(MonitoringEventService monitoring) { this.monitoring = monitoring; }
 
-    public DiscordLoginController(
-            DiscordOAuthProperties discordOAuthProperties,
-            DiscordLoginService discordLoginService
-    ) {
-        this.discordOAuthProperties = discordOAuthProperties;
-        this.discordLoginService = discordLoginService;
-    }
-
-    private static final String LOGIN_USER_ID =
-            CurrentUserSession.USER_ID;
-
-
-    /**
-     * Discord 로그인 시작 API
-     *
-     * 1. OAuth state 생성
-     * 2. state와 callback 주소를 Session에 저장
-     * 3. Discord OAuth 인증 URL 생성
-     * 4. Discord 로그인 페이지로 리다이렉트
-     */
     @GetMapping("/discord/authorize")
     public ResponseEntity<Void> authorize(HttpSession session) {
-
-        // Discord OAuth 환경변수가 정상 설정되어 있는지 확인
-        discordOAuthProperties.validate();
-
-        // CSRF 공격 방지를 위한 로그인 전용 state 생성
-        String state = createState();
-
-        // 로그인 완료 후 Discord가 돌아올 callback 주소 생성
-        String redirectUri = createLoginRedirectUri();
-
-        // callback 요청에서 검증할 수 있도록 Session에 저장
-        session.setAttribute(DISCORD_LOGIN_STATE, state);
-        session.setAttribute(DISCORD_LOGIN_REDIRECT_URI, redirectUri);
-
-        // Discord OAuth 인증 페이지 URL 생성
-        URI authorizationUri = UriComponentsBuilder
-                .fromUriString(DISCORD_AUTHORIZE_URL)
-                .queryParam("response_type", "code")
-                .queryParam("client_id", discordOAuthProperties.clientId())
-
-                // 로그인에서는 Discord 사용자 정보만 필요하므로 identify만 요청
-                .queryParam("scope", "identify")
-
-                // callback에서 로그인 요청 위조 여부를 확인하기 위한 값
-                .queryParam("state", state)
-
-                // Discord 인증 완료 후 돌아올 주소
-                .queryParam("redirect_uri", redirectUri)
-                .build()
-                .encode()
-                .toUri();
-
-        // 브라우저를 Discord 로그인 페이지로 이동시킴
-        return ResponseEntity
-                .status(HttpStatus.FOUND)
-                .location(authorizationUri)
-                .build();
-    }
-
-    /**
-     * Discord 로그인 callback
-     *
-     * 1. OAuth state 검증
-     * 2. Discord 사용자 조회
-     * 3. 기존 GuildUp 회원 조회 또는 신규 생성
-     * 4. Session 로그인
-     * 5. 내 커뮤니티 목록으로 이동
-     */
-    @GetMapping("/discord/callback")
-    public ResponseEntity<Void> callback(
-            @RequestParam(required = false) String code,
-            @RequestParam(required = false) String state,
-            @RequestParam(required = false) String error,
-            HttpSession session,
-            HttpServletRequest request
-    ) {
-        if (error != null || code == null || code.isBlank()) {
-            log.debug("Discord login callback rejected. reason=DENIED_OR_MISSING_CODE");
-            clearLoginAttempt(session);
-            return redirectToLoginError("discord");
+        synchronized (session) {
+            if (session.getAttribute(CurrentUserSession.USER_ID) instanceof Long) return redirect("/communities.html");
+            return redirect(start(session, DiscordAuthAttempt.Purpose.LOGIN, null).toString());
         }
-
-        if (!validateAndConsumeState(session, state)) {
-            log.warn("Discord login callback rejected. reason=INVALID_STATE");
-            recordRejectedLogin("INVALID_STATE");
-            clearLoginAttempt(session);
-            return redirectToLoginError("session");
-        }
-
-        String redirectUri =
-                consumeLoginRedirectUri(session);
-
-        if (redirectUri == null) {
-            log.warn("Discord login callback rejected. reason=MISSING_REDIRECT_CONTEXT");
-            recordRejectedLogin("MISSING_REDIRECT_CONTEXT");
-            clearLoginAttempt(session);
-            return redirectToLoginError("session");
-        }
-
-        DiscordApiUser discordUser =
-                discordLoginService.getDiscordUser(
-                        code,
-                        redirectUri
-                );
-
-        User user =
-                discordLoginService.findOrCreateUser(discordUser);
-
-        // Rotate after successful OAuth verification, preserving pre-login session attributes.
-        request.changeSessionId();
-        session.setAttribute(
-                LOGIN_USER_ID,
-                user.getId()
-        );
-        SessionCsrfTokens.rotate(session);
-
-        return ResponseEntity
-                .status(HttpStatus.FOUND)
-                .location(URI.create("/communities.html"))
-                .build();
     }
 
-    /**
-     * 로그인 시작 시 Session에 저장한 state와
-     * Discord callback으로 전달된 state가 같은지 확인한다.
-     */
-    private boolean validateAndConsumeState(
-            HttpSession session,
-            String receivedState
-    ) {
-        String savedState =
-                (String) session.getAttribute(DISCORD_LOGIN_STATE);
-
-        if (savedState == null || !savedState.equals(receivedState)) {
-            return false;
-        }
-
-        session.removeAttribute(DISCORD_LOGIN_STATE);
-        return true;
-    }
-
-    /**
-     * OAuth 요청 위조 방지를 위한 랜덤 state 생성
-     */
-    private String createState() {
-
-        byte[] bytes = new byte[32];
-        secureRandom.nextBytes(bytes);
-
-        return Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(bytes);
-    }
-
-
-    /**
-     * 현재 서버 주소를 기준으로 로그인 callback URL 생성
-     *
-     * 예:
-     * http://localhost:8080/api/auth/discord/callback
-     */
-    private String createLoginRedirectUri() {
-
-        return ServletUriComponentsBuilder
-                .fromCurrentContextPath()
-                .path("/api/auth/discord/callback")
-                .build()
-                .toUriString();
-    }
-
-    private String consumeLoginRedirectUri(HttpSession session) {
-        String redirectUri =
-                (String) session.getAttribute(
-                        DISCORD_LOGIN_REDIRECT_URI
-                );
-
-        session.removeAttribute(
-                DISCORD_LOGIN_REDIRECT_URI
-        );
-
-        return redirectUri == null || redirectUri.isBlank() ? null : redirectUri;
-    }
-
-    private void clearLoginAttempt(HttpSession session) {
-        session.removeAttribute(DISCORD_LOGIN_STATE);
-        session.removeAttribute(DISCORD_LOGIN_REDIRECT_URI);
-    }
-
-    private void recordRejectedLogin(String reason) {
-        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD,
-                MonitoringEventCode.DISCORD_OAUTH_FAILED, "Discord login callback validation failed",
-                null, null, "discordLogin", java.util.Map.of("reason", reason));
-    }
-
-    private ResponseEntity<Void> redirectToLoginError(String reason) {
-        URI location = UriComponentsBuilder.fromPath("/login.html")
-                .queryParam("oauthError", reason)
-                .build()
-                .encode()
-                .toUri();
-        return ResponseEntity.status(HttpStatus.FOUND).location(location).build();
-    }
-
-    @GetMapping("/me")
-    public LoginUserResponse me(HttpSession session) {
-        Long userId = CurrentUserSession.requireUserId(session);
-
-        User user = discordLoginService
-                .findUserById(userId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.UNAUTHORIZED,
-                        "Login user does not exist"
-                ));
-
-        return LoginUserResponse.from(user);
-    }
-
-    @PostMapping("/logout")
-    public ResponseEntity<Void> logout(
-            HttpServletRequest request
-    ) {
-        HttpSession session = request.getSession(false);
-
-        if (session != null) {
-            session.invalidate();
-        }
-
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/csrf")
-    public ResponseEntity<CsrfTokenResponse> csrf(HttpServletRequest request) {
+    /** CSRF로 보호된 명시적 계정 연결 시작이다. */
+    @PostMapping("/discord/link")
+    public ResponseEntity<LinkStartResponse> link(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
         CurrentUserSession.requireUserId(session);
-        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
-                .body(new CsrfTokenResponse(SessionCsrfTokens.getOrCreate(session)));
+        synchronized (session) {
+            Long userId = sessions.requireUser(session).getId();
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(new LinkStartResponse(start(session, DiscordAuthAttempt.Purpose.LINK_ACCOUNT, userId).toString()));
+        }
     }
 
-    public record CsrfTokenResponse(String token) {}
+    private URI start(HttpSession session, DiscordAuthAttempt.Purpose purpose, Long userId) {
+        properties.validate();
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        String state = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String redirectUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/api/auth/discord/callback").build().toUriString();
+        session.setAttribute(DiscordAuthAttempt.ATTRIBUTE, new DiscordAuthAttempt(state, redirectUri, purpose, userId, Instant.now()));
+        return UriComponentsBuilder.fromUriString("https://discord.com/oauth2/authorize")
+                .queryParam("response_type", "code").queryParam("client_id", properties.clientId())
+                .queryParam("scope", "identify").queryParam("state", state).queryParam("redirect_uri", redirectUri)
+                .build().encode().toUri();
+    }
+
+    @GetMapping("/discord/callback")
+    public ResponseEntity<Void> callback(@RequestParam(required = false) String code,
+                                         @RequestParam(required = false) String state,
+                                         @RequestParam(required = false) String error, HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        DiscordAuthAttempt attempt = consume(session);
+        boolean linking = attempt != null && attempt.purpose() == DiscordAuthAttempt.Purpose.LINK_ACCOUNT;
+        String errorPage = linking ? "/account.html" : "/login.html";
+        if (attempt == null || !attempt.matches(state) || !boundToCurrentUser(session, attempt)) {
+            recordRejectedLogin();
+            return errorRedirect(errorPage, "session");
+        }
+        if (error != null || code == null || code.isBlank()) return errorRedirect(errorPage, "discord");
+
+        var discordUser = discord.getDiscordUser(code, attempt.redirectUri());
+        synchronized (session) {
+            // token 교환 중 로그아웃/다른 로그인으로 문맥이 바뀐 경우도 거부한다.
+            if (!boundToCurrentUser(session, attempt)) return errorRedirect(errorPage, "session");
+            try {
+                var user = linking ? discord.linkAccount(attempt.userId(), discordUser) : discord.findOrCreateUser(discordUser);
+                sessions.authenticate(request, user);
+                return redirect(linking ? "/account.html?discordLinked=true" : "/communities.html");
+            } catch (AuthException exception) {
+                if (!linking) throw exception;
+                return errorRedirect(errorPage, exception.getCode());
+            }
+        }
+    }
+
+    private DiscordAuthAttempt consume(HttpSession session) {
+        if (session == null) return null;
+        synchronized (session) {
+            try {
+                Object attempt = session.getAttribute(DiscordAuthAttempt.ATTRIBUTE);
+                session.removeAttribute(DiscordAuthAttempt.ATTRIBUTE);
+                return attempt instanceof DiscordAuthAttempt value ? value : null;
+            } catch (IllegalStateException exception) { return null; }
+        }
+    }
+
+    private boolean boundToCurrentUser(HttpSession session, DiscordAuthAttempt attempt) {
+        if (session == null) return false;
+        try {
+            return Objects.equals(session.getAttribute(CurrentUserSession.USER_ID), attempt.userId());
+        } catch (IllegalStateException exception) { return false; }
+    }
+
+    private void recordRejectedLogin() {
+        log.warn("Discord authentication callback rejected. reason=INVALID_SESSION_CONTEXT");
+        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_OAUTH_FAILED,
+                "Discord authentication callback validation failed", null, null, "discordLogin",
+                java.util.Map.of("reason", "INVALID_SESSION_CONTEXT"));
+    }
+
+    private ResponseEntity<Void> errorRedirect(String page, String reason) {
+        return redirect(UriComponentsBuilder.fromPath(page).queryParam("oauthError", reason).build().encode().toUriString());
+    }
+
+    private ResponseEntity<Void> redirect(String location) {
+        return ResponseEntity.status(HttpStatus.FOUND).cacheControl(CacheControl.noStore()).location(URI.create(location)).build();
+    }
+
+    public record LinkStartResponse(String authorizationUrl) {}
 }

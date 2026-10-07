@@ -22,7 +22,7 @@ export async function api(url, options = {}) {
   const startedAt = performance.now();
   const context = { endpoint: safeEndpoint(url), method: String(options.method || "GET").toUpperCase() };
   if (!["GET", "HEAD", "OPTIONS", "TRACE"].includes(context.method) && isSameOriginApi(url)) {
-    // Read each time because another tab may have changed the login session.
+    // 익명 회원가입/로그인도 같은 세션 토큰을 사용한다. 다른 탭의 로그인 변경에 맞춰 매번 읽는다.
     const csrf = await api("/api/auth/csrf", { cache: "no-store", signal: options.signal });
     if (typeof csrf?.token !== "string" || !csrf.token) {
       throw new ApiError(200, "요청 보안 정보를 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.",

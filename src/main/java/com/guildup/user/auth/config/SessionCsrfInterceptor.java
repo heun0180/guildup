@@ -12,17 +12,22 @@ import java.util.Set;
 
 public class SessionCsrfInterceptor implements HandlerInterceptor {
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS", "TRACE");
+    private static final Set<String> PUBLIC_AUTH_MUTATIONS = Set.of("signup", "login");
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         // OAuth browser redirects are GET and retain their existing session-bound state checks.
-        if (!(handler instanceof HandlerMethod) || SAFE_METHODS.contains(request.getMethod())) return true;
+        if (!(handler instanceof HandlerMethod method) || SAFE_METHODS.contains(request.getMethod())) return true;
         HttpSession session = request.getSession(false);
-        // Anonymous/public requests retain the existing authentication policy; no new session is created.
-        if (session == null || !(session.getAttribute(CurrentUserSession.USER_ID) instanceof Long)) return true;
+        // 실제 매핑된 Handler를 기준으로 보호한다. 인코딩/세미콜론 경로로 우회할 수 없다.
+        boolean publicAuthentication = com.guildup.user.auth.controller.AuthController.class.isAssignableFrom(method.getBeanType())
+                && PUBLIC_AUTH_MUTATIONS.contains(method.getMethod().getName());
+        // 회원가입/로그인 CSRF도 보호한다. 다른 익명 API의 기존 401 정책은 유지한다.
+        if (!publicAuthentication && (session == null
+                || !(session.getAttribute(CurrentUserSession.USER_ID) instanceof Long))) return true;
 
         String supplied = request.getHeader(SessionCsrfTokens.HEADER);
-        if (SessionCsrfTokens.matches(session, supplied)) return true;
+        if (session != null && SessionCsrfTokens.matches(session, supplied)) return true;
 
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");

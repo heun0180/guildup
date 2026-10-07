@@ -3,7 +3,7 @@ import HelpLayout, { HelpFaq, HelpNotice, HelpSection, HelpSteps } from "../comp
 import Icon from "../components/Icon.jsx";
 
 const commonGuides = [
-  { href: "/help/general", icon: "book", title: "기본 사용법", description: "Discord 로그인과 커뮤니티 이용 방법" },
+  { href: "/help/general", icon: "book", title: "기본 사용법", description: "이메일·Discord 로그인과 커뮤니티 이용 방법" },
   { href: "/help/attendance", icon: "calendar", title: "출석", description: "매일 출석하고 활동 점수를 받는 방법" },
   { href: "/help/ranking", icon: "ranking", title: "랭킹", description: "GuildUp 활동 점수와 랭킹 산정 방식" },
 ];
@@ -59,10 +59,10 @@ export function PubgHelpPage() {
 export function GeneralHelpPage() {
   return <HelpLayout detail title="GuildUp 기본 사용법" description="로그인부터 커뮤니티 기능을 이용하기까지의 기본 흐름입니다.">
     <HelpSection title="GuildUp 시작하기">
-      <HelpSteps items={["Discord 계정으로 로그인", "내 커뮤니티를 선택하거나 가입 가능한 커뮤니티에 가입", "커뮤니티 대시보드 입장", "출석과 랭킹 등 GuildUp 공통 기능 이용", "커뮤니티가 지원하는 게임별 기능 이용"]} />
+      <HelpSteps items={["이메일 또는 Discord 계정으로 로그인", "내 커뮤니티를 선택하거나 가입 가능한 커뮤니티에 가입", "커뮤니티 대시보드 입장", "출석과 랭킹 등 GuildUp 공통 기능 이용", "커뮤니티가 지원하는 게임별 기능 이용"]} />
     </HelpSection>
     <HelpSection title="로그인과 커뮤니티">
-      <p>GuildUp은 Discord 계정으로 로그인합니다. 로그인 후 내 커뮤니티에 입장하거나 초대 코드로 참여할 수 있습니다. 연결된 Discord 서버에서 가입 가능한 커뮤니티를 찾아 참여할 수도 있습니다.</p>
+      <p>GuildUp은 이메일과 비밀번호 또는 Discord 계정으로 로그인합니다. 기존 Discord 사용자는 그대로 로그인하고, 로그인 및 계정 설정에서 같은 계정에 이메일 로그인을 추가할 수 있습니다. 이메일 가입 사용자도 같은 설정에서 개인 Discord 계정을 연결할 수 있습니다. 로그인 후 내 커뮤니티에 입장하거나 초대 코드로 참여할 수 있습니다. 연결된 Discord 서버에서 가입 가능한 커뮤니티를 찾아 참여할 수도 있습니다.</p>
       <p>직접 운영하는 커뮤니티는 기본 정보 입력, 선택적인 Discord 연결, 최종 확인을 거쳐 만들 수 있습니다. Discord 없이도 커뮤니티를 이용할 수 있으며, 커뮤니티 설정이나 연동 기능에서 나중에 연결할 수 있습니다.</p>
     </HelpSection>
   </HelpLayout>;
@@ -134,7 +134,7 @@ export function BingoHelpPage() {
 export function AttendanceHelpPage() {
   return <HelpLayout detail title="출석 사용 방법" description="매일 커뮤니티에서 출석하고 활동 점수를 쌓습니다.">
     <HelpSection title="출석 기준">
-      <p>커뮤니티 대시보드 또는 활동 랭킹의 출석 영역에서 <strong>출석 체크 +1점</strong>을 누르면 출석이 완료됩니다. 로그인한 Discord 계정과 현재 커뮤니티의 활성 클랜원 정보가 연결되어 있어야 합니다.</p>
+      <p>커뮤니티 대시보드 또는 활동 랭킹의 출석 영역에서 <strong>출석 체크 +1점</strong>을 누르면 출석이 완료됩니다. 현재 GuildUp 계정과 커뮤니티의 활성 클랜원 정보가 연결되어 있어야 합니다. Discord 없이 가입한 사용자는 내부 클랜원 연결을 사용합니다.</p>
     </HelpSection>
     <HelpSection title="횟수와 기준 시간">
       <BulletList>

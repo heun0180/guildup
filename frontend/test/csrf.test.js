@@ -36,6 +36,18 @@ test("read requests do not fetch or transmit CSRF tokens", async (t) => {
   assert.equal(new Headers(calls[0].options.headers).has("X-CSRF-Token"), false);
 });
 
+test("anonymous token issuance never grants access to a protected mutation after logout", async (t) => {
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push({ url, options });
+    return url === "/api/auth/csrf" ? tokenResponse("anonymous-token")
+      : new Response('{"message":"로그인이 필요합니다."}', { status: 401 });
+  });
+  await assert.rejects(api("/api/communities", { method: "POST", body: "{}" }), (error) => error.status === 401);
+  assert.deepEqual(calls.map((item) => item.url), ["/api/auth/csrf", "/api/communities"]);
+  assert.equal(new Headers(calls[1].options.headers).get("X-CSRF-Token"), "anonymous-token");
+});
+
 test("expired authentication stops mutation and does not retry a rejected mutation", async (t) => {
   const calls = [];
   t.mock.method(globalThis, "fetch", async (url) => {

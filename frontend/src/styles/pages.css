@@ -7,6 +7,35 @@
 .login-card h1 { font-size: 1.8rem; }
 .login-description { max-width: 330px; margin: 14px auto 28px; }
 .login-button { width: 100%; min-height: 48px; }
+.auth-form { display: grid; gap: 18px; text-align: left; }
+.auth-field { display: grid; gap: 8px; }
+.auth-field label { font-size: .875rem; font-weight: 650; }
+.auth-field input { min-height: 48px; }
+.auth-form > button { width: 100%; min-height: 48px; }
+.auth-hint { font-size: .75rem; line-height: 1.7; }
+.auth-divider { display: flex; align-items: center; gap: 16px; margin: 24px 0; color: var(--color-text-secondary); font-size: .8125rem; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--color-border); }
+.auth-links { margin-top: 24px; font-size: .875rem; }
+.auth-links a, .auth-existing-account a { font-weight: 650; }
+.auth-existing-account { margin: 24px 0 0; font-size: .8125rem; line-height: 1.8; }
+.auth-success { margin-bottom: 20px; color: var(--color-success); line-height: 1.7; }
+.account-identity { margin-bottom: 20px; }
+.account-method { padding: 24px; margin-bottom: 16px; text-align: left; }
+.account-method-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.account-method-heading h2 { display: flex; gap: 8px; align-items: center; font-size: 1rem; }
+.account-method > p { margin-top: 12px; }
+.account-method > button, .account-method > form { margin-top: 20px; }
+.account-email { overflow-wrap: anywhere; }
+.discord-account-notice { display: flex; align-items: center; gap: 20px; padding: 24px; margin-top: 28px; }
+.discord-account-notice h2 { font-size: .9375rem; }
+.discord-account-notice p { margin-top: 8px; font-size: .8125rem; }
+.discord-account-notice .button-link { flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .discord-account-notice { flex-direction: column; align-items: stretch; padding: 20px; }
+  .account-method { padding: 20px; }
+  .account-method-heading { flex-wrap: wrap; }
+  .login-card .auth-form { gap: 16px; }
+}
 .discord-button-mark { font-size: 1rem; }
 
 .site-footer { border-top: 1px solid var(--color-border); background: rgba(255, 255, 255, 0.7); }

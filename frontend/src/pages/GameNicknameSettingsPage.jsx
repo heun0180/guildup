@@ -4,6 +4,7 @@ import { isRequestCancelled, redirectToLogin } from "../api/http.js";
 import DashboardLayout from "../components/DashboardLayout.jsx";
 import Icon from "../components/Icon.jsx";
 import { useCommunity } from "../community/CommunityContext.jsx";
+import DiscordAccountNotice from "../components/DiscordAccountNotice.jsx";
 
 function HighlightedNickname({ discordNickname, gameNickname }) {
   const source = discordNickname || "";
@@ -110,11 +111,16 @@ export default function GameNicknameSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(validId ? "" : "올바른 커뮤니티를 선택해 주세요.");
   const [success, setSuccess] = useState("");
+  const [discordMissing, setDiscordMissing] = useState(false);
 
   const endpoint = `/api/communities/${encodeURIComponent(communityId || "")}/games/${encodeURIComponent(communityGameId || "")}/nickname-rule`;
 
   const showError = useCallback((error, fallback) => {
     if (isRequestCancelled(error) || redirectToLogin(error)) return;
+    if (error.code === "DISCORD_NOT_LINKED") {
+      setDiscordMissing(true);
+      return;
+    }
     if (error.status === 403) {
       setMessage("인게임 닉네임 규칙을 설정할 관리 권한이 없습니다.");
       return;
@@ -234,6 +240,7 @@ export default function GameNicknameSettingsPage() {
         {loading && <section className="panel loading-panel" role="status">설정을 불러오는 중입니다.</section>}
         {message && <p className="message" role="alert">{message}</p>}
         {success && <p className="success-message page-success" role="status">{success}</p>}
+        {!loading && discordMissing && <DiscordAccountNotice />}
 
         {!loading && community && !community.discordConnected && (
           <section className="panel disconnected-nickname-panel">

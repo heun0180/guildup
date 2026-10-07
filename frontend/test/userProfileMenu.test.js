@@ -97,7 +97,7 @@ test("entire profile area toggles a compact menu and the header retains its bell
     assert.equal(profile().querySelector(".profile-menu-name").textContent, "애플");
     assert.equal(profile().getAttribute("aria-haspopup"), "menu");
     await click(profile()); assert.ok(menu());
-    assert.deepEqual(items().map((item) => item.textContent), ["내 커뮤니티", "GuildUp 공지NEW", "GuildUp 가이드", "로그아웃"]);
+    assert.deepEqual(items().map((item) => item.textContent), ["내 커뮤니티", "로그인 및 계정", "GuildUp 공지NEW", "GuildUp 가이드", "로그아웃"]);
     assert.ok(menu().querySelector('[role="separator"]'));
     assert.equal(document.activeElement, items()[0]);
     await click(profile()); assert.equal(menu(), null);

@@ -191,6 +191,7 @@ public class CommunityService {
         var membership = memberships.findByCommunityIdAndUserId(community.getId(), userId)
                 .orElseGet(() -> memberships.save(new CommunityUser(community, user, CommunityUserRole.MEMBER)));
         if (connections.findByCommunityId(community.getId()).isEmpty()) nativeMemberships.provision(membership);
+        else nativeMemberships.provisionIfDiscordAbsent(membership);
         return com.guildup.discord.oauth.dto.CommunityJoinResponse.from(membership);
     }
 

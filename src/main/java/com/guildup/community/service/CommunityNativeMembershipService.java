@@ -29,6 +29,14 @@ public class CommunityNativeMembershipService {
 
     /** 호출자는 생성/가입 트랜잭션과 사용자 행 잠금을 유지한다. */
     @Transactional
+    public void provisionIfDiscordAbsent(CommunityUser membership) {
+        if (userAccounts.findByUserIdAndProvider(membership.getUser().getId(), ExternalAccountProvider.DISCORD).isEmpty()) {
+            provision(membership);
+        }
+    }
+
+    /** 기존 community_member_id는 교체하지 않는다. */
+    @Transactional
     public void provision(CommunityUser membership) {
         if (membership.getCommunityMember() != null) return;
         var discordAccount = userAccounts.findByUserIdAndProvider(membership.getUser().getId(), ExternalAccountProvider.DISCORD);
