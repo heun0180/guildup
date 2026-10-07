@@ -407,6 +407,36 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 }
 
 .voice-activity-content { max-width: 1080px; }
+.voice-period-toolbar { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.voice-period-selector { display: inline-flex; flex: 0 0 auto; gap: 4px; border: 1px solid var(--color-border); border-radius: 12px; padding: 5px; background: var(--color-surface); }
+.voice-period-selector button { min-width: 52px; min-height: 40px; border-radius: 8px; padding: 8px 14px; background: transparent; color: var(--color-text-secondary); font-size: 0.85rem; font-weight: 750; }
+.voice-period-selector button:hover { background: var(--color-surface-soft); color: var(--color-text); }
+.voice-period-selector button[aria-pressed="true"] { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.voice-period-selector button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.voice-date-controls { position: relative; min-width: min(100%, 300px); max-width: 100%; }
+.voice-date-navigator { display: flex; min-height: 52px; align-items: center; gap: 3px; border: 1px solid var(--color-border); border-radius: 12px; padding: 5px; background: var(--color-surface); }
+.voice-date-arrow { flex: 0 0 32px; width: 32px; min-height: 36px; border-radius: 8px; padding: 0; background: transparent; color: var(--color-text-secondary); font-size: 1.65rem; font-weight: 500; }
+.voice-date-trigger { flex: 1; min-width: 0; min-height: 36px; gap: 9px; border-radius: 8px; padding: 0 10px; background: transparent; color: var(--color-text); font-size: 0.85rem; font-weight: 750; white-space: nowrap; }
+.voice-date-trigger svg { flex: 0 0 auto; color: var(--color-text-secondary); }
+.voice-date-arrow:not(:disabled):hover, .voice-date-trigger:hover { background: var(--color-surface-soft); color: var(--color-primary-dark); }
+.voice-date-arrow:disabled { opacity: 0.3; }
+.voice-date-caption { display: flex; min-height: 26px; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 4px; color: var(--color-text-secondary); font-size: 0.72rem; }
+.voice-period-return { min-height: 26px; border-radius: 6px; padding: 0 6px; background: transparent; color: var(--color-primary-dark); font-size: 0.72rem; }
+.voice-period-return:hover { background: var(--color-primary-soft); }
+.voice-date-popover { position: absolute; z-index: 20; top: 58px; right: 0; width: 300px; max-width: calc(100vw - 32px); border: 1px solid var(--color-border); border-radius: 14px; padding: 16px; background: var(--color-surface); box-shadow: var(--shadow-elevated); }
+.voice-date-popover header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.voice-date-popover h3 { font-size: 0.88rem; }
+.voice-date-popover > p { margin-top: 12px; font-size: 0.72rem; line-height: 1.6; }
+.voice-calendar-weekdays, .voice-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.voice-calendar-weekdays { margin-bottom: 7px; color: var(--color-text-secondary); font-size: 0.7rem; text-align: center; }
+.voice-period-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+.voice-calendar-grid button, .voice-period-grid button { min-width: 0; min-height: 34px; border-radius: 8px; padding: 0; background: transparent; color: var(--color-text); font-size: 0.78rem; font-weight: 600; }
+.voice-period-grid button { min-height: 42px; background: var(--color-surface-soft); }
+.voice-calendar-grid button.is-muted { color: var(--color-text-secondary); opacity: 0.5; }
+.voice-calendar-grid button.is-today { box-shadow: inset 0 0 0 1px var(--color-border-strong); }
+.voice-calendar-grid button:not(:disabled):hover, .voice-period-grid button:not(:disabled):hover { background: var(--color-primary-soft); color: var(--color-primary-dark); }
+.voice-calendar-grid button[aria-pressed="true"], .voice-period-grid button[aria-pressed="true"] { background: var(--color-primary); color: white; opacity: 1; }
+.voice-calendar-grid button[aria-pressed="true"]:hover, .voice-period-grid button[aria-pressed="true"]:hover { background: var(--color-primary-dark); color: white; }
 .voice-setup-guide { display: flex; align-items: center; gap: 15px; padding: 24px; }
 .voice-setup-guide > div:nth-child(2) { min-width: 0; flex: 1; }
 .voice-setup-guide p { margin-top: 4px; font-size: 0.84rem; }
@@ -430,6 +460,7 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .voice-detail-total span { color: var(--color-text-secondary); font-size: 0.8rem; font-weight: 700; }
 .voice-detail-total strong { color: var(--color-primary-dark); font-size: 1.15rem; }
 .voice-detail-modal > h3 { margin-bottom: 10px; font-size: 0.9rem; }
+.voice-detail-period-note { margin-bottom: 14px; font-size: 0.78rem; line-height: 1.6; }
 .voice-session-list { display: grid; gap: 9px; }
 .voice-session-list article { position: relative; border: 1px solid var(--color-border); border-radius: 11px; padding: 14px 90px 14px 15px; }
 .voice-session-list article > div { display: flex; align-items: center; gap: 8px; }
@@ -437,6 +468,12 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .voice-session-list article > b { position: absolute; top: 50%; right: 15px; color: var(--color-text); font-size: 0.82rem; transform: translateY(-50%); }
 
 @media (max-width: 680px) {
+  .voice-period-toolbar { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .voice-period-selector { max-width: 100%; }
+  .voice-period-selector button { flex: 1; min-width: 0; width: 52px; padding: 8px 10px; white-space: nowrap; }
+  .voice-date-controls { width: 100%; }
+  .voice-date-trigger { flex: 1; padding: 0 4px; font-size: 0.78rem; }
+  .voice-date-popover { right: auto; left: 0; max-width: 100%; }
   .voice-setup-guide { align-items: flex-start; flex-wrap: wrap; }
   .voice-setup-guide .button-link { width: 100%; text-align: center; }
   .voice-detail-modal { padding: 22px; }

@@ -28,7 +28,7 @@ export default function IntegrationsPage() {
     canManage && {
       id: "voice-activity",
       title: "음성 활동",
-      description: "최근 14일 Discord 음성 채널 활동을 확인합니다.",
+      description: "전체 또는 일·주·월·년별 Discord 음성 채널 활동을 확인합니다.",
       icon: "activity",
       href: `/discord-voice-activity.html?communityId=${encodedCommunityId}`,
     },

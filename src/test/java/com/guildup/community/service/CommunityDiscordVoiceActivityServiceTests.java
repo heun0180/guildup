@@ -43,10 +43,10 @@ class CommunityDiscordVoiceActivityServiceTests {
     private final Community community = community(1L);
 
     @Test
-    void matchesDiscordAccountToCommunityMemberAndCalculatesFourteenDayTotal() {
+    void matchesDiscordAccountToCommunityMemberAndCalculatesAllTimeTotal() {
         CommunityMember apple = member(10L, "애플", CommunityMemberStatus.ACTIVE, community);
         summarySetup(apple, account(apple, "discord-100"));
-        when(sessions.findOverlappingSessions(eq(1L), eq(List.of("discord-100")), any(), eq(NOW)))
+        when(sessions.findAllSessionsBefore(eq(1L), eq(List.of("discord-100")), eq(NOW)))
                 .thenReturn(List.of(
                         closed("discord-100", NOW.minusSeconds(7_200), NOW.minusSeconds(3_600)),
                         closed("discord-100", NOW.minusSeconds(1_800), NOW.minusSeconds(600))
@@ -61,19 +61,19 @@ class CommunityDiscordVoiceActivityServiceTests {
     }
 
     @Test
-    void openSessionDurationUsesCurrentTimeAndIsClippedToFourteenDays() {
+    void allTimeOpenSessionDurationUsesCurrentTimeWithoutFourteenDayLimit() {
         CommunityMember apple = member(10L, "애플", CommunityMemberStatus.ACTIVE, community);
         summarySetup(apple, account(apple, "discord-100"));
         DiscordVoiceSession open = new DiscordVoiceSession(
                 community, "guild-1", "discord-100", "voice-1", "배그1",
                 NOW.minusSeconds(15L * 24 * 60 * 60)
         );
-        when(sessions.findOverlappingSessions(eq(1L), any(), any(), eq(NOW)))
+        when(sessions.findAllSessionsBefore(eq(1L), any(), eq(NOW)))
                 .thenReturn(List.of(open));
 
         var result = service.getSummaries(7L, 1L).getFirst();
 
-        assertThat(result.totalSeconds()).isEqualTo(14L * 24 * 60 * 60);
+        assertThat(result.totalSeconds()).isEqualTo(15L * 24 * 60 * 60);
         assertThat(result.currentlyConnected()).isTrue();
     }
 
@@ -96,7 +96,7 @@ class CommunityDiscordVoiceActivityServiceTests {
         when(members.findById(10L)).thenReturn(Optional.of(left));
         when(accounts.findByCommunityIdAndProvider(1L, ExternalAccountProvider.DISCORD))
                 .thenReturn(List.of(account));
-        when(sessions.findOverlappingSessions(eq(1L), eq(List.of("discord-100")), any(), eq(NOW)))
+        when(sessions.findAllSessionsBefore(eq(1L), eq(List.of("discord-100")), eq(NOW)))
                 .thenReturn(List.of(closed("discord-100", NOW.minusSeconds(600), NOW)));
         when(guilds.findGuildById("guild-1")).thenReturn(Optional.empty());
 
@@ -111,12 +111,12 @@ class CommunityDiscordVoiceActivityServiceTests {
     void repositoryQueryIsAlwaysScopedToCommunityForSameDiscordUserId() {
         CommunityMember apple = member(10L, "애플", CommunityMemberStatus.ACTIVE, community);
         summarySetup(apple, account(apple, "shared-discord-id"));
-        when(sessions.findOverlappingSessions(eq(1L), any(), any(), eq(NOW)))
+        when(sessions.findAllSessionsBefore(eq(1L), any(), eq(NOW)))
                 .thenReturn(List.of(closed("shared-discord-id", NOW.minusSeconds(60), NOW)));
 
         service.getSummaries(7L, 1L);
 
-        verify(sessions).findOverlappingSessions(eq(1L), eq(List.of("shared-discord-id")), any(), eq(NOW));
+        verify(sessions).findAllSessionsBefore(eq(1L), eq(List.of("shared-discord-id")), eq(NOW));
     }
 
     private void summarySetup(CommunityMember member, CommunityMemberAccount... memberAccounts) {

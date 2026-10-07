@@ -8,6 +8,7 @@ import com.guildup.community.domain.DiscordCommunityConnection;
 import com.guildup.community.repository.CommunityMemberAccountRepository;
 import com.guildup.community.repository.CommunityMemberRepository;
 import com.guildup.discord.domain.DiscordVoiceSession;
+import com.guildup.discord.domain.DiscordVoiceActivityPeriod;
 import com.guildup.discord.dto.DiscordVoiceActivityDetailResponse;
 import com.guildup.discord.dto.DiscordVoiceActivitySummaryResponse;
 import com.guildup.discord.dto.DiscordVoiceSessionResponse;
@@ -23,7 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,8 +36,6 @@ import java.util.stream.Collectors;
 @Service
 @Transactional(readOnly = true)
 public class CommunityDiscordVoiceActivityService {
-
-    private static final int DEFAULT_PERIOD_DAYS = 14;
 
     private final CommunityAccessService accessService;
     private final DiscordCommunityConnectionService connectionService;
@@ -65,6 +64,18 @@ public class CommunityDiscordVoiceActivityService {
     }
 
     public List<DiscordVoiceActivitySummaryResponse> getSummaries(Long userId, Long communityId) {
+        return getSummaries(userId, communityId, DiscordVoiceActivityPeriod.ALL);
+    }
+
+    public List<DiscordVoiceActivitySummaryResponse> getSummaries(
+            Long userId, Long communityId, DiscordVoiceActivityPeriod period
+    ) {
+        return getSummaries(userId, communityId, period, null);
+    }
+
+    public List<DiscordVoiceActivitySummaryResponse> getSummaries(
+            Long userId, Long communityId, DiscordVoiceActivityPeriod period, LocalDate referenceDate
+    ) {
         accessService.requireManagementAccess(userId, communityId);
         connectionService.getRequiredConnection(communityId);
 
@@ -76,15 +87,16 @@ public class CommunityDiscordVoiceActivityService {
                 .map(CommunityMemberAccount::getExternalUserId)
                 .distinct()
                 .toList();
-        Instant periodEnd = clock.instant();
-        Instant periodStart = periodEnd.minus(DEFAULT_PERIOD_DAYS, ChronoUnit.DAYS);
+        DiscordVoiceActivityRange range = DiscordVoiceActivityRange.resolve(period, referenceDate, clock.instant());
+        Instant periodStart = range.start();
+        Instant periodEnd = range.end();
         Map<String, List<DiscordVoiceSession>> sessionsByUser = loadSessions(
                 communityId, discordUserIds, periodStart, periodEnd
         ).stream().collect(Collectors.groupingBy(DiscordVoiceSession::getDiscordUserId));
 
         return members.stream()
                 .map(member -> toSummary(
-                        member, accounts.get(member.getId()), sessionsByUser, periodStart, periodEnd
+                        member, accounts.get(member.getId()), sessionsByUser, periodStart, periodEnd, range.current()
                 ))
                 .sorted(Comparator
                         .comparing(DiscordVoiceActivitySummaryResponse::currentlyConnected).reversed()
@@ -98,6 +110,25 @@ public class CommunityDiscordVoiceActivityService {
             Long communityId,
             Long communityMemberId
     ) {
+        return getDetail(userId, communityId, communityMemberId, DiscordVoiceActivityPeriod.ALL);
+    }
+
+    public DiscordVoiceActivityDetailResponse getDetail(
+            Long userId,
+            Long communityId,
+            Long communityMemberId,
+            DiscordVoiceActivityPeriod period
+    ) {
+        return getDetail(userId, communityId, communityMemberId, period, null);
+    }
+
+    public DiscordVoiceActivityDetailResponse getDetail(
+            Long userId,
+            Long communityId,
+            Long communityMemberId,
+            DiscordVoiceActivityPeriod period,
+            LocalDate referenceDate
+    ) {
         accessService.requireManagementAccess(userId, communityId);
         DiscordCommunityConnection connection = connectionService.getRequiredConnection(communityId);
         CommunityMember member = memberRepository.findById(communityMemberId)
@@ -106,8 +137,9 @@ public class CommunityDiscordVoiceActivityService {
                         HttpStatus.NOT_FOUND, "클랜원을 찾을 수 없습니다."
                 ));
         CommunityMemberAccount account = discordAccountsByMember(communityId).get(communityMemberId);
-        Instant periodEnd = clock.instant();
-        Instant periodStart = periodEnd.minus(DEFAULT_PERIOD_DAYS, ChronoUnit.DAYS);
+        DiscordVoiceActivityRange range = DiscordVoiceActivityRange.resolve(period, referenceDate, clock.instant());
+        Instant periodStart = range.start();
+        Instant periodEnd = range.end();
         List<DiscordVoiceSession> sessions = account == null
                 ? List.of()
                 : loadSessions(
@@ -121,7 +153,7 @@ public class CommunityDiscordVoiceActivityService {
                         session.getJoinedAt(),
                         session.getLeftAt(),
                         durationSeconds(session, periodStart, periodEnd),
-                        session.isOpen()
+                        range.current() && session.isOpen()
                 ))
                 .toList();
         long totalSeconds = responses.stream().mapToLong(DiscordVoiceSessionResponse::durationSeconds).sum();
@@ -137,7 +169,8 @@ public class CommunityDiscordVoiceActivityService {
             CommunityMemberAccount account,
             Map<String, List<DiscordVoiceSession>> sessionsByUser,
             Instant periodStart,
-            Instant periodEnd
+            Instant periodEnd,
+            boolean currentPeriod
     ) {
         if (account == null) {
             return new DiscordVoiceActivitySummaryResponse(
@@ -154,7 +187,7 @@ public class CommunityDiscordVoiceActivityService {
                 .map(DiscordVoiceSession::getJoinedAt)
                 .max(Comparator.naturalOrder())
                 .orElse(null);
-        boolean connected = sessions.stream().anyMatch(DiscordVoiceSession::isOpen);
+        boolean connected = currentPeriod && sessions.stream().anyMatch(DiscordVoiceSession::isOpen);
         return new DiscordVoiceActivitySummaryResponse(
                 member.getId(), member.getNickname(), account.getExternalUserId(),
                 total, lastJoinedAt, connected
@@ -168,13 +201,17 @@ public class CommunityDiscordVoiceActivityService {
             Instant periodEnd
     ) {
         if (discordUserIds.isEmpty()) return List.of();
+        if (periodStart == null) {
+            return sessionRepository.findAllSessionsBefore(communityId, discordUserIds, periodEnd);
+        }
         return sessionRepository.findOverlappingSessions(
                 communityId, discordUserIds, periodStart, periodEnd
         );
     }
 
     private long durationSeconds(DiscordVoiceSession session, Instant periodStart, Instant periodEnd) {
-        Instant start = session.getJoinedAt().isBefore(periodStart) ? periodStart : session.getJoinedAt();
+        Instant start = periodStart != null && session.getJoinedAt().isBefore(periodStart)
+                ? periodStart : session.getJoinedAt();
         Instant rawEnd = session.getLeftAt() == null ? periodEnd : session.getLeftAt();
         Instant end = rawEnd.isAfter(periodEnd) ? periodEnd : rawEnd;
         return end.isAfter(start) ? Duration.between(start, end).getSeconds() : 0;

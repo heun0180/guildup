@@ -6,6 +6,7 @@ import {
   loadVoiceActivityOnce,
   loadVoiceActivityPageData,
   voiceActivityView,
+  VoiceActivityPeriod,
 } from "../src/voiceActivityView.js";
 
 test("로딩이 끝나면 API 목록을 화면 상태로 반환한다", async () => {
@@ -46,7 +47,8 @@ test("초 단위 합계를 읽기 쉬운 시분으로 표시한다", () => {
 });
 
 test("날짜를 월일 시분 형식으로 표시한다", () => {
-  assert.match(formatVoiceDateTime("2026-09-11T10:00:00Z"), /^09\/11 \d{2}:00$/);
+  assert.equal(formatVoiceDateTime("2026-09-11T10:00:00Z"), "09/11 19:00");
+  assert.equal(formatVoiceDateTime("2026-10-06T15:01:00Z"), "10/07 00:01");
 });
 
 test("같은 페이지 진입의 중복 effect는 API 요청을 공유한다", async () => {
@@ -57,4 +59,32 @@ test("같은 페이지 진입의 중복 effect는 API 요청을 공유한다", a
     loadVoiceActivityOnce("strict-mode-test", loader),
   ]);
   assert.equal(calls, 1);
+});
+
+test("진행 중 요청도 기간별로 구분한다", async () => {
+  const results = await Promise.all([
+    loadVoiceActivityOnce("period-test", async () => ["ALL"], VoiceActivityPeriod.ALL),
+    loadVoiceActivityOnce("period-test", async () => ["DAY"], VoiceActivityPeriod.DAY),
+  ]);
+  assert.deepEqual(results, [["ALL"], ["DAY"]]);
+});
+
+test("완료한 기간으로 돌아오면 최신 값을 다시 조회한다", async () => {
+  let calls = 0;
+  const loader = async () => ++calls;
+  assert.equal(await loadVoiceActivityOnce("refresh-test", loader), 1);
+  assert.equal(await loadVoiceActivityOnce("refresh-test", loader), 2);
+});
+
+test("실패한 요청은 다음 조회에서 재시도한다", async () => {
+  await assert.rejects(loadVoiceActivityOnce("retry-test", async () => { throw new Error("failed"); }));
+  assert.deepEqual(await loadVoiceActivityOnce("retry-test", async () => ["recovered"]), ["recovered"]);
+});
+
+test("같은 period의 서로 다른 기준 날짜 요청을 공유하지 않는다", async () => {
+  const results = await Promise.all([
+    loadVoiceActivityOnce("date-test", async () => ["august"], VoiceActivityPeriod.MONTH, "2026-08-01"),
+    loadVoiceActivityOnce("date-test", async () => ["september"], VoiceActivityPeriod.MONTH, "2026-09-01"),
+  ]);
+  assert.deepEqual(results, [["august"], ["september"]]);
 });

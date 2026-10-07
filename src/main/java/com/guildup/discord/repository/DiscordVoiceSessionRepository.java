@@ -21,13 +21,29 @@ public interface DiscordVoiceSessionRepository extends JpaRepository<DiscordVoic
     @EntityGraph(attributePaths = "community")
     List<DiscordVoiceSession> findByCommunityIdAndLeftAtIsNull(Long communityId);
 
-    /** 기간 안에 시작했거나 기간 시작 전에 열려 있어 조회 구간과 겹치는 세션만 읽는다. */
+    /** 시작 제한 없이 현재까지의 유효한 세션을 읽는다. */
     @Query("""
             select s from DiscordVoiceSession s
             where s.community.id = :communityId
               and s.discordUserId in :discordUserIds
-              and s.joinedAt <= :periodEnd
+              and s.joinedAt < :periodEnd
+              and (s.leftAt is null or s.leftAt > s.joinedAt)
+            order by s.joinedAt desc
+            """)
+    List<DiscordVoiceSession> findAllSessionsBefore(
+            @Param("communityId") Long communityId,
+            @Param("discordUserIds") Collection<String> discordUserIds,
+            @Param("periodEnd") Instant periodEnd
+    );
+
+    /** [periodStart, periodEnd)와 양의 시간만큼 겹치는 세션만 읽는다. */
+    @Query("""
+            select s from DiscordVoiceSession s
+            where s.community.id = :communityId
+              and s.discordUserId in :discordUserIds
+              and s.joinedAt < :periodEnd
               and (s.leftAt is null or s.leftAt > :periodStart)
+              and (s.leftAt is null or s.leftAt > s.joinedAt)
             order by s.joinedAt desc
             """)
     List<DiscordVoiceSession> findOverlappingSessions(
