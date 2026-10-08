@@ -3,7 +3,7 @@ import HelpLayout, { HelpFaq, HelpNotice, HelpSection, HelpSteps } from "../comp
 import Icon from "../components/Icon.jsx";
 
 const commonGuides = [
-  { href: "/help/general", icon: "book", title: "기본 사용법", description: "이메일·Discord 로그인과 커뮤니티 이용 방법" },
+  { href: "/help/general", icon: "book", title: "기본 사용법", description: "로그인, 계정 관리·회원탈퇴와 커뮤니티 이용 방법" },
   { href: "/help/attendance", icon: "calendar", title: "출석", description: "매일 출석하고 활동 점수를 받는 방법" },
   { href: "/help/ranking", icon: "ranking", title: "랭킹", description: "GuildUp 활동 점수와 랭킹 산정 방식" },
 ];
@@ -57,14 +57,62 @@ export function PubgHelpPage() {
 }
 
 export function GeneralHelpPage() {
-  return <HelpLayout detail title="GuildUp 기본 사용법" description="로그인부터 커뮤니티 기능을 이용하기까지의 기본 흐름입니다.">
+  return <HelpLayout detail title="GuildUp 기본 사용법" description="로그인과 커뮤니티 이용, 계정 관리 및 회원탈퇴 방법을 안내합니다.">
     <HelpSection title="GuildUp 시작하기">
       <HelpSteps items={["이메일 또는 Discord 계정으로 로그인", "내 커뮤니티를 선택하거나 가입 가능한 커뮤니티에 가입", "커뮤니티 대시보드 입장", "출석과 랭킹 등 GuildUp 공통 기능 이용", "커뮤니티가 지원하는 게임별 기능 이용"]} />
     </HelpSection>
     <HelpSection title="로그인과 커뮤니티">
-      <p>GuildUp은 이메일과 비밀번호 또는 Discord 계정으로 로그인합니다. 기존 Discord 사용자는 그대로 로그인하고, 계정 설정에서 같은 계정에 이메일 로그인을 추가할 수 있습니다. 이메일 가입 사용자도 같은 설정에서 개인 Discord 계정을 연결할 수 있습니다. 로그인 후 내 커뮤니티에 입장하거나 초대 코드로 참여할 수 있습니다. 연결된 Discord 서버에서 가입 가능한 커뮤니티를 찾아 참여할 수도 있습니다.</p>
+      <p><AppLink href="/signup.html">회원가입</AppLink>에서 이메일과 비밀번호로 계정을 만들거나, <AppLink href="/login.html">로그인</AppLink> 화면에서 Discord 계정으로 시작할 수 있습니다. 이미 Discord로 GuildUp을 이용하고 있다면 기존 계정으로 로그인한 뒤 이메일 로그인을 추가해 주세요.</p>
+      <p>로그인 후 내 커뮤니티에 입장하거나 초대 코드로 참여할 수 있습니다. 연결된 Discord 서버에서 가입 가능한 커뮤니티를 찾아 참여할 수도 있습니다.</p>
       <p>직접 운영하는 커뮤니티는 기본 정보 입력, 선택적인 Discord 연결, 최종 확인을 거쳐 만들 수 있습니다. Discord 없이도 커뮤니티를 이용할 수 있으며, 커뮤니티 설정이나 연동 기능에서 나중에 연결할 수 있습니다.</p>
     </HelpSection>
+    <HelpSection title="계정과 프로필 관리">
+      <p>상단 프로필 메뉴에서 <strong>계정</strong>을 선택하거나 <AppLink href="/account.html">계정 화면</AppLink>으로 이동합니다.</p>
+      <BulletList>
+        <li><strong>프로필:</strong> GuildUp 닉네임과 선택 정보인 생년월일을 수정합니다. 생년월일을 입력하지 않아도 이용할 수 있으며, 입력값을 비워서 저장하면 삭제됩니다.</li>
+        <li>GuildUp 닉네임은 Discord 이름 및 PUBG 닉네임과 별도로 관리합니다. 프로필 이미지는 연결된 Discord 계정의 이미지를 사용하며, 연결된 이미지가 없으면 기본 아바타를 표시합니다.</li>
+        <li><strong>로그인 및 보안:</strong> Discord로 가입한 사용자는 <strong>이메일 로그인 추가</strong>로 현재 계정에 이메일과 비밀번호를 등록할 수 있습니다. 기존 커뮤니티와 기록을 계속 이용합니다.</li>
+        <li><strong>연결된 계정:</strong> 이메일 가입 사용자도 <strong>Discord 연결</strong>로 같은 GuildUp 계정에 Discord 로그인을 추가할 수 있습니다.</li>
+        <li>Discord 연결 해제는 이메일 로그인 수단이 등록되어 있을 때 가능합니다. 해제 후에는 이메일과 비밀번호로 로그인합니다. 개인 Discord 로그인 연결과 커뮤니티의 Discord 서버 연결은 별도로 관리합니다.</li>
+      </BulletList>
+      <HelpNotice>이메일 소유 인증, 비밀번호 변경 및 비밀번호 재설정은 현재 제공되지 않습니다.</HelpNotice>
+    </HelpSection>
+    <HelpSection title="문의 / 건의">
+      <p>로그인한 뒤 상단 프로필 메뉴에서 <strong>문의 / 건의</strong>를 선택하거나 <AppLink href="/support">문의 / 건의 화면</AppLink>으로 이동합니다. 커뮤니티에 가입하지 않아도 문의할 수 있습니다.</p>
+      <HelpSteps items={["문의 유형을 선택하고 제목과 내용을 입력", "보내기를 눌러 문의 접수", "같은 화면의 내 문의 내역에서 처리 상태와 답변 확인"]} />
+      <p>제목은 100자, 내용은 3,000자까지 입력할 수 있습니다. 문의에는 로그인 사용자와 접수 시각, 이용하던 페이지 및 해당되는 경우 커뮤니티 정보가 함께 전달됩니다.</p>
+    </HelpSection>
+    <HelpSection title="회원탈퇴 전 확인">
+      <p>회원탈퇴하면 모든 GuildUp 커뮤니티 멤버십과 이용 권한이 종료되고 기존 계정으로 로그인할 수 없습니다. 탈퇴 후 복구할 수 없으므로 아래의 데이터 처리 안내를 먼저 확인해 주세요.</p>
+      <p>소유한 커뮤니티가 있으면 탈퇴가 차단되며 해당 커뮤니티 목록이 표시됩니다. 현재는 목록의 커뮤니티 이름을 눌러 설정으로 이동한 뒤 소유한 커뮤니티를 모두 삭제해야 탈퇴할 수 있습니다. 소유권 이전 기능은 제공되지 않습니다.</p>
+      <HelpNotice>커뮤니티 삭제는 다른 구성원과 커뮤니티 기록에도 영향을 주는 별도 작업입니다. 회원탈퇴 버튼을 눌러도 소유한 커뮤니티가 자동으로 삭제되지는 않습니다.</HelpNotice>
+    </HelpSection>
+    <HelpSection title="회원탈퇴 순서">
+      <HelpSteps items={[
+        "프로필 메뉴에서 계정으로 이동한 뒤 계정 관리의 회원탈퇴 버튼 선택",
+        "탈퇴 안내를 읽고 위 내용을 확인했습니다에 체크한 뒤 다음 선택",
+        "현재 비밀번호 또는 연결된 Discord 계정으로 본인 확인",
+        "회원탈퇴 최종 확인에서 회원탈퇴 버튼 선택",
+        "로그인 화면에서 회원탈퇴 완료 안내 확인",
+      ]} />
+      <p>이메일 로그인이 등록되어 있으면 현재 비밀번호를 확인합니다. Discord도 연결되어 있더라도 비밀번호 확인을 사용합니다. 이메일 로그인이 없는 계정은 연결된 Discord 계정으로 다시 인증해야 합니다.</p>
+      <p>본인 확인은 5분간 유효합니다. 확인 결과가 만료되면 다시 인증해 주세요. Discord 인증을 마치고 계정 화면으로 돌아와도 바로 탈퇴되지 않으며, 안내 확인과 최종 회원탈퇴 버튼 선택이 필요합니다. 최종 실행 전에는 <strong>취소</strong>로 중단할 수 있습니다.</p>
+    </HelpSection>
+    <HelpSection title="탈퇴 후 정보와 기록">
+      <BulletList>
+        <li><strong>삭제되는 정보:</strong> 이메일 로그인 정보, Discord 로그인 연결과 프로필 정보, 생년월일 및 개인 공지 읽음 상태를 삭제합니다. GuildUp 닉네임은 “탈퇴한 사용자”로 변경하고 로그인 세션을 무효화합니다.</li>
+        <li><strong>남는 활동 기록:</strong> 출석·점수·랭킹, 빙고·킬내기 참가와 결과, 음성 활동 및 게시글·댓글·공지·이벤트의 과거 기록은 탈퇴만으로 삭제되거나 재정산되지 않습니다. 연결된 클랜원의 표시 이름과 외부 계정 표시 정보를 변경하거나 가립니다.</li>
+        <li><strong>자동 삭제되지 않는 원본:</strong> PUBG 원본 경기 자료와 계산용 계정 식별자, 문의 접수 기록과 이미 발송된 메일, 작성 본문에 직접 기재한 개인정보 등이 남을 수 있습니다. 표시 이름 변경이 모든 원본의 완전한 익명화나 삭제를 의미하지는 않습니다.</li>
+      </BulletList>
+      <p>항목별 처리와 개인정보 삭제 요청 방법은 <AppLink href="/privacy">개인정보 처리방침</AppLink>에서, 회원탈퇴에 관한 조건은 <AppLink href="/terms">이용약관</AppLink>에서 확인할 수 있습니다. 추가 삭제가 필요한 내용은 탈퇴 전에 확인하고 별도로 요청해 주세요.</p>
+      <HelpNotice>같은 이메일이나 Discord 계정으로 다시 가입해도 새 계정이 만들어집니다. 이전 계정의 멤버십·권한·활동 기록은 자동으로 복구되거나 새 계정에 연결되지 않습니다.</HelpNotice>
+    </HelpSection>
+    <HelpSection title="계정과 회원탈퇴 자주 묻는 질문"><HelpFaq items={[
+      { question: "Discord 연결을 해제하면 GuildUp에서도 탈퇴되나요?", answer: "아니요. 개인 Discord 로그인 연결만 해제됩니다. 이메일 로그인 수단이 남아 있어야 연결을 해제할 수 있으며, GuildUp 회원탈퇴는 계정 관리에서 별도로 진행합니다." },
+      { question: "Discord로 본인 확인했는데 탈퇴가 완료되지 않았어요.", answer: "Discord 인증은 본인 확인 단계입니다. 계정 화면으로 돌아온 뒤 안내를 확인하고 다음을 눌러 최종 회원탈퇴 버튼을 선택해야 완료됩니다." },
+      { question: "현재 비밀번호를 잘못 입력했어요.", answer: "탈퇴는 실행되지 않습니다. 현재 로그인 세션은 유지되며 올바른 비밀번호로 다시 확인할 수 있습니다. 이메일 로그인이 등록된 계정은 Discord 인증으로 비밀번호 확인을 대신할 수 없습니다." },
+      { question: "GuildUp에서 탈퇴하면 Discord 서버에서도 나가게 되나요?", answer: "아니요. GuildUp 회원탈퇴는 Discord 서버 탈퇴나 Discord·PUBG 계정 삭제를 대신하지 않습니다. 연동된 Discord 서버에 계속 참여하면 이후 구성원 정보와 활동이 별도의 클랜원 기록으로 다시 수집될 수 있습니다." },
+    ]} /></HelpSection>
   </HelpLayout>;
 }
 

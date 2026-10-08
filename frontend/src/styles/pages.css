@@ -127,6 +127,10 @@
 .help-section > h2 { margin-bottom: 16px; font-size: 1.08rem; }
 .help-section > p { font-size: 0.9rem; line-height: 1.75; }
 .help-section > p + p { margin-top: 10px; }
+.help-section > p + .help-steps,
+.help-section > p + .help-bullet-list,
+.help-section > .help-steps + p,
+.help-section > .help-bullet-list + p { margin-top: 14px; }
 .help-section strong { color: var(--color-text); }
 .help-steps { display: grid; margin: 0; padding: 0; list-style: none; }
 .help-steps li { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 13px; padding: 12px 0; border-bottom: 1px solid var(--color-border); }
