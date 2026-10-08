@@ -3,7 +3,7 @@ import { api, redirectToLogin } from "../api/http.js";
 import LiveLogsPanel from "./LiveLogsPanel.jsx";
 import { LOG_GROUPS, EMPTY_FILTERS, SLOW_SYNC_MS, monitoringQuery, duration, syncIdOf, isSlow, syncSummary } from "./monitoringView.js";
 
-const CATEGORIES = ["SYSTEM", "HTTP", "PUBG_API", "BINGO", "KILL_COMPETITION", "DISCORD", "DATABASE"];
+const CATEGORIES = ["SYSTEM", "HTTP", "PUBG_API", "BINGO", "KILL_COMPETITION", "DISCORD", "DATABASE", "SECURITY"];
 
 function bytes(value) {
   if (!Number.isFinite(value) || value <= 0) return "-";
@@ -73,6 +73,12 @@ function EventDetail({ event, onClose, onOpen }) {
         <div><dt>Community</dt><dd>{event.communityName || "-"}{event.communityId ? ` (#${event.communityId})` : ""}</dd></div>
         <div><dt>User ID</dt><dd>{event.userId ?? "-"}</dd></div>
         <div><dt>Reference</dt><dd>{event.referenceId || "-"}</dd></div>
+        {event.category === "SECURITY" && <>
+          <div><dt>위험 수준</dt><dd>{event.metadata?.riskLevel || event.severity}</dd></div>
+          <div><dt>요청 횟수</dt><dd>{event.metadata?.requestCount ?? "-"}</dd></div>
+          <div><dt>제한 적용</dt><dd>{event.metadata?.rateLimited ? "적용" : "미적용"}</dd></div>
+          <div><dt>요청 식별자</dt><dd>{event.metadata?.requestId || "-"}</dd></div>
+        </>}
         <div className="monitoring-detail-wide"><dt>Message</dt><dd>{event.message}</dd></div>
       </dl>
       {syncId && <div className="monitoring-metadata"><h3>인게임 활동 조회 작업</h3>
@@ -117,6 +123,7 @@ export default function MonitoringPage() {
 
   function selectGroup(group) {
     const next = { ...filters, group, severity: "", category: "", eventCode: "", syncStatus: "", minDurationMs: "" };
+    if (group === "SECURITY") Object.assign(next, { gameType: "", syncId: "", communityId: "" });
     if ((group === "ACTIVITY" || group === "PUBG_API") && !next.from && !next.syncId) {
       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
       next.from = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;

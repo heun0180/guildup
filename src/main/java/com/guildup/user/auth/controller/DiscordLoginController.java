@@ -35,6 +35,8 @@ public class DiscordLoginController {
     private final AuthSessionService sessions;
     private final AccountWithdrawalService withdrawal;
     private MonitoringEventService monitoring;
+    private final java.util.concurrent.atomic.AtomicLong nextRejectedEvent = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicLong rejectedCallbacks = new java.util.concurrent.atomic.AtomicLong();
 
     public DiscordLoginController(DiscordOAuthProperties properties, DiscordLoginService discord, AuthSessionService sessions,
                                   AccountWithdrawalService withdrawal) {
@@ -152,10 +154,16 @@ public class DiscordLoginController {
     }
 
     private void recordRejectedLogin() {
+        rejectedCallbacks.incrementAndGet();
+        long now = System.nanoTime();
+        long next = nextRejectedEvent.get();
+        if ((next != 0 && now < next) || !nextRejectedEvent.compareAndSet(next, now + java.util.concurrent.TimeUnit.MINUTES.toNanos(1))) return;
+        long count = rejectedCallbacks.getAndSet(0);
         log.warn("Discord authentication callback rejected. reason=INVALID_SESSION_CONTEXT");
-        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.DISCORD, MonitoringEventCode.DISCORD_OAUTH_FAILED,
+        if (monitoring != null) monitoring.recordWarn(MonitoringCategory.SECURITY, MonitoringEventCode.DISCORD_OAUTH_FAILED,
                 "Discord authentication callback validation failed", null, null, "discordLogin",
-                java.util.Map.of("reason", "INVALID_SESSION_CONTEXT"));
+                java.util.Map.of("reason", "INVALID_SESSION_CONTEXT", "requestCount", count,
+                        "riskLevel", "MEDIUM", "rateLimited", false));
     }
 
     private ResponseEntity<Void> errorRedirect(String page, String reason) {

@@ -47,7 +47,8 @@ class DiscordLoginControllerTests {
                             mock(com.guildup.user.auth.service.AccountWithdrawalService.class)
                     ), new AuthController(sessions,
                             mock(com.guildup.user.auth.service.CredentialAuthService.class),
-                            mock(com.guildup.user.auth.service.AccountSettingsService.class))
+                            mock(com.guildup.user.auth.service.AccountSettingsService.class),
+                            mock(com.guildup.user.auth.security.ProtectedEmailLoginService.class))
             ).build();
 
     @Test

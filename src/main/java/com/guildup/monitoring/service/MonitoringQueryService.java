@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 @Service
 @Transactional(readOnly = true)
 public class MonitoringQueryService {
-    public enum EventGroup { ALL, ERROR, ACTIVITY, PUBG_API }
+    public enum EventGroup { ALL, ERROR, ACTIVITY, PUBG_API, SECURITY }
     public enum ActivityResult { SUCCESS, FAILED }
     private static final List<MonitoringEventCode> ACTIVITY_CODES = Arrays.stream(MonitoringEventCode.values())
             .filter(code -> code.name().startsWith("ACTIVITY_SYNC_") || code == MonitoringEventCode.COMMUNITY_ACTIVITY_SYNC_FAILED).toList();
@@ -52,6 +52,7 @@ public class MonitoringQueryService {
         if (group == EventGroup.ACTIVITY) spec = spec.and((root, query, cb) -> root.get("eventCode").in(ACTIVITY_CODES));
         if (group == EventGroup.ERROR) spec = spec.and((root, query, cb) -> cb.equal(root.get("severity"), MonitoringSeverity.ERROR));
         if (group == EventGroup.PUBG_API) spec = spec.and((root, query, cb) -> cb.equal(root.get("category"), MonitoringCategory.PUBG_API));
+        if (group == EventGroup.SECURITY) spec = spec.and((root, query, cb) -> cb.equal(root.get("category"), MonitoringCategory.SECURITY));
         if (gameType != null) spec = spec.and((root, query, cb) -> cb.equal(root.get("activityGameType"), gameType.name()));
         if (syncStatus != null) spec = spec.and((root, query, cb) -> syncStatus == ActivityResult.SUCCESS
                 ? cb.equal(root.get("eventCode"), MonitoringEventCode.ACTIVITY_SYNC_COMPLETED)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppHeader from "../components/AppHeader.jsx";
 import AppLink from "../components/AppLink.jsx";
 import Icon from "../components/Icon.jsx";
@@ -10,6 +10,9 @@ import { api } from "../api/http.js";
 export default function LoginPage({ signup = false }) {
   const [values, setValues] = useState({ email: "", password: "", passwordConfirmation: "", nickname: "" });
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const retryDeadline = useRef(0);
+  const [retrySeconds, setRetrySeconds] = useState(0);
   const [message, setMessage] = useState(() => {
     if (new URLSearchParams(window.location.search).get("withdrawn") === "true") return "회원탈퇴가 완료되었습니다.";
     const oauthError = new URLSearchParams(window.location.search).get("oauthError");
@@ -26,9 +29,18 @@ export default function LoginPage({ signup = false }) {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (!retrySeconds) return;
+    const timer = window.setInterval(() => {
+      setRetrySeconds(Math.max(0, Math.ceil((retryDeadline.current - Date.now()) / 1000)));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [retrySeconds > 0]);
+
   async function submit(event) {
     event.preventDefault();
-    if (busy) return;
+    // The refs guard consecutive submits before React has rendered the disabled button.
+    if (pending.current || Date.now() < retryDeadline.current) return;
     setMessage("");
     if (signup) {
       const error = credentialError(values);
@@ -37,6 +49,7 @@ export default function LoginPage({ signup = false }) {
     } else if (!values.email.trim() || !values.password) {
       setMessage("이메일과 비밀번호를 입력해 주세요."); return;
     }
+    pending.current = true;
     setBusy(true);
     try {
       const body = signup ? values : { email: values.email, password: values.password };
@@ -45,7 +58,15 @@ export default function LoginPage({ signup = false }) {
       });
       setValues({ email: "", password: "", passwordConfirmation: "", nickname: "" });
       window.location.replace("/communities.html");
-    } catch (error) { setMessage(error.message); setBusy(false); }
+    } catch (error) {
+      if (!signup && error.status === 429) {
+        const seconds = error.retryAfterSeconds ?? 5;
+        retryDeadline.current = Date.now() + seconds * 1000;
+        setRetrySeconds(seconds);
+        setMessage("로그인 시도가 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.");
+      } else setMessage(error.message);
+      setBusy(false);
+    } finally { pending.current = false; }
   }
 
   return <div className="public-page login-page">
@@ -57,10 +78,12 @@ export default function LoginPage({ signup = false }) {
         <h1 id="login-title">{signup ? "GuildUp 회원가입" : "로그인"}</h1>
         <p className="login-description">{signup ? "Discord 없이도 커뮤니티와 함께 시작하세요." : "이메일 또는 Discord 계정으로 로그인하세요."}</p>
         {message && <p className="message" role="alert">{message}</p>}
+        {retrySeconds > 0 && <p className="login-description" role="status">{retrySeconds}초 후 다시 시도할 수 있습니다.</p>}
         <form className="auth-form" onSubmit={submit} noValidate aria-busy={busy}>
           <CredentialFields values={values} signup={signup} nickname={signup} disabled={busy}
             onChange={(name, value) => setValues((current) => ({ ...current, [name]: value }))} />
-          <button disabled={busy}>{busy ? (signup ? "가입 중..." : "로그인 중...") : (signup ? "회원가입" : "로그인")}</button>
+          <button disabled={busy || retrySeconds > 0}>{busy ? (signup ? "가입 중..." : "로그인 중...")
+            : retrySeconds > 0 ? `다시 시도 (${retrySeconds}초)` : (signup ? "회원가입" : "로그인")}</button>
         </form>
         <div className="auth-divider">또는</div>
         <a className={`button-link login-button${busy ? " disabled-link" : ""}`} href="/api/auth/discord/authorize"

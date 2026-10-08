@@ -31,7 +31,8 @@ public class RequestLogContextFilter extends OncePerRequestFilter {
                                               FilterChain chain) throws ServletException, IOException {
         String id = (String) request.getAttribute(REQUEST_ID);
         if (id == null) {
-            String supplied = request.getHeader("X-Request-ID");
+            // Authentication diagnostics use server-generated IDs; user supplied values may contain secrets.
+            String supplied = authenticationRequest(request) ? null : request.getHeader("X-Request-ID");
             id = supplied != null && SAFE_ID.matcher(supplied).matches() ? supplied : UUID.randomUUID().toString();
             request.setAttribute(REQUEST_ID, id);
         }
@@ -52,5 +53,14 @@ public class RequestLogContextFilter extends OncePerRequestFilter {
             // Concurrent logout may invalidate the session while diagnostic context is read.
         }
         try (var ignored = LogContext.scope(context)) { chain.doFilter(request, response); }
+    }
+
+    private boolean authenticationRequest(HttpServletRequest request) {
+        try {
+            String path = org.springframework.web.util.UriUtils.decode(
+                    request.getRequestURI().substring(request.getContextPath().length()), java.nio.charset.StandardCharsets.UTF_8);
+            path = path.replaceAll(";[^/]*", "");
+            return path.startsWith("/api/auth/");
+        } catch (IllegalArgumentException malformedPath) { return true; }
     }
 }

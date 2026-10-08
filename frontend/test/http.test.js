@@ -2,7 +2,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { api, ApiError } from "../src/api/http.js";
+import { api, ApiError, parseRetryAfter } from "../src/api/http.js";
+
+test("Retry-After accepts delay seconds and HTTP dates and rejects invalid or excessive values", () => {
+  const now = Date.parse("2026-10-08T00:00:00Z");
+  assert.equal(parseRetryAfter("30", now), 30);
+  assert.equal(parseRetryAfter("Thu, 08 Oct 2026 00:00:10 GMT", now), 10);
+  assert.equal(parseRetryAfter("", now), null);
+  assert.equal(parseRetryAfter("invalid", now), null);
+  assert.equal(parseRetryAfter("-1", now), null);
+  assert.equal(parseRetryAfter("999999999999999", now), 3600);
+});
+
+test("HTTP 429 exposes Retry-After without retrying requests or logging credentials", async (t) => {
+  const logs = [], requests = [];
+  t.mock.method(console, "warn", (...args) => logs.push(args));
+  t.mock.method(globalThis, "fetch", async (url) => {
+    requests.push(url);
+    if (url === "/api/auth/csrf") return new Response('{"token":"test-csrf"}');
+    return new Response('{"code":"LOGIN_RATE_LIMITED","message":"잠시 후 다시 시도해 주세요."}',
+      { status: 429, headers: { "Retry-After": "12" } });
+  });
+  await assert.rejects(api("/api/auth/login", { method: "POST", body: "test-private-body" }),
+    (error) => error.status === 429 && error.retryAfterSeconds === 12 && error.code === "LOGIN_RATE_LIMITED");
+  assert.deepEqual(requests, ["/api/auth/csrf", "/api/auth/login"]);
+  assert.equal(logs.length, 0);
+});
 import { reportClientFailure, safeEndpoint, safeRequestId } from "../src/api/diagnostics.js";
 
 test("server failures keep the request ID while hiding internal messages and credentials", async (t) => {

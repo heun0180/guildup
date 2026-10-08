@@ -118,3 +118,21 @@ test("duration thresholds and empty filters preserve zero values and exact syncI
   const query = new URLSearchParams(monitoringQuery({ syncId: ` ${syncId} `, minDurationMs: "0", severity: "", from: "2026-10-07" }, 2));
   assert.equal(query.get("syncId"), syncId); assert.equal(query.get("minDurationMs"), "0"); assert.equal(query.get("page"), "2");
 });
+
+test("security filter and detail display severity counts enforcement and request ID", async () => {
+  const security = { id: 9, severity: "WARN", category: "SECURITY", eventCode: "LOGIN_MULTI_ACCOUNT",
+    occurredAt: base.occurredAt, message: "Email login protection signal", referenceId: "ip-hmac",
+    metadata: { riskLevel: "HIGH", requestCount: 24, distinctAccounts: 20, rateLimited: true, requestId: "security-request-1" } };
+  const view = await mount((url) => url.pathname.endsWith("/9") ? security : pageOf([security]));
+  try {
+    await act(async () => changeSelect(".monitoring-filters label:nth-child(7) select", "BATTLEGROUNDS_KAKAO"));
+    await act(async () => [...document.querySelectorAll('.monitoring-log-groups button')].find((button) => button.textContent === "보안").click());
+    assert.equal(new URL(view.requests.at(-1), "http://localhost").searchParams.get("group"), "SECURITY");
+    assert.equal(new URL(view.requests.at(-1), "http://localhost").searchParams.get("gameType"), null);
+    assert.ok([...document.querySelectorAll("option")].some((option) => option.value === "SECURITY"));
+    await act(async () => document.querySelector("tbody tr").click());
+    const modal = document.querySelector('[role="dialog"]');
+    assert.match(modal.textContent, /HIGH/); assert.match(modal.textContent, /요청 횟수24/);
+    assert.match(modal.textContent, /제한 적용적용/); assert.match(modal.textContent, /security-request-1/);
+  } finally { await view.close(); }
+});

@@ -16,11 +16,14 @@ public class AuthController {
     private final AuthSessionService sessions;
     private final CredentialAuthService credentials;
     private final AccountSettingsService accounts;
+    private final com.guildup.user.auth.security.ProtectedEmailLoginService protectedLogin;
 
-    public AuthController(AuthSessionService sessions, CredentialAuthService credentials, AccountSettingsService accounts) {
+    public AuthController(AuthSessionService sessions, CredentialAuthService credentials, AccountSettingsService accounts,
+                          com.guildup.user.auth.security.ProtectedEmailLoginService protectedLogin) {
         this.sessions = sessions;
         this.credentials = credentials;
         this.accounts = accounts;
+        this.protectedLogin = protectedLogin;
     }
 
     @GetMapping("/me")
@@ -46,7 +49,7 @@ public class AuthController {
         HttpSession session = request.getSession();
         synchronized (session) {
             requireAnonymous(session);
-            var user = credentials.login(body);
+            var user = protectedLogin.login(body, request);
             sessions.authenticate(request, user);
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(LoginUserResponse.from(user));
         }

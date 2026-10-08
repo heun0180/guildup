@@ -15,6 +15,7 @@ export class ApiError extends Error {
     this.endpoint = details.endpoint ?? null;
     this.method = details.method ?? null;
     this.elapsedMs = details.elapsedMs ?? null;
+    this.retryAfterSeconds = details.retryAfterSeconds ?? null;
     this.name = "ApiError";
   }
 }
@@ -60,7 +61,8 @@ export async function api(url, options = {}) {
     } else if (body && typeof body.message === "string") message = body.message;
     else if (body && typeof body.detail === "string") message = body.detail;
     context.elapsedMs = performance.now() - startedAt;
-    const error = new ApiError(response.status, message, { ...(body || {}), ...context });
+    const error = new ApiError(response.status, message, { ...(body || {}), ...context,
+      retryAfterSeconds: parseRetryAfter(response.headers.get("Retry-After")) });
     if (response.status >= 500) reportClientFailure("HTTP_SERVER_ERROR", error, context);
     throw error;
   }
@@ -85,6 +87,12 @@ function isSameOriginApi(url) {
   if (!origin) return typeof url === "string" && /^\/api(?:\/|$)/.test(url);
   const target = new URL(url, origin);
   return target.origin === origin && /^\/api(?:\/|$)/.test(target.pathname);
+}
+
+export function parseRetryAfter(value, now = Date.now()) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const seconds = /^\d+$/.test(value) ? Number(value) : Math.ceil((Date.parse(value) - now) / 1000);
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(3600, Math.max(1, seconds)) : null;
 }
 
 export function redirectToLogin(error) {

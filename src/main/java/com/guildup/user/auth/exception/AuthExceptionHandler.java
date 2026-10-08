@@ -8,6 +8,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 @org.springframework.core.annotation.Order(0)
 public class AuthExceptionHandler {
+    @ExceptionHandler(LoginRateLimitedException.class)
+    public ResponseEntity<AuthErrorResponse> limited(LoginRateLimitedException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .header("Retry-After", Long.toString(exception.getRetryAfterSeconds()))
+                .body(new AuthErrorResponse(exception.getCode(), exception.getMessage()));
+    }
+
     @ExceptionHandler(WithdrawalBlockedException.class)
     public ResponseEntity<WithdrawalErrorResponse> blocked(WithdrawalBlockedException exception) {
         return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())

@@ -1,4 +1,4 @@
-export const LOG_GROUPS = [["ALL", "전체"], ["ERROR", "에러"], ["ACTIVITY", "인게임 활동"], ["PUBG_API", "PUBG API"]];
+export const LOG_GROUPS = [["ALL", "전체"], ["ERROR", "에러"], ["ACTIVITY", "인게임 활동"], ["PUBG_API", "PUBG API"], ["SECURITY", "보안"]];
 export const SLOW_SYNC_MS = 60_000;
 export const EMPTY_FILTERS = { group: "ALL", severity: "", category: "", eventCode: "", communityId: "",
   gameType: "", syncStatus: "", syncId: "", minDurationMs: "", from: "", to: "" };

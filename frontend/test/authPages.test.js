@@ -93,6 +93,57 @@ const profileAccount = { ...withdrawalAccount, discordUsername: "apple_123", dis
   discordAvatarUrl: "https://cdn.discordapp.com/avatars/123/hash.webp", canDisconnectDiscord: true,
   createdAt: "2026-10-07T00:00:00Z" };
 const profileData = { nickname: "GuildUp Apple", birthDate: null, avatarUrl: profileAccount.discordAvatarUrl };
+
+test("login cooldown counts down, blocks repeated submits, keeps Discord available and resumes without reload", async () => {
+  let now = 1_000_000, tick;
+  const previousNow = Date.now; Date.now = () => now;
+  let attempts = 0;
+  const view = await mount({ handle: (url) => {
+    if (url === "/api/auth/login") {
+      attempts += 1;
+      return attempts === 1 ? new Response('{"code":"LOGIN_RATE_LIMITED","message":"limited"}', { status: 429, headers: { "Retry-After": "3" } })
+        : response({ code: "INVALID_CREDENTIALS", message: "이메일 또는 비밀번호가 올바르지 않습니다." }, 401);
+    }
+    return null;
+  } });
+  const oldInterval = window.setInterval, oldClear = window.clearInterval;
+  window.setInterval = (callback) => { tick = callback; return 1; }; window.clearInterval = () => {};
+  try {
+    await fill("email", "private@example.com"); await fill("password", "GuildUp123!");
+    await submit();
+    assert.match(document.querySelector('[role="alert"]').textContent, /일시적으로 제한/);
+    assert.match(document.querySelector('[role="status"]').textContent, /3초/);
+    assert.equal(document.querySelector(".auth-form button").disabled, true);
+    assert.equal(document.querySelector('a[href="/api/auth/discord/authorize"]').getAttribute("aria-disabled"), "false");
+    await submit(); await submit(); assert.equal(attempts, 1);
+    now += 1000; await act(async () => tick());
+    assert.match(document.querySelector('[role="status"]').textContent, /2초/);
+    now += 2000; await act(async () => tick());
+    assert.equal(document.querySelector(".auth-form button").disabled, false);
+    await submit(); assert.equal(attempts, 2);
+    assert.deepEqual(view.redirects, []);
+  } finally { Date.now = previousNow; window.setInterval = oldInterval; window.clearInterval = oldClear; await view.close(); }
+});
+
+test("same-tick repeated login submits reserve one request and missing Retry-After uses a short wait", async () => {
+  let resolveLogin, attempts = 0;
+  const view = await mount({ handle: (url) => {
+    if (url === "/api/auth/login") { attempts++; return new Promise((resolveRequest) => { resolveLogin = resolveRequest; }); }
+    return null;
+  } });
+  try {
+    await fill("email", "private@example.com"); await fill("password", "GuildUp123!");
+    await act(async () => {
+      const form = document.querySelector(".auth-form");
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(attempts, 1);
+    await act(async () => resolveLogin(response({ code: "LOGIN_RATE_LIMITED", message: "limited" }, 429)));
+    assert.match(document.querySelector('[role="status"]').textContent, /5초/);
+    await submit(); assert.equal(attempts, 1);
+  } finally { await view.close(); }
+});
 const withdrawalCheck = { canWithdraw: true, verificationMethod: "PASSWORD", verified: false, ownedCommunities: [] };
 
 test("withdrawal requires notice acknowledgement, password verification and a separate final click", async () => {
