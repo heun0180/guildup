@@ -54,6 +54,7 @@ export default function DeveloperLayout() {
     : location.pathname.startsWith("/developer/announcements") ? "announcements"
     : location.pathname.startsWith("/developer/feedback") ? "feedback"
     : location.pathname.startsWith("/developer/monitoring") ? "monitoring"
+    : location.pathname.startsWith("/developer/users") ? "users"
     : location.pathname.startsWith("/developer/communities") ? "communities" : "";
   return <DeveloperContext.Provider value={{ user }}>
     <div className="app-shell developer-shell">
@@ -76,6 +77,9 @@ export default function DeveloperLayout() {
             </AppLink>
             <AppLink className={`sidebar-item${active === "communities" ? " is-active" : ""}`} href="/developer/communities">
               <Icon name="users" /><span>커뮤니티</span>
+            </AppLink>
+            <AppLink className={`sidebar-item${active === "users" ? " is-active" : ""}`} href="/developer/users">
+              <Icon name="users" /><span>회원 관리</span>
             </AppLink>
             <AppLink className={`sidebar-item${active === "monitoring" ? " is-active" : ""}`} href="/developer/monitoring">
               <Icon name="activity" /><span>모니터링</span>

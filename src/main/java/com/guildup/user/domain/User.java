@@ -44,6 +44,16 @@ public class User {
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;
 
+    /** 접속 기록은 조건부 SQL로만 갱신한다. 일반 Entity 저장으로 덮어쓰지 않는다. */
+    @Column(name = "last_login_at", insertable = false, updatable = false)
+    private Instant lastLoginAt;
+
+    @Column(name = "last_active_at", insertable = false, updatable = false)
+    private Instant lastActiveAt;
+
+    public Instant getLastLoginAt() { return lastLoginAt; }
+    public Instant getLastActiveAt() { return lastActiveAt; }
+
     /** 인증 변경 전 세션과 재설정 링크를 모든 서버에서 거부하는 영속 버전. */
     @Column(name = "authentication_version", nullable = false)
     @org.hibernate.annotations.ColumnDefault("0")

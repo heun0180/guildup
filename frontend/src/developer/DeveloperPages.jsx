@@ -3,31 +3,33 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, redirectToLogin } from "../api/http.js";
 import AppLink from "../components/AppLink.jsx";
 import Icon from "../components/Icon.jsx";
+import { AccountStatus, LoginMethodBadge, LoginIdentifiers, userDate } from "./userView.jsx";
 
 const PAGE_SIZE = 20;
 
-function useApi(url) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(Boolean(url));
+export function useApi(url) {
+  const [result, setResult] = useState({ url: null, data: null, error: "", loading: Boolean(url) });
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!url) return;
     let cancelled = false;
-    setLoading(true);
-    setError("");
-    api(url).then((result) => { if (!cancelled) setData(result); })
-      .catch((failure) => { if (!cancelled && !redirectToLogin(failure)) setError(failure.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    setResult({ url, data: null, error: "", loading: true });
+    api(url, { cache: "no-store" }).then((data) => {
+      if (!cancelled) setResult({ url, data, error: "", loading: false });
+    }).catch((failure) => {
+      if (!cancelled && !redirectToLogin(failure)) setResult({ url, data: null, error: failure.message, loading: false });
+    });
     return () => { cancelled = true; };
-  }, [url]);
-  return { data, error, loading };
+  }, [url, revision]);
+  return { ...(result.url === url ? result : { data: null, error: "", loading: Boolean(url) }),
+    reload: () => setRevision((value) => value + 1) };
 }
 
 function formatDate(value) {
   return value ? new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "-";
 }
 
-function CopyId({ value, label }) {
+export function CopyId({ value, label }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   if (value === null || value === undefined || value === "") return <span>-</span>;
@@ -49,11 +51,11 @@ function CopyId({ value, label }) {
   </span>;
 }
 
-function Status({ value }) {
+export function Status({ value }) {
   return <span className={`developer-status status-${String(value || "unknown").toLowerCase()}`}>{value || "-"}</span>;
 }
 
-function State({ loading, error, empty, children }) {
+export function State({ loading, error, empty, children }) {
   if (loading) return <p className="panel page-state">데이터를 불러오는 중입니다.</p>;
   if (error) return <p className="message" role="alert">{error}</p>;
   if (empty) return <p className="panel page-state">조회된 데이터가 없습니다.</p>;
@@ -89,7 +91,8 @@ function GlobalSearch() {
     {error && <p className="message">{error}</p>}
     {data && <div className="developer-search-results">
       {data.results.length === 0 ? <p>검색 결과가 없습니다.</p> : data.results.map((item, index) => {
-        const href = item.type === "COMMUNITY" ? `/developer/communities/${item.id}`
+        const href = item.type === "USER" ? `/developer/users/${item.id}`
+          : item.type === "COMMUNITY" ? `/developer/communities/${item.id}`
           : item.communityId ? `/developer/communities/${item.communityId}` : null;
         const body = <><Status value={item.type} /><strong>{item.label}</strong><CopyId value={item.id} label={item.type} />
           {item.secondaryId && <CopyId value={item.secondaryId} label="연결 ID" />}</>;
@@ -100,7 +103,7 @@ function GlobalSearch() {
   </section>;
 }
 
-function PageHeading({ eyebrow = "Developer", title, description, back }) {
+export function PageHeading({ eyebrow = "Developer", title, description, back }) {
   return <div className="page-heading developer-heading">
     {back && <AppLink className="developer-back" href={back}>← 돌아가기</AppLink>}
     <p className="eyebrow">{eyebrow}</p><h1>{title}</h1>{description && <p>{description}</p>}
@@ -124,10 +127,20 @@ export function DeveloperDashboardPage() {
           {data.recentCommunities.map((item) => <AppLink key={item.id} href={`/developer/communities/${item.id}`}>
             <span><strong>{item.name}</strong><small>{formatDate(item.createdAt)}</small></span><CopyId value={item.id} label="Community ID" />
           </AppLink>)}</article>
-        <article className="panel developer-list-card"><header><h2>최근 가입 사용자</h2></header>
-          {data.recentUsers.map((item) => <div key={item.id}>
-            <span><strong>{item.nickname}</strong><small>{formatDate(item.createdAt)}</small></span><CopyId value={item.id} label="User ID" />
-          </div>)}</article>
+      </section>
+      <section className="panel developer-recent-users">
+        <header><h2>최근 가입 사용자</h2><AppLink className="secondary-button" href="/developer/users">전체 회원 보기</AppLink></header>
+        {data.recentUsers.length === 0 ? <p className="page-state">가입한 회원이 없습니다.</p>
+          : <div className="developer-table-wrap" role="region" aria-label="최근 가입 사용자 10명" tabIndex={0}>
+            <table className="developer-table"><thead><tr><th>회원 ID</th><th>길드업 닉네임</th><th>로그인 방식</th>
+              <th>로그인 아이디 / 외부 계정</th><th>가입일</th><th>마지막 로그인</th><th>계정 상태</th></tr></thead>
+              <tbody>{data.recentUsers.map((item) => <tr key={item.id}>
+                <td><AppLink href={`/developer/users/${item.id}`}>{item.id}</AppLink></td>
+                <td><AppLink href={`/developer/users/${item.id}`}><strong>{item.nickname}</strong></AppLink></td>
+                <td><LoginMethodBadge value={item.loginMethod} /></td><td><LoginIdentifiers user={item} /></td>
+                <td>{userDate(item.createdAt)}</td><td>{userDate(item.lastLoginAt)}</td><td><AccountStatus value={item.status} /></td>
+              </tr>)}</tbody></table>
+          </div>}
       </section>
     </>}</State>
   </div>;

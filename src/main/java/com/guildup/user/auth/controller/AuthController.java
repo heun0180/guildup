@@ -39,6 +39,7 @@ public class AuthController {
             requireAnonymous(session);
             var user = credentials.register(body);
             sessions.authenticate(request, user);
+            sessions.recordLogin(user, session);
             return ResponseEntity.status(HttpStatus.CREATED).cacheControl(CacheControl.noStore())
                     .body(LoginUserResponse.from(user));
         }
@@ -51,6 +52,7 @@ public class AuthController {
             requireAnonymous(session);
             var user = protectedLogin.login(body, request);
             sessions.authenticate(request, user);
+            sessions.recordLogin(user, session);
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(LoginUserResponse.from(user));
         }
     }

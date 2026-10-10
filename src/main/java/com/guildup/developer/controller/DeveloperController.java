@@ -18,7 +18,8 @@ public class DeveloperController {
     }
 
     @GetMapping("/dashboard")
-    public DeveloperResponses.Dashboard dashboard() {
+    public DeveloperResponses.Dashboard dashboard(jakarta.servlet.http.HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store");
         return queries.dashboard();
     }
 

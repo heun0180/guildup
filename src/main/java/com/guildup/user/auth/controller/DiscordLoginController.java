@@ -127,6 +127,7 @@ public class DiscordLoginController {
                 }
                 var user = linking ? discord.linkAccount(attempt.userId(), discordUser) : discord.findOrCreateUser(discordUser);
                 sessions.authenticate(request, user);
+                if (!linking) sessions.recordLogin(user, session);
                 return redirect(linking ? "/account.html?discordLinked=true" : "/communities.html");
             } catch (AuthException exception) {
                 if (!linking && !verifying) throw exception;

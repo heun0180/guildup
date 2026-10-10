@@ -21,7 +21,9 @@ public final class DeveloperResponses {
                             long activeKillCompetitionCount, List<RecentCommunity> recentCommunities,
                             List<RecentUser> recentUsers) {}
     public record RecentCommunity(long id, String name, Instant createdAt) {}
-    public record RecentUser(long id, String nickname, String discordUserId, Instant createdAt) {}
+    public record RecentUser(long id, String nickname, String discordUserId, Instant createdAt,
+                             DeveloperUserResponses.LoginMethod loginMethod, String email, String discordUsername,
+                             Instant lastLoginAt, String status) {}
 
     public record CommunitySummary(long id, String name, List<String> games, Long creatorUserId,
                                    String creatorNickname, long memberCount, boolean discordConnected,

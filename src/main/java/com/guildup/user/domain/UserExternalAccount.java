@@ -11,10 +11,12 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
+import java.time.Instant;
 
 /** GuildUp 사용자와 외부 서비스 계정의 연결이다. */
 @Entity
@@ -57,6 +59,14 @@ public class UserExternalAccount {
 
     @Column(name = "external_avatar_url", length = 512)
     private String externalAvatarUrl;
+
+    @Column(name = "linked_at", updatable = false)
+    private Instant linkedAt;
+
+    public Instant getLinkedAt() { return linkedAt; }
+
+    @PrePersist
+    void initializeLinkedAt() { linkedAt = Instant.now(); }
 
     protected UserExternalAccount() {
     }

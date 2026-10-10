@@ -36,6 +36,7 @@ import DashboardLayout from "./components/DashboardLayout.jsx";
 import AppLink from "./components/AppLink.jsx";
 import { CommunityProvider, useCommunity } from "./community/CommunityContext.jsx";
 import DeveloperLayout from "./developer/DeveloperLayout.jsx";
+import { DeveloperUsersPage, DeveloperUserDetailPage } from "./developer/DeveloperUsersPage.jsx";
 import { DeveloperBingoDetailPage, DeveloperCommunitiesPage, DeveloperCommunityDetailPage,
   DeveloperDashboardPage, DeveloperKillCompetitionDetailPage } from "./developer/DeveloperPages.jsx";
 import GameScopeBoundary from "./community/GameScopeBoundary.jsx";
@@ -136,6 +137,8 @@ export default function App() {
       <Route path="/community-create.html" element={<CommunityCreatePage />} />
       <Route element={<DeveloperLayout />}>
         <Route path="/developer" element={<DeveloperDashboardPage />} />
+        <Route path="/developer/users" element={<DeveloperUsersPage />} />
+        <Route path="/developer/users/:userId" element={<DeveloperUserDetailPage />} />
         <Route path="/developer/monitoring" element={<MonitoringPage />} />
         <Route path="/developer/announcements" element={<DeveloperAnnouncementsPage />} />
         <Route path="/developer/feedback" element={<DeveloperFeedbackPage />} />

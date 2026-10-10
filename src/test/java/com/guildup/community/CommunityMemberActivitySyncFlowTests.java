@@ -365,13 +365,14 @@ class CommunityMemberActivitySyncFlowTests {
         memberships.save(new CommunityUser(fixture.community(), admin, CommunityUserRole.ADMIN));
         CountDownLatch enteredPubg = new CountDownLatch(1);
         CountDownLatch releasePubg = new CountDownLatch(1);
+        AtomicReference<String> acceptedRequestId = new AtomicReference<>();
         when(playerService.findByNamesFresh(eq("kakao"), anyList())).thenAnswer(ignored -> {
             enteredPubg.countDown();
             if (!releasePubg.await(10, TimeUnit.SECONDS)) throw new AssertionError("sync did not resume");
             assertThat(Thread.currentThread().getName()).startsWith("community-activity-sync-");
             assertThat(org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()).isNull();
             assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo("activity-request-123");
+            assertThat(org.slf4j.MDC.get("requestId")).isEqualTo(acceptedRequestId.get());
             return List.of(applePlayer(), julmiPlayer());
         });
         when(playerService.findByAccountIdsFresh(eq("kakao"), anyList())).thenReturn(List.of());
@@ -382,10 +383,14 @@ class CommunityMemberActivitySyncFlowTests {
         try (var executor = Executors.newSingleThreadExecutor()) {
             var first = executor.submit(() -> mvc.perform(post(syncPath(fixture)).session(ownerSession)
                             .header("X-Request-ID", "activity-request-123"))
-                    .andReturn().getResponse().getStatus());
+                    .andReturn().getResponse());
             assertThat(enteredPubg.await(5, TimeUnit.SECONDS)).isTrue();
             // PUBG 조회를 막아 둔 상태에서도 HTTP는 이미 끝나야 한다.
-            assertThat(first.get(2, TimeUnit.SECONDS)).isEqualTo(202);
+            var accepted = first.get(2, TimeUnit.SECONDS);
+            assertThat(accepted.getStatus()).isEqualTo(202);
+            // The security filter replaces caller-controlled IDs; verify the issued ID survives async dispatch.
+            acceptedRequestId.set(accepted.getHeader("X-Request-ID"));
+            assertThat(acceptedRequestId.get()).matches("[a-f0-9-]{36}").isNotEqualTo("activity-request-123");
             assertThat(syncs.findByCommunityGameId(fixture.game().getId()).orElseThrow().getSyncStatus())
                     .isEqualTo(CommunityGameActivitySyncStatus.SYNCING);
             assertThat(snapshots.count()).isZero();

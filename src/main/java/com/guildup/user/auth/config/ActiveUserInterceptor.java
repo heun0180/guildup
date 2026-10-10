@@ -17,7 +17,10 @@ public class ActiveUserInterceptor implements HandlerInterceptor {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Login is required");
         }
         if (loggedIn) {
-            try { sessions.requireUser(session); }
+            try {
+                var user = sessions.requireUser(session);
+                sessions.recordActivity(user, session);
+            }
             catch (org.springframework.web.server.ResponseStatusException exception) {
                 sessions.logout(request);
                 throw exception;

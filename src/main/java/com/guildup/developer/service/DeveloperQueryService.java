@@ -27,10 +27,12 @@ public class DeveloperQueryService {
 
     private final JdbcTemplate jdbc;
     private final NamedParameterJdbcTemplate namedJdbc;
+    private final DeveloperUserQueryService userQueries;
 
-    public DeveloperQueryService(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc) {
+    public DeveloperQueryService(JdbcTemplate jdbc, NamedParameterJdbcTemplate namedJdbc, DeveloperUserQueryService userQueries) {
         this.jdbc = jdbc;
         this.namedJdbc = namedJdbc;
+        this.userQueries = userQueries;
     }
 
     public Dashboard dashboard() {
@@ -44,13 +46,9 @@ public class DeveloperQueryService {
                 jdbc.query("select id, name, created_at from communities order by created_at desc, id desc limit ?",
                         (rs, row) -> new RecentCommunity(rs.getLong("id"), rs.getString("name"), instant(rs, "created_at")),
                         DASHBOARD_RECENT_SIZE),
-                jdbc.query("""
-                        select u.id, u.nickname, a.external_user_id, u.created_at
-                        from users u
-                        left join user_external_accounts a on a.user_id = u.id and a.provider = 'DISCORD'
-                        order by u.created_at desc, u.id desc limit ?
-                        """, (rs, row) -> new RecentUser(rs.getLong("id"), rs.getString("nickname"),
-                        rs.getString("external_user_id"), instant(rs, "created_at")), DASHBOARD_RECENT_SIZE)
+                userQueries.recentUsers().stream().map(user -> new RecentUser(user.id(), user.nickname(),
+                        user.discordUserId(), user.createdAt(), user.loginMethod(), user.email(), user.discordUsername(),
+                        user.lastLoginAt(), user.status())).toList()
         );
     }
 

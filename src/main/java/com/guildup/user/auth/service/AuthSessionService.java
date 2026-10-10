@@ -14,9 +14,22 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthSessionService implements jakarta.servlet.http.HttpSessionListener {
     public static final String AUTHENTICATION_VERSION = "LOGIN_AUTHENTICATION_VERSION";
     private final UserRepository users;
+    private UserActivityService activity;
     private final java.util.concurrent.ConcurrentMap<Long, java.util.Set<HttpSession>> activeSessions = new java.util.concurrent.ConcurrentHashMap<>();
 
     public AuthSessionService(UserRepository users) { this.users = users; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureActivity(UserActivityService activity) { this.activity = activity; }
+
+    /** 세션 재발급(계정 연결)과 실제 로그인 성공을 구분한다. */
+    public void recordLogin(User user, HttpSession session) {
+        if (activity != null) activity.login(user.getId(), user.getAuthenticationVersion(), session);
+    }
+
+    public void recordActivity(User user, HttpSession session) {
+        if (activity != null) activity.activity(user.getId(), session);
+    }
 
     public void authenticate(HttpServletRequest request, User user) {
         requireActive(user);
