@@ -5,6 +5,7 @@ import Icon from "./Icon.jsx";
 import AnnouncementBell from "./AnnouncementBell.jsx";
 import UserProfileMenu from "./UserProfileMenu.jsx";
 import { useAnnouncements } from "../announcement/AnnouncementContext.jsx";
+import { userMenuLabels } from "../userMenu.js";
 
 export default function AppHeader({ actions = false, communityId, onError, currentUser }) {
   const [user, setUser] = useState(null);
@@ -48,9 +49,9 @@ export default function AppHeader({ actions = false, communityId, onError, curre
           <span>GuildUp</span>
         </AppLink>
         <nav className="header-actions" aria-label={actions ? "사용자 메뉴" : "공용 메뉴"}>
-          {(!actions || !displayedUser) && <AppLink className="header-link header-help-link" href="/help" aria-label="GuildUp 가이드">
+          {(!actions || !displayedUser) && <AppLink className="header-link header-help-link" href="/help" aria-label={userMenuLabels.guide}>
             <Icon name="help" size={17} />
-            <span>GuildUp 가이드</span>
+            <span>{userMenuLabels.guide}</span>
           </AppLink>}
           {actions && displayedUser && <>
             <AnnouncementBell user={displayedUser} />

@@ -5,6 +5,7 @@ import { formatNewsDate } from "../communityNews.js";
 import AnnouncementMeta from "./AnnouncementMeta.jsx";
 import AppLink from "./AppLink.jsx";
 import Icon from "./Icon.jsx";
+import { userMenuLabels } from "../userMenu.js";
 
 export default function AnnouncementBell({ user }) {
   const context = useAnnouncements();
@@ -24,7 +25,7 @@ export default function AnnouncementBell({ user }) {
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [open]);
 
-  if (!context) return <AppLink className="header-link" href="/announcements">GuildUp 공지</AppLink>;
+  if (!context) return <AppLink className="header-link" href="/announcements">{userMenuLabels.announcements}</AppLink>;
   const { notifications, error, refresh } = context;
   const unread = notifications?.unreadCount ?? 0;
   return <div className="announcement-bell" ref={container} onBlur={(event) => {

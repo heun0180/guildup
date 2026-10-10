@@ -229,10 +229,9 @@ export default function CommunitySettingsPage() {
             {["OWNER", "ADMIN"].includes(community.role) && <button type="submit" disabled={savingRanking || rankingPeriod == null}>{savingRanking ? "저장 중..." : "랭킹 설정 저장"}</button>}
             {rankingNotice && <p role="status">{rankingNotice}</p>}
           </form>
-          {canDeleteCommunity(community.role) && <section className="community-danger-zone" aria-labelledby="danger-zone-title">
+          {canDeleteCommunity(community.role) && <section className="community-danger-zone" aria-labelledby="community-deletion-title">
             <div>
-              <p className="eyebrow danger-zone-label">위험 구역</p>
-              <h2 id="danger-zone-title">커뮤니티 삭제</h2>
+              <h2 id="community-deletion-title">커뮤니티 삭제</h2>
               <p>커뮤니티와 관련된 모든 데이터를 삭제합니다.</p>
               <strong>삭제한 커뮤니티는 복구할 수 없습니다.</strong>
             </div>

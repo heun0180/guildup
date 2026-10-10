@@ -65,7 +65,7 @@ export default function AccountWithdrawalPanel() {
   }
 
   return <section className="panel account-danger" aria-labelledby="withdrawal-title" aria-busy={busy}>
-    <p className="danger-label">위험 영역</p><h2 id="withdrawal-title">회원탈퇴</h2>
+    <h2 id="withdrawal-title">회원탈퇴</h2>
     {!open ? <><p>GuildUp 계정을 탈퇴하고 로그인 정보를 삭제합니다. 탈퇴 후 계정을 복구할 수 없습니다.</p>
       <button type="button" className="danger-button" onClick={() => setOpen(true)}>회원탈퇴</button></>
       : <div className="withdrawal-flow">

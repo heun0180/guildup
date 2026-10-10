@@ -134,8 +134,7 @@
   .onboarding-page .header-actions { gap: 4px; }
 }
 .account-danger { border: 1px solid #e07a7a; margin-top: 32px; padding: 24px; }
-.account-danger .danger-label { color: #c53b3b; font-weight: 700; }
-.account-danger h2 { margin: 8px 0 16px; }
+.account-danger h2 { margin: 0 0 16px; }
 .account-danger .danger-button { background: #b42318; border-color: #b42318; color: white; }
 .account-danger .danger-button:hover { background: #912018; }
 .account-danger > button { margin-top: 16px; }

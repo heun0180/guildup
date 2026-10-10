@@ -97,7 +97,7 @@ test("entire profile area toggles a compact menu and the header retains its bell
     assert.equal(profile().querySelector(".profile-menu-name").textContent, "애플");
     assert.equal(profile().getAttribute("aria-haspopup"), "menu");
     await click(profile()); assert.ok(menu());
-    assert.deepEqual(items().map((item) => item.textContent), ["내 커뮤니티", "계정", "GuildUp 공지NEW", "GuildUp 가이드", "문의 / 건의", "로그아웃"]);
+    assert.deepEqual(items().map((item) => item.textContent), ["내 커뮤니티", "계정", "문의 / 건의", "공지NEW", "가이드", "로그아웃"]);
     assert.ok(menu().querySelector('[role="separator"]'));
     assert.equal(document.activeElement, items()[0]);
     await click(profile()); assert.equal(menu(), null);
@@ -146,7 +146,7 @@ test("admin-only developer navigation is preserved inside the profile menu", asy
   try {
     assert.equal(document.querySelector(".brand").getAttribute("href"), "/community-dashboard.html?communityId=12");
     await click(profile());
-    assert.ok(items().find((item) => item.getAttribute("href") === "/developer"));
+    assert.deepEqual(items().map((item) => item.textContent), ["내 커뮤니티", "계정", "문의 / 건의", "공지NEW", "가이드", "관리자", "로그아웃"]);
     assert.equal(items().some((item) => item.textContent === "설정"), false);
     await click(items().find((item) => item.getAttribute("href") === "/developer"));
     assert.equal(window.location.pathname, "/developer"); assert.equal(menu(), null);
@@ -203,7 +203,7 @@ test("public header and unauthorized sessions never expose user, logout or bell 
   try {
     assert.equal(profile(), null); assert.equal(document.querySelector(".announcement-bell-button"), null);
     assert.equal(publicView.requests.length, 0);
-    assert.equal(document.querySelector(".header-help-link").getAttribute("aria-label"), "GuildUp 가이드");
+    assert.equal(document.querySelector(".header-help-link").getAttribute("aria-label"), "가이드");
   } finally { await publicView.close(); }
   const unauthorized = await mount({ user: null });
   try {

@@ -719,9 +719,8 @@ a.integration-feature-card:hover { border-color: #c7cbed; background: #fafaff; t
 .settings-menu-card .secondary-button { display: inline-flex; width: 100%; align-items: center; justify-content: center; gap: 8px; margin-top: auto; }
 .community-danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-top: 42px; border: 1px solid #edc7ca; border-radius: var(--radius-card); padding: 24px; background: #fffafa; }
 .community-danger-zone > div { min-width: 0; }
-.community-danger-zone .danger-zone-label { color: var(--color-error); }
-.community-danger-zone h2 { margin-top: 4px; font-size: 1.05rem; }
-.community-danger-zone p:not(.eyebrow) { margin-top: 6px; font-size: 0.82rem; }
+.community-danger-zone h2 { font-size: 1.05rem; }
+.community-danger-zone p { margin-top: 6px; font-size: 0.82rem; }
 .community-danger-zone strong { display: block; margin-top: 4px; color: var(--color-error); font-size: 0.78rem; }
 .permanent-delete-button { flex: 0 0 auto; border: 1px solid #b93f49; background: #c84b55; color: #fff; }
 .permanent-delete-button:hover:not(:disabled) { border-color: #a5323c; background: #ad3943; color: #fff; }

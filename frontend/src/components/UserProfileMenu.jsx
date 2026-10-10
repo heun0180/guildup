@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import AppLink from "./AppLink.jsx";
 import Avatar from "./Avatar.jsx";
 import Icon from "./Icon.jsx";
 import { supportContext } from "../feedbackForm.js";
+import { userMenuLabels } from "../userMenu.js";
 
 export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = false }) {
   const location = useLocation();
@@ -35,10 +36,10 @@ export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = 
   const links = [
     { href: "/communities.html", label: "내 커뮤니티", icon: "users" },
     { href: "/account.html", label: "계정", icon: "settings" },
-    { href: "/announcements", label: "GuildUp 공지", icon: "book", newBadge: hasNewAnnouncements },
-    { href: "/help", label: "GuildUp 가이드", icon: "help" },
     { href: "/support", label: "문의 / 건의", icon: "message", state: { supportContext: supportContext(location) } },
-    ...(user.systemAdmin ? [{ href: "/developer", label: "개발자", icon: "dashboard" }] : []),
+    { href: "/announcements", label: userMenuLabels.announcements, icon: "book", newBadge: hasNewAnnouncements, separatorBefore: true },
+    { href: "/help", label: userMenuLabels.guide, icon: "help" },
+    ...(user.systemAdmin ? [{ href: "/developer", label: userMenuLabels.developer, icon: "dashboard" }] : []),
   ];
 
   function navigateMenu(event) {
@@ -74,11 +75,14 @@ export default function UserProfileMenu({ user, onLogout, hasNewAnnouncements = 
     {open && <div className="panel profile-menu-dropdown">
       <div className="profile-menu-identity"><strong>{user.nickname || "사용자"}</strong></div>
       <div ref={menu} id={id} role="menu" aria-label="사용자 메뉴" onKeyDown={navigateMenu}>
-        {links.map(({ href, label, icon, newBadge, state }) => <AppLink key={href} href={href} state={state} role="menuitem"
-          tabIndex={-1} className="profile-menu-item" onClick={() => setOpen(false)}>
-          <Icon name={icon} size={18} /><span>{label}</span>
-          {newBadge && <span className="role-badge profile-menu-new">NEW</span>}
-        </AppLink>)}
+        {links.map(({ href, label, icon, newBadge, state, separatorBefore }) => <Fragment key={href}>
+          {separatorBefore && <div className="profile-menu-divider" role="separator" />}
+          <AppLink href={href} state={state} role="menuitem"
+            tabIndex={-1} className="profile-menu-item" onClick={() => setOpen(false)}>
+            <Icon name={icon} size={18} /><span>{label}</span>
+            {newBadge && <span className="role-badge profile-menu-new">NEW</span>}
+          </AppLink>
+        </Fragment>)}
         <div className="profile-menu-divider" role="separator" />
         <button className="profile-menu-item profile-menu-logout" type="button" role="menuitem" tabIndex={-1}
           onClick={() => { setOpen(false); onLogout(); }}><Icon name="arrow" size={18} /><span>로그아웃</span></button>
