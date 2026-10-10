@@ -38,6 +38,7 @@ class SessionCookieIntegrationTests {
     @org.springframework.beans.factory.annotation.Autowired com.guildup.user.repository.UserRepository users;
     @org.springframework.beans.factory.annotation.Autowired com.guildup.user.repository.UserCredentialRepository credentials;
     @org.springframework.beans.factory.annotation.Autowired com.guildup.user.reset.PasswordResetTokenRepository resetTokens;
+    @org.springframework.beans.factory.annotation.Autowired com.guildup.monitoring.repository.MonitoringEventRepository events;
     final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     @Test
@@ -129,6 +130,36 @@ class SessionCookieIntegrationTests {
         if (cookie != null) request.header("Cookie", cookie);
         if (csrf != null) request.header("X-CSRF-Token", csrf);
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test void csrfCookieLossAndExpiredCookiesAreDiagnosedWithoutAuthenticatingOrExposingSecrets() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        var bootstrap = get("/api/auth/csrf", null);
+        String token = json.readTree(bootstrap.body()).get("token").asText();
+        String cookie = sessionCookie(bootstrap);
+        var denied = postJson("/api/auth/login", null, token,
+                Map.of("email", "private-cookie-test@example.com", "password", "PrivateCookiePass123!"));
+        assertThat(denied.statusCode()).isEqualTo(403);
+        assertThat(denied.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(json.readTree(denied.body()).get("code").asText()).isEqualTo("CSRF_TOKEN_INVALID");
+        assertDeniedEvent(denied, "SESSION_MISSING", token, cookie);
+        assertThat(get("/api/auth/me", null).statusCode()).isEqualTo(401);
+        assertThat(postJson("/api/auth/logout", cookie, token, Map.of()).statusCode()).isEqualTo(204);
+        var expired = postJson("/api/auth/login", cookie, token,
+                Map.of("email", "private-cookie-test@example.com", "password", "PrivateCookiePass123!"));
+        assertThat(expired.statusCode()).isEqualTo(403);
+        assertDeniedEvent(expired, "SESSION_EXPIRED_OR_UNKNOWN", token, cookie);
+    }
+
+    private void assertDeniedEvent(HttpResponse<?> response, String reason, String token, String cookie) {
+        String requestId = response.headers().firstValue("X-Request-ID").orElseThrow();
+        var event = events.findAll().stream().filter(value ->
+                requestId.equals(value.getMetadata().get("requestId"))).findFirst().orElseThrow();
+        assertThat(event.getEventCode()).isEqualTo(com.guildup.monitoring.domain.MonitoringEventCode.HTTP_ACCESS_DENIED);
+        assertThat(event.getOccurredAt()).isNotNull();
+        assertThat(event.getMetadata()).containsEntry("endpoint", "/api/auth/login").containsEntry("status", 403)
+                .containsEntry("rule", "SESSION_CSRF").containsEntry("reason", reason);
+        assertThat(event.getMetadata().toString()).doesNotContain(token, cookie, "PrivateCookiePass", "private-cookie-test");
     }
 
     @Test void withdrawalImmediatelyRejectsTheOldJsessionidAndOtherAuthenticatedSessions() throws Exception {

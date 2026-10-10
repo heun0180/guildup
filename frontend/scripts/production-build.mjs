@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { chmod, lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const ROUTE_PATTERN = /<Route\s+path="([^"]+)"/g;
@@ -29,8 +29,36 @@ export async function productionBuildContext(frontendDirectory) {
   return { distDirectory: path.join(frontendDirectory, "dist"), routes };
 }
 
+async function visitPublicBuild(directory, visitor) {
+  const info = await lstat(directory);
+  if (info.isSymbolicLink()) throw new Error(`Public build must not contain symlinks: ${directory}`);
+  if (!info.isDirectory() && !info.isFile()) throw new Error(`Unsupported public build entry: ${directory}`);
+  await visitor(directory, info);
+  if (info.isDirectory()) {
+    for (const name of await readdir(directory)) await visitPublicBuild(path.join(directory, name), visitor);
+  }
+}
+
+// These are publicly served assets only. A restrictive build umask must not make
+// them unreadable by Nginx after a transfer that preserves source permissions.
+export async function normalizePublicPermissions(distDirectory) {
+  if (process.platform === "win32") return;
+  await visitPublicBuild(distDirectory, (entry, info) => chmod(entry, info.isDirectory() ? 0o755 : 0o644));
+}
+
+async function verifyPublicPermissions(distDirectory) {
+  if (process.platform === "win32") return;
+  await visitPublicBuild(distDirectory, async (entry, info) => {
+    const required = info.isDirectory() ? 0o005 : 0o004;
+    if ((info.mode & required) !== required) {
+      throw new Error(`Public build entry is not accessible to the web server: ${path.relative(distDirectory, entry) || "."}`);
+    }
+  });
+}
+
 export async function verifyProductionBuild(frontendDirectory) {
   const { distDirectory, routes } = await productionBuildContext(frontendDirectory);
+  await verifyPublicPermissions(distDirectory);
   const missingRoutes = [];
   const referencedAssets = new Set();
 

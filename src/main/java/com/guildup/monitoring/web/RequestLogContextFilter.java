@@ -22,7 +22,6 @@ import java.util.regex.Pattern;
 public class RequestLogContextFilter extends OncePerRequestFilter {
     public static final String REQUEST_ID = RequestLogContextFilter.class.getName() + ".requestId";
     public static final String USER_ID = RequestLogContextFilter.class.getName() + ".userId";
-    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9_-]{8,64}");
     private static final Pattern COMMUNITY = Pattern.compile("/(?:api/)?communities/(\\d+)(?:/|$)");
 
     @Override protected boolean shouldNotFilterAsyncDispatch() { return false; }
@@ -31,9 +30,8 @@ public class RequestLogContextFilter extends OncePerRequestFilter {
                                               FilterChain chain) throws ServletException, IOException {
         String id = (String) request.getAttribute(REQUEST_ID);
         if (id == null) {
-            // Authentication diagnostics use server-generated IDs; user supplied values may contain secrets.
-            String supplied = authenticationRequest(request) ? null : request.getHeader("X-Request-ID");
-            id = supplied != null && SAFE_ID.matcher(supplied).matches() ? supplied : UUID.randomUUID().toString();
+            // Security diagnostics must not retain caller-controlled headers that may contain secrets.
+            id = UUID.randomUUID().toString();
             request.setAttribute(REQUEST_ID, id);
         }
         response.setHeader("X-Request-ID", id);
@@ -55,12 +53,4 @@ public class RequestLogContextFilter extends OncePerRequestFilter {
         try (var ignored = LogContext.scope(context)) { chain.doFilter(request, response); }
     }
 
-    private boolean authenticationRequest(HttpServletRequest request) {
-        try {
-            String path = org.springframework.web.util.UriUtils.decode(
-                    request.getRequestURI().substring(request.getContextPath().length()), java.nio.charset.StandardCharsets.UTF_8);
-            path = path.replaceAll(";[^/]*", "");
-            return path.startsWith("/api/auth/");
-        } catch (IllegalArgumentException malformedPath) { return true; }
-    }
 }

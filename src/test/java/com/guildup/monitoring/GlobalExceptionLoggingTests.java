@@ -44,17 +44,19 @@ class GlobalExceptionLoggingTests {
         var appender = new ListAppender<ILoggingEvent>();
         appender.start(); logger.addAppender(appender);
         try {
-            mvc.perform(get("/api/communities/12/broken").header("X-Request-ID", "request-1234"))
+            var result = mvc.perform(get("/api/communities/12/broken").header("X-Request-ID", "request-1234"))
                     .andExpect(status().isInternalServerError())
-                    .andExpect(header().string("X-Request-ID", "request-1234"))
                     .andExpect(jsonPath("$.message").value("서버 처리 중 오류가 발생했습니다."))
-                    .andExpect(jsonPath("$.requestId").value("request-1234"));
+                    .andReturn();
+            String requestId = result.getResponse().getHeader("X-Request-ID");
+            assertThat(requestId).matches("[a-f0-9-]{36}").isNotEqualTo("request-1234");
+            assertThat(result.getResponse().getContentAsString()).contains(requestId);
             assertThat(appender.list).hasSize(1);
             var logged = appender.list.getFirst();
             assertThat(logged.getLevel()).isEqualTo(Level.ERROR);
             assertThat(logged.getThrowableProxy()).isNotNull();
-            assertThat(logged.getMDCPropertyMap()).containsEntry("requestId", "request-1234");
-            verify(monitoring).recordError(eq(MonitoringCategory.HTTP), eq(MonitoringEventCode.HTTP_5XX), anyString(), eq(12L), isNull(), anyString(), argThat(m -> "request-1234".equals(m.get("requestId"))));
+            assertThat(logged.getMDCPropertyMap()).containsEntry("requestId", requestId);
+            verify(monitoring).recordError(eq(MonitoringCategory.HTTP), eq(MonitoringEventCode.HTTP_5XX), anyString(), eq(12L), isNull(), anyString(), argThat(m -> requestId.equals(m.get("requestId"))));
             assertThat(MDC.get("requestId")).isNull();
             appender.list.clear();
             mvc.perform(post("/api/input").contentType("application/json").content("{\"game\":\"UNKNOWN\"}"))

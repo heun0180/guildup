@@ -2,6 +2,7 @@ package com.guildup.user.auth.config;
 
 import com.guildup.user.auth.service.CurrentUserSession;
 import com.guildup.user.auth.service.SessionCsrfTokens;
+import com.guildup.monitoring.web.AccessDeniedMonitoringFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -37,7 +38,14 @@ public class SessionCsrfInterceptor implements HandlerInterceptor {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
+        response.setHeader("Cache-Control", "no-store");
         String code = supplied == null || supplied.isBlank() ? "CSRF_TOKEN_MISSING" : "CSRF_TOKEN_INVALID";
+        AccessDeniedMonitoringFilter.mark(request, supplied == null || supplied.isBlank()
+                ? AccessDeniedMonitoringFilter.Denial.CSRF_HEADER_MISSING
+                : session == null ? request.getRequestedSessionId() == null
+                    ? AccessDeniedMonitoringFilter.Denial.CSRF_SESSION_MISSING
+                    : AccessDeniedMonitoringFilter.Denial.CSRF_SESSION_NOT_FOUND
+                : AccessDeniedMonitoringFilter.Denial.CSRF_MISMATCH);
         // Fixed payload keeps tokens out of exception messages and monitoring logs.
         response.getWriter().write("{\"code\":\"" + code
                 + "\",\"message\":\"요청 보안 정보를 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.\"}");

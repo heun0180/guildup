@@ -58,8 +58,16 @@ class DeveloperMonitoringFlowTests {
 
     @Test
     void allowsOnlySystemAdminAndReturnsSummary() throws Exception {
-        mvc.perform(get("/api/developer/monitoring/summary").session(session(regular)))
-                .andExpect(status().isForbidden());
+        var denied = mvc.perform(get("/api/developer/monitoring/summary").session(session(regular)))
+                .andExpect(status().isForbidden()).andReturn().getResponse();
+        var denial = events.findAll().stream().filter(event -> denied.getHeader("X-Request-ID")
+                .equals(event.getMetadata().get("requestId"))).findFirst().orElseThrow();
+        org.assertj.core.api.Assertions.assertThat(denial.getEventCode()).isEqualTo(MonitoringEventCode.HTTP_ACCESS_DENIED);
+        org.assertj.core.api.Assertions.assertThat(denial.getMetadata()).containsEntry("status", 403)
+                .containsEntry("rule", "SYSTEM_ADMIN_REQUIRED").containsEntry("reason", "INSUFFICIENT_SYSTEM_ROLE");
+        mvc.perform(get("/api/developer/monitoring/events").session(session(admin))
+                        .param("group", "SECURITY").param("eventCode", "HTTP_ACCESS_DENIED"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].metadata.requestId").value(denied.getHeader("X-Request-ID")));
         mvc.perform(get("/api/developer/monitoring/summary").session(session(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.server.status").value("UP"))

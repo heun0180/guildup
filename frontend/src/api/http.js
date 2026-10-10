@@ -60,10 +60,12 @@ export async function api(url, options = {}) {
       if (context.requestId) message += ` (요청 ID: ${context.requestId})`;
     } else if (body && typeof body.message === "string") message = body.message;
     else if (body && typeof body.detail === "string") message = body.detail;
+    if (response.status === 403 && context.requestId) message += ` (요청 ID: ${context.requestId})`;
     context.elapsedMs = performance.now() - startedAt;
     const error = new ApiError(response.status, message, { ...(body || {}), ...context,
       retryAfterSeconds: parseRetryAfter(response.headers.get("Retry-After")) });
     if (response.status >= 500) reportClientFailure("HTTP_SERVER_ERROR", error, context);
+    if (response.status === 403) reportClientFailure("HTTP_ACCESS_DENIED", error, context);
     throw error;
   }
 

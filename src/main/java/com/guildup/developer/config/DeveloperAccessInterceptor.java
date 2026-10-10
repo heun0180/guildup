@@ -1,6 +1,7 @@
 package com.guildup.developer.config;
 
 import com.guildup.user.auth.service.CurrentUserSession;
+import com.guildup.monitoring.web.AccessDeniedMonitoringFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Component;
@@ -18,7 +19,12 @@ public class DeveloperAccessInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         Long userId = CurrentUserSession.requireUserId(request.getSession(false));
-        access.requireSystemAdmin(userId);
+        try { access.requireSystemAdmin(userId); }
+        catch (org.springframework.web.server.ResponseStatusException denied) {
+            if (denied.getStatusCode().value() == 403)
+                AccessDeniedMonitoringFilter.mark(request, AccessDeniedMonitoringFilter.Denial.SYSTEM_ADMIN_REQUIRED);
+            throw denied;
+        }
         return true;
     }
 }

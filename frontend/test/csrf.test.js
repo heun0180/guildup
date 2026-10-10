@@ -114,3 +114,21 @@ test("token lookup cancellation prevents the mutation", async (t) => {
   await assert.rejects(api("/api/communities/1/attendance", { method: "POST" }), (error) => error === cancellation);
   assert.deepEqual(calls, ["/api/auth/csrf"]);
 });
+
+test("403 exposes a correlation ID without retrying or logging credentials", async (t) => {
+  const calls = [];
+  const diagnostics = [];
+  t.mock.method(console, "warn", (...args) => diagnostics.push(args));
+  t.mock.method(globalThis, "fetch", async (url) => {
+    calls.push(url);
+    return url === "/api/auth/csrf" ? tokenResponse("private-security-value")
+      : new Response('{"code":"CSRF_TOKEN_INVALID","message":"보안 정보를 다시 확인해 주세요."}',
+        { status: 403, headers: { "X-Request-ID": "server-request-1234" } });
+  });
+  await assert.rejects(api("/api/auth/login", { method: "POST", body: '{"password":"private-password"}' }),
+    (error) => error.status === 403 && error.code === "CSRF_TOKEN_INVALID"
+      && error.requestId === "server-request-1234" && error.message.includes("요청 ID: server-request-1234"));
+  assert.deepEqual(calls, ["/api/auth/csrf", "/api/auth/login"]);
+  assert.match(JSON.stringify(diagnostics), /HTTP_ACCESS_DENIED/);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /private-password|private-security-value/);
+});

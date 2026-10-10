@@ -136,3 +136,23 @@ test("security filter and detail display severity counts enforcement and request
     assert.match(modal.textContent, /제한 적용적용/); assert.match(modal.textContent, /security-request-1/);
   } finally { await view.close(); }
 });
+
+test("access-denial detail identifies the HTTP path, layer, rule and cause", async () => {
+  const denied = { id: 10, severity: "WARN", category: "SECURITY", eventCode: "HTTP_ACCESS_DENIED",
+    occurredAt: base.occurredAt, message: "Application request denied", referenceId: "denial-request-1",
+    metadata: { status: 403, endpoint: "/api/auth/login", layer: "SESSION_CSRF", rule: "SESSION_CSRF",
+      reason: "SESSION_EXPIRED_OR_UNKNOWN", requestId: "denial-request-1", sampled: true } };
+  const view = await mount((url) => url.pathname.endsWith("/10") ? denied : pageOf([denied]));
+  try {
+    await act(async () => document.querySelector("tbody tr").click());
+    const modal = document.querySelector('[role="dialog"]');
+    assert.match(modal.textContent, /HTTP 상태403/);
+    assert.match(modal.textContent, /요청 차단\s*차단/);
+    assert.doesNotMatch(modal.textContent, /미적용/);
+    assert.match(modal.textContent, /요청 경로\/api\/auth\/login/);
+    assert.match(modal.textContent, /응답 계층SESSION_CSRF/);
+    assert.match(modal.textContent, /차단 규칙SESSION_CSRF/);
+    assert.match(modal.textContent, /거부 원인SESSION_EXPIRED_OR_UNKNOWN/);
+    assert.match(modal.textContent, /denial-request-1/);
+  } finally { await view.close(); }
+});

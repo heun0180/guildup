@@ -76,8 +76,14 @@ function EventDetail({ event, onClose, onOpen }) {
         {event.category === "SECURITY" && <>
           <div><dt>위험 수준</dt><dd>{event.metadata?.riskLevel || event.severity}</dd></div>
           <div><dt>요청 횟수</dt><dd>{event.metadata?.requestCount ?? "-"}</dd></div>
-          <div><dt>제한 적용</dt><dd>{event.metadata?.rateLimited ? "적용" : "미적용"}</dd></div>
+          <div><dt>{event.eventCode === "HTTP_ACCESS_DENIED" ? "요청 차단" : "제한 적용"}</dt>
+            <dd>{event.eventCode === "HTTP_ACCESS_DENIED" ? "차단" : event.metadata?.rateLimited ? "적용" : "미적용"}</dd></div>
           <div><dt>요청 식별자</dt><dd>{event.metadata?.requestId || "-"}</dd></div>
+          {event.metadata?.status != null && <div><dt>HTTP 상태</dt><dd>{event.metadata.status}</dd></div>}
+          {event.metadata?.endpoint && <div><dt>요청 경로</dt><dd>{event.metadata.endpoint}</dd></div>}
+          {event.metadata?.layer && <div><dt>응답 계층</dt><dd>{event.metadata.layer}</dd></div>}
+          {event.metadata?.rule && <div><dt>차단 규칙</dt><dd>{event.metadata.rule}</dd></div>}
+          {event.metadata?.reason && <div><dt>거부 원인</dt><dd>{event.metadata.reason}</dd></div>}
         </>}
         <div className="monitoring-detail-wide"><dt>Message</dt><dd>{event.message}</dd></div>
       </dl>
