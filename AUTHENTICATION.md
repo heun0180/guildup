@@ -7,8 +7,9 @@ GuildUp의 사용자 식별자는 항상 `users.id`다. 이메일/비밀번호 �
 - `/login.html`: 이메일 로그인, Discord로 계속하기, 회원가입 링크
 - `/signup.html`: 이메일, 비밀번호, 비밀번호 확인, 닉네임; 기존 Discord 사용자에게 기존 계정에서 이메일 로그인을 추가하도록 안내
 - `/account.html`: 개인 Discord 연결 상태, 이메일 로그인 등록 상태, 이메일 로그인 추가, Discord 연결
+- `/email-verification.html`: 이메일 인증 안내, 명시적 확인, 발송 상태 및 재발송
 - 사용자 메뉴에 **로그인 및 계정** 추가
-- 비밀번호 찾기/변경, 이메일 소유 인증, 로그인 수단 해제, 계정 병합은 이번 구현에 포함하지 않는다. 미구현 비밀번호 찾기 링크는 표시하지 않는다.
+- 비밀번호 찾기/변경과 계정 병합은 제공하지 않는다. 미구현 비밀번호 찾기 링크는 표시하지 않는다. 이메일 소유 인증의 후속 구현과 단계적 적용 정책은 [2단계 보고서](EMAIL_VERIFICATION_READINESS.md)를 참고한다.
 
 React 화면은 `frontend/src/`에 구현했다. 기존 Spring 정적 HTML은 이전 UI이며 새 기능의 운영 화면 제공에는 **backend JAR와 `frontend/dist/` 전체를 함께 배포**해야 한다. `npm run build`가 새 `.html` 경로까지 생성하고 검증한다.
 
@@ -33,7 +34,7 @@ React 화면은 `frontend/src/`에 구현했다. 기존 Spring 정적 HTML은 �
 
 비밀번호는 Spring Security Crypto의 `PasswordEncoderFactories.createDelegatingPasswordEncoder()`로 저장한다. 현재 저장 형식은 `{bcrypt}` hash이며 salt는 encoder가 생성한다. Spring Security 필터 체인을 새로 도입하지 않아 기존 세션/커뮤니티 권한 체계는 유지된다. 로그인 실패는 존재하지 않는 이메일과 잘못된 비밀번호에 동일한 401 메시지를 반환하며 dummy hash 검증을 수행한다. 인증 요청 DTO의 `toString()`은 원문을 표시하지 않는다.
 
-`email_verified`는 false로 생성한다. 인증되지 않은 이메일로 현재 로그인은 허용하지만 이메일 소유를 증명했다고 표시하지 않는다. 현재 SMTP 사용처는 문의 발송이고 이메일 소유 인증 토큰/발송/확인 흐름은 별도 구현이 필요하다.
+`email_verified`는 false로 생성하고 실제 이메일 인증 링크를 명시적으로 확인한 경우만 true로 바꾼다. 미인증 이메일 로그인은 계속 허용한다. 기존 계정과 Discord 계정은 보호하고, 이번 기능 이후 이메일 단독 신규 가입의 주요 기능 제한은 환경변수로 단계적으로 활성화한다. 문의 메일과 분리된 인증 서비스가 `MAIL_*` 환경변수의 공통 SMTP 및 발신 주소/표시 이름을 공유한다. 공식 발신 주소 기본값은 `noreply@guild-up.com`이며 문의 알림 수신처는 기존 개인 Gmail이다. 운영 적용에는 [추가 SQL](src/main/resources/db/manual/add_email_verification.sql), [설정·검증 절차](EMAIL_VERIFICATION_READINESS.md) 및 [SMTP 설정 안내](SMTP_MIGRATION.md)가 필요하다.
 
 ## 세션과 CSRF
 
@@ -78,4 +79,4 @@ Discord 없는 사용자가 초대로 가입하거나 커뮤니티 서버 OAuth�
 - `cd frontend && npm test`: 폼 동작/오류/CSRF/계정 연결/프로필 메뉴 회귀
 - `cd frontend && npm run build`: 새 로그인/회원가입/계정 경로를 포함한 전체 배포 산출물 검증
 
-실제 Discord 서비스의 동의/토큰 교환은 테스트에서 mock으로 대체했다. 메일 소유 인증 및 비밀번호 재설정, 로그인 시도 rate limit, 명시적 계정/클랜원 병합은 후속 범위다.
+실제 Discord 서비스의 동의/토큰 교환은 테스트에서 mock으로 대체했다. 로그인 공격 방어는 [1단계 보고서](LOGIN_SECURITY_READINESS.md), 이메일 소유 인증은 [2단계 보고서](EMAIL_VERIFICATION_READINESS.md), 비밀번호 재설정과 모든 기기 세션 차단은 [3단계 보고서](PASSWORD_RESET_READINESS.md)를 참고한다. 명시적 계정/클랜원 병합은 후속 범위다.

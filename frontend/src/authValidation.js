@@ -1,5 +1,8 @@
 export function credentialError(values) {
   if (!values.email?.trim()) return "이메일을 입력해 주세요.";
+  return passwordError(values);
+}
+export function passwordError(values) {
   if (!values.password || values.password.length < 8 || !/[a-zA-Z]/.test(values.password)
       || !/[0-9]/.test(values.password) || new TextEncoder().encode(values.password).length > 72
       || values.password.includes("\0")) {

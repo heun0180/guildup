@@ -96,6 +96,10 @@ export function parseRetryAfter(value, now = Date.now()) {
 }
 
 export function redirectToLogin(error) {
+  if (error instanceof ApiError && error.code === "EMAIL_VERIFICATION_REQUIRED") {
+    window.location.replace("/email-verification.html");
+    return true;
+  }
   if (error instanceof ApiError && error.status === 401) {
     window.location.replace("/login.html");
     return true;

@@ -1,5 +1,8 @@
 import { Outlet, Route, Routes, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage.jsx";
+import EmailVerificationPage from "./pages/EmailVerificationPage.jsx";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage.jsx";
+import PasswordResetPage from "./pages/PasswordResetPage.jsx";
 import AccountSettingsPage from "./pages/AccountSettingsPage.jsx";
 import CommunitiesPage from "./pages/CommunitiesPage.jsx";
 import CommunityCreatePage from "./pages/CommunityCreatePage.jsx";
@@ -113,6 +116,9 @@ export default function App() {
       <Route path="/login.html" element={<LoginPage key="login" />} />
       <Route path="/signup.html" element={<LoginPage key="signup" signup />} />
       <Route path="/account.html" element={<AccountSettingsPage />} />
+      <Route path="/email-verification.html" element={<EmailVerificationPage />} />
+      <Route path="/forgot-password.html" element={<ForgotPasswordPage />} />
+      <Route path="/password-reset.html" element={<PasswordResetPage />} />
       <Route path="/about" element={<AboutPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />

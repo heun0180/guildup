@@ -19,15 +19,21 @@ public class AccountSettingsService {
     private final UserExternalAccountRepository externalAccounts;
     private final CommunityUserRepository memberships;
     private final CommunityMemberAccountRepository memberAccounts;
+    private final com.guildup.user.verification.EmailVerificationAccessPolicy verificationPolicy;
+    private final com.guildup.user.verification.EmailVerificationService verification;
 
     public AccountSettingsService(AuthSessionService sessions, UserCredentialRepository credentials,
                                   UserExternalAccountRepository externalAccounts, CommunityUserRepository memberships,
-                                  CommunityMemberAccountRepository memberAccounts) {
+                                  CommunityMemberAccountRepository memberAccounts,
+                                  com.guildup.user.verification.EmailVerificationAccessPolicy verificationPolicy,
+                                  com.guildup.user.verification.EmailVerificationService verification) {
         this.sessions = sessions;
         this.credentials = credentials;
         this.externalAccounts = externalAccounts;
         this.memberships = memberships;
         this.memberAccounts = memberAccounts;
+        this.verificationPolicy = verificationPolicy;
+        this.verification = verification;
     }
 
     @Transactional(readOnly = true)
@@ -47,12 +53,13 @@ public class AccountSettingsService {
                 credential.map(value -> value.isEmailVerified()).orElse(false), discord.isPresent(),
                 discord.map(value -> value.getExternalUsername()).orElse(null), conflicts,
                 user.getCreatedAt(), discord.map(value -> value.getExternalDisplayName()).orElse(null),
-                discord.map(value -> value.getExternalAvatarUrl()).orElse(null), discord.isPresent() && credential.isPresent());
+                discord.map(value -> value.getExternalAvatarUrl()).orElse(null), discord.isPresent() && credential.isPresent(), verificationPolicy.restricted(user.getId()), verification.status(user.getId()));
     }
 
     public record AccountResponse(LoginUserResponse user, String email, boolean emailVerified,
                                   boolean discordConnected, String discordUsername,
                                   List<MemberLinkConflict> memberLinkConflicts, java.time.Instant createdAt,
-                                  String discordDisplayName, String discordAvatarUrl, boolean canDisconnectDiscord) {}
+                                  String discordDisplayName, String discordAvatarUrl, boolean canDisconnectDiscord, boolean emailServiceRestricted,
+                                  com.guildup.user.verification.EmailVerificationService.Status emailVerification) {}
     public record MemberLinkConflict(Long communityId, String communityName) {}
 }

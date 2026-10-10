@@ -143,3 +143,16 @@
 .withdrawal-flow button { margin: 12px 12px 0 0; }
 .withdrawal-ack { display: flex; align-items: center; gap: 10px; margin: 20px 0; }
 .withdrawal-ack input { width: 18px; height: 18px; accent-color: #b42318; }
+
+.email-verification-panel { margin-block: 1rem; }
+.reset-card p { overflow-wrap: anywhere; }
+.reset-card .password-visibility { min-height: 44px; width: auto; justify-self: start; background: transparent; color: var(--color-primary-dark); }
+.reset-card .auth-submit, .reset-card .button-link { max-width: 100%; white-space: normal; min-height: 44px; }
+@media (max-width: 480px) {
+  .reset-card .button-link, .reset-card .auth-submit { width: 100%; }
+}
+.email-verification-panel button, .verification-card > button { max-width: 100%; white-space: normal; min-height: 44px; }
+.verification-card .message, .verification-card p { overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .verification-card .button-link, .email-verification-panel button, .verification-card > button { width: 100%; }
+}

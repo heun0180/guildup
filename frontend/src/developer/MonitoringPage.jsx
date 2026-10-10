@@ -197,12 +197,17 @@ export default function MonitoringPage() {
         {LOG_GROUPS.map(([value, label]) => <button key={value} type="button" aria-pressed={applied.group === value}
           className={applied.group === value ? "is-active" : ""} onClick={() => selectGroup(value)}>{label}</button>)}
       </div>
+      <datalist id="verification-event-codes">{["EMAIL_VERIFICATION_MAIL_FAILED", "EMAIL_VERIFICATION_INVALID",
+        "EMAIL_VERIFICATION_EXPIRED", "EMAIL_VERIFICATION_RATE_LIMITED", "EMAIL_VERIFICATION_ABUSE",
+        "EMAIL_VERIFICATION_COMPLETED", "PASSWORD_RESET_MAIL_FAILED", "PASSWORD_RESET_RATE_LIMITED",
+        "PASSWORD_RESET_INVALID", "PASSWORD_RESET_EXPIRED", "PASSWORD_RESET_REUSED", "PASSWORD_RESET_ABUSE",
+        "PASSWORD_RESET_COMPLETED", "PASSWORD_RESET_STORAGE_FAILED"].map((code) => <option key={code} value={code} />)}</datalist>
       <form className="panel monitoring-filters" onSubmit={(e) => { e.preventDefault(); setPage(0); setApplied(filters); }}>
         <label><span>Severity</span><select value={filters.severity} onChange={(e) => setFilters({ ...filters, severity: e.target.value })}>
           <option value="">전체</option><option>ERROR</option><option>WARN</option><option>INFO</option></select></label>
         <label><span>Category</span><select value={filters.category} onChange={(e) => setFilters({ ...filters, category: e.target.value })}>
           <option value="">전체</option>{CATEGORIES.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <label><span>Event Code</span><input value={filters.eventCode} placeholder="예: HTTP_5XX"
+        <label><span>Event Code</span><input value={filters.eventCode} placeholder="예: HTTP_5XX" list="verification-event-codes"
           maxLength={64} onChange={(e) => setFilters({ ...filters, eventCode: e.target.value.toUpperCase() })} /></label>
         <label><span>Community ID</span><input type="number" min="1" value={filters.communityId}
           onChange={(e) => setFilters({ ...filters, communityId: e.target.value })} /></label>

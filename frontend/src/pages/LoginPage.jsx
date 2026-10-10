@@ -57,7 +57,7 @@ export default function LoginPage({ signup = false }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       setValues({ email: "", password: "", passwordConfirmation: "", nickname: "" });
-      window.location.replace("/communities.html");
+      window.location.replace(signup ? "/email-verification.html" : "/communities.html");
     } catch (error) {
       if (!signup && error.status === 429) {
         const seconds = error.retryAfterSeconds ?? 5;
@@ -88,10 +88,11 @@ export default function LoginPage({ signup = false }) {
         <div className="auth-divider">또는</div>
         <a className={`button-link login-button${busy ? " disabled-link" : ""}`} href="/api/auth/discord/authorize"
           aria-disabled={busy} onClick={(event) => { if (busy) event.preventDefault(); }}>
-          <Icon name="discord" size={20} />Discord로 로그인
+          <Icon name="discord" size={20} />디스코드 로그인
         </a>
         <p className="auth-links">{signup ? <>이미 계정이 있으신가요? <AppLink href="/login.html">로그인</AppLink></>
           : <AppLink href="/signup.html">회원가입</AppLink>}</p>
+        {!signup && <p className="auth-links"><AppLink href="/forgot-password.html">비밀번호를 잊으셨나요?</AppLink></p>}
         {signup && <p className="auth-existing-account">이미 Discord로 GuildUp을 이용하고 계신가요?<br />
           Discord로 로그인한 뒤 <strong>계정</strong>에서 이메일 로그인을 추가해 주세요. 기존 기록을 그대로 사용할 수 있습니다.</p>}
       </section>

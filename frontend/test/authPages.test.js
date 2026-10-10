@@ -1,6 +1,6 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
@@ -25,8 +25,13 @@ await build({ stdin: { contents: `
   export { default as LoginPage } from "./src/pages/LoginPage.jsx";
   export { default as AccountSettingsPage } from "./src/pages/AccountSettingsPage.jsx";
   export { default as CommunitiesPage } from "./src/pages/CommunitiesPage.jsx";
+  export { default as EmailVerificationPage } from "./src/pages/EmailVerificationPage.jsx";
+  export { default as ForgotPasswordPage } from "./src/pages/ForgotPasswordPage.jsx";
+  export { default as PasswordResetPage } from "./src/pages/PasswordResetPage.jsx";
+  export { clearResetLinkToken } from "./src/passwordReset.js";
+  export { clearVerificationLinkToken } from "./src/emailVerification.js";
 `, resolveDir: process.cwd() }, outfile: output, bundle: true, platform: "node", format: "esm", jsx: "automatic", packages: "external" });
-const { LoginPage, AccountSettingsPage, CommunitiesPage } = await import(pathToFileURL(output));
+const { LoginPage, AccountSettingsPage, CommunitiesPage, EmailVerificationPage, clearVerificationLinkToken, ForgotPasswordPage, PasswordResetPage, clearResetLinkToken } = await import(pathToFileURL(output));
 after(() => rm(temp, { recursive: true, force: true }));
 const user = { id: 15, nickname: "기존 사용자", systemAdmin: false };
 const response = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
@@ -41,7 +46,7 @@ async function mount({ Component = LoginPage, props = {}, path = "/login.html", 
   const testWindow = new Proxy(dom.window, { get(target, key) {
     if (key === "location") return location;
     const value = Reflect.get(target, key, target);
-    return ["addEventListener", "removeEventListener", "setInterval", "clearInterval"].includes(key) ? value.bind(target) : value;
+    return ["addEventListener", "removeEventListener", "dispatchEvent", "setInterval", "clearInterval"].includes(key) ? value.bind(target) : value;
   } });
   const saved = new Map();
   for (const [key, value] of Object.entries({ window: testWindow, document: dom.window.document,
@@ -243,8 +248,10 @@ for (const signup of [false, true]) {
   test(`${signup ? "signup" : "login"} sends public authentication through CSRF and keeps Discord available`, async () => {
     const view = await mount({ props: { signup }, handle: (url) => url === (signup ? "/api/auth/signup" : "/api/auth/login") ? response(user, signup ? 201 : 200) : null });
     try {
-      assert.equal(document.querySelector('[href="/api/auth/discord/authorize"]').textContent.trim(), "Discord로 로그인");
-      assert.equal(document.body.textContent.includes("비밀번호 찾기"), false);
+      assert.equal(document.querySelector('[href="/api/auth/discord/authorize"]').textContent.trim(), "디스코드 로그인");
+      const forgot = document.querySelector('a[href="/forgot-password.html"]');
+      if (signup) assert.equal(forgot, null); else assert.equal(forgot.textContent, "비밀번호를 잊으셨나요?");
+      assert.ok(document.querySelector('[href="/api/auth/discord/authorize"] svg[aria-hidden="true"]'));
       await fill("email", "new@example.com"); await fill("password", "GuildUp123!");
       if (signup) { await fill("passwordConfirmation", "GuildUp123!"); await fill("nickname", "신규 사용자"); }
       await submit();
@@ -252,7 +259,7 @@ for (const signup of [false, true]) {
       assert.ok(mutation);
       assert.equal(new Headers(mutation.options.headers).get("X-CSRF-Token"), "anonymous-or-current-session-token");
       assert.equal(JSON.parse(mutation.options.body).email, "new@example.com");
-      assert.deepEqual(view.redirects, ["/communities.html"]);
+      assert.deepEqual(view.redirects, [signup ? "/email-verification.html" : "/communities.html"]);
       if (signup) assert.ok(document.querySelector(".auth-existing-account"));
     } finally { await view.close(); }
   });
@@ -310,7 +317,7 @@ test("email user starts Discord LINK_ACCOUNT with POST and CSRF", async () => {
     assert.equal(new Headers(link.options.headers).get("X-CSRF-Token"), "anonymous-or-current-session-token");
     assert.equal(view.requests.some(({ url }) => url === "/api/auth/discord/authorize"), false);
     assert.deepEqual(view.redirects, ["https://discord.com/oauth2/authorize?state=checked"]);
-    assert.match(document.body.textContent, /이메일 소유 인증은 아직 제공되지 않습니다/);
+    assert.match(document.body.textContent, /안전한 계정 이용을 위해 이메일 인증을 완료/);
   } finally { await view.close(); }
 });
 
@@ -478,5 +485,278 @@ test("server-side last-login-method rejection is shown without removing Discord"
     assert.match(document.querySelector('[role="alert"]').textContent, /이메일 로그인을 추가/);
     assert.ok(document.querySelector(".account-discord-identity"));
     assert.equal([...document.querySelectorAll("button")].some((item) => item.textContent === "Discord 연결"), false);
+  } finally { await view.close(); }
+});
+
+const verificationStatus = { hasEmailCredential: true, emailVerified: false, deliveryStatus: "SENT", retryAfterSeconds: 0 };
+for (const [deliveryStatus, text] of [["SENT", "메일함과 스팸함"], ["QUEUED", "발송 중"], ["FAILED", "가입 정보는 저장"]]) {
+  test(`verification waiting screen explains ${deliveryStatus} and links account/login`, async () => {
+    clearVerificationLinkToken();
+    const view = await mount({ Component: EmailVerificationPage, path: "/email-verification.html", handle: url =>
+      url === "/api/auth/email-verification" ? response({ ...verificationStatus, deliveryStatus }) : null });
+    try {
+      assert.match(document.body.textContent, /이메일 인증이 필요합니다/);
+      assert.ok(document.body.textContent.includes(text));
+      assert.ok(document.querySelector('a[href="/account.html"]'));
+      assert.equal(view.requests.some(({ url }) => url.endsWith("/confirm")), false);
+    } finally { await view.close(); }
+  });
+}
+
+test("verification link clears browser address and requires explicit CSRF protected confirmation", async () => {
+  clearVerificationLinkToken(); const raw = "A".repeat(43);
+  const view = await mount({ Component: EmailVerificationPage, path: `/email-verification.html#token=${raw}`, handle: url => {
+    if (url === "/api/auth/email-verification") return response(verificationStatus);
+    if (url.endsWith("/confirm")) return new Response(null, { status: 204 });
+    return null;
+  } });
+  try {
+    assert.equal(window.location.hash, "");
+    assert.equal(document.body.textContent.includes(raw), false);
+    assert.equal(view.requests.some(({ url }) => url.endsWith("/confirm")), false);
+    await clickText("이메일 인증 완료");
+    const confirmation = view.requests.find(({ url }) => url.endsWith("/confirm"));
+    assert.deepEqual(JSON.parse(confirmation.options.body), { token: raw });
+    assert.equal(confirmation.options.headers.get("X-CSRF-Token"), "anonymous-or-current-session-token");
+    assert.match(document.body.textContent, /이메일 인증이 완료되었습니다/);
+    assert.match(document.body.textContent, /이제 GuildUp을 이용할 수 있습니다/);
+    assert.equal(view.requests.some(({ url }) => url.includes(raw)), false);
+  } finally { await view.close(); }
+});
+
+for (const [code, message] of [["EMAIL_VERIFICATION_EXPIRED", "인증 링크가 만료되었습니다. 인증 메일을 다시 요청해 주세요."],
+  ["EMAIL_VERIFICATION_USED", "이미 사용한 인증 링크입니다. 계정 설정에서 인증 상태를 확인해 주세요."],
+  ["EMAIL_VERIFICATION_INVALID", "인증 링크를 확인할 수 없습니다. 최근 메일을 다시 열어 주세요."]]) {
+  test(`verification failure ${code} offers recovery`, async () => {
+    clearVerificationLinkToken();
+    const view = await mount({ Component: EmailVerificationPage, path: `/email-verification.html#token=${"B".repeat(43)}`, handle: url => {
+      if (url === "/api/auth/email-verification") return response(verificationStatus);
+      if (url.endsWith("/confirm")) return response({ code, message }, 400);
+      return null;
+    } });
+    try {
+      await clickText("이메일 인증 완료"); assert.equal(document.querySelector('[role="alert"]').textContent, message);
+      assert.ok([...document.querySelectorAll("button")].find(button => button.textContent === "인증 메일 다시 보내기"));
+    } finally { await view.close(); }
+  });
+}
+
+test("verification resend prevents consecutive clicks and reflects server cooldown", async () => {
+  clearVerificationLinkToken(); let resolveSend;
+  const view = await mount({ Component: EmailVerificationPage, path: "/email-verification.html", handle: url => {
+    if (url === "/api/auth/email-verification") return response(verificationStatus);
+    if (url.endsWith("/resend")) return new Promise(resolve => { resolveSend = resolve; });
+    return null;
+  } });
+  try {
+    const button = [...document.querySelectorAll("button")].find(button => button.textContent === "인증 메일 다시 보내기");
+    await act(async () => { button.click(); button.click(); });
+    assert.equal(view.requests.filter(({ url }) => url.endsWith("/resend")).length, 1);
+    assert.ok(button.disabled);
+    await act(async () => resolveSend(response({ ...verificationStatus, retryAfterSeconds: 60 })));
+    assert.ok(button.disabled); assert.match(button.textContent, /60초/);
+  } finally { await view.close(); }
+});
+
+test("expired session guides login then reopening the original link without leaking token", async () => {
+  clearVerificationLinkToken();
+  const view = await mount({ Component: EmailVerificationPage, path: `/email-verification.html#token=${"C".repeat(43)}`, handle: url =>
+    url === "/api/auth/email-verification" ? response({ message: "로그인이 필요합니다." }, 401) : null });
+  try {
+    assert.match(document.body.textContent, /로그인한 뒤 메일의 인증 링크를 다시/);
+    assert.equal(document.querySelectorAll(".verification-card button").length, 0);
+  } finally { await view.close(); }
+});
+
+test("Discord only account has no email verification warning or resend action", async () => {
+  const view = await mount({ Component: AccountSettingsPage, path: "/account.html", handle: url =>
+    url === "/api/auth/account" ? response({ user, email: null, discordConnected: true, memberLinkConflicts: [] }) : null });
+  try {
+    assert.equal(document.body.textContent.includes("인증 필요"), false);
+    assert.equal(document.querySelector(".email-verification-panel"), null);
+  } finally { await view.close(); }
+});
+
+test("forgot password page sends only email with CSRF and displays the same generic acknowledgement", async () => {
+  const view = await mount({ Component: ForgotPasswordPage, path: "/forgot-password.html", handle: url =>
+    url === "/api/auth/password-reset/request" ? response({ message: "accepted" }, 202) : null });
+  try {
+    assert.equal(document.querySelector("h1").textContent, "비밀번호 찾기");
+    assert.match(document.body.textContent, /가입하신 이메일 주소를 입력하면/);
+    assert.equal(document.querySelector('[name="email"]').type, "email");
+    await fill("email", "missing@example.com"); await submit();
+    const request = view.requests.find(({ url }) => url === "/api/auth/password-reset/request");
+    assert.deepEqual(JSON.parse(request.options.body), { email: "missing@example.com" });
+    assert.equal(request.options.headers.get("X-CSRF-Token"), "anonymous-or-current-session-token");
+    assert.match(document.querySelector('[role="status"]').textContent, /재설정 안내를 보낼 수 있는 경우 잠시 후 이메일이 발송됩니다/);
+    assert.equal(document.querySelector('[name="email"]'), null);
+    assert.deepEqual(view.redirects, []);
+  } finally { await view.close(); }
+});
+
+test("forgot password prevents duplicate submissions while loading and allows retry after network failure", async () => {
+  let finish;
+  const view = await mount({ Component: ForgotPasswordPage, path: "/forgot-password.html", handle: url =>
+    url === "/api/auth/password-reset/request" ? new Promise(resolve => { finish = resolve; }) : null });
+  try {
+    await fill("email", "user@example.com");
+    await act(async () => {
+      const form = document.querySelector("form");
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(view.requests.filter(({ url }) => url === "/api/auth/password-reset/request").length, 1);
+    assert.equal(document.querySelector(".auth-submit").disabled, true);
+    assert.equal(document.querySelector(".auth-submit").textContent, "요청 중...");
+    await act(async () => finish(response({ message: "서버 처리 중 오류가 발생했습니다." }, 503)));
+    assert.match(document.querySelector('[role="alert"]').textContent, /오류/);
+    assert.equal(document.querySelector(".auth-submit").disabled, false);
+  } finally { await view.close(); }
+});
+
+test("reset link is removed before requests and validation alone never consumes it", async () => {
+  clearResetLinkToken(); const raw = "R".repeat(43);
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${raw}`, handle: url =>
+    url === "/api/auth/password-reset/validate" ? new Response(null, { status: 204 }) : null });
+  try {
+    assert.equal(window.location.hash, "");
+    assert.equal(document.querySelector("h1").textContent, "새 비밀번호 설정");
+    assert.equal(view.requests.some(({ url }) => url.endsWith("/confirm")), false);
+    assert.equal(document.body.textContent.includes(raw), false);
+    assert.equal(view.requests.some(({ url }) => url.includes(raw)), false);
+    const validation = view.requests.find(({ url }) => url.endsWith("/validate"));
+    assert.deepEqual(JSON.parse(validation.options.body), { token: raw });
+    assert.ok(validation.options.headers.get("X-CSRF-Token"));
+    assert.equal(window.localStorage.length, 0); assert.equal(window.sessionStorage.length, 0);
+    assert.equal(document.querySelector('[name="password"]').autocomplete, "new-password");
+  } finally { await view.close(); }
+});
+
+test("reset page toggles visibility, validates password policy and confirms an exact match", async () => {
+  clearResetLinkToken();
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${"S".repeat(43)}`, handle: url =>
+    url.endsWith("/validate") ? new Response(null, { status: 204 }) : null });
+  try {
+    await clickText("비밀번호 표시");
+    assert.equal(document.querySelector('[name="password"]').type, "text");
+    assert.equal(document.querySelector('[name="passwordConfirmation"]').type, "text");
+    assert.equal(document.querySelector(".password-visibility").getAttribute("aria-pressed"), "true");
+    await clickText("비밀번호 숨기기"); assert.equal(document.querySelector('[name="password"]').type, "password");
+    await fill("password", "short1"); await fill("passwordConfirmation", "short1"); await submit();
+    assert.match(document.querySelector('[role="alert"]').textContent, /8자 이상/);
+    await fill("password", "GuildUp456!"); await fill("passwordConfirmation", "Other123!"); await submit();
+    assert.match(document.querySelector('[role="alert"]').textContent, /일치하지 않습니다/);
+    assert.equal(view.requests.some(({ url }) => url.endsWith("/confirm")), false);
+    await fill("passwordConfirmation", "GuildUp456!");
+    assert.equal(document.querySelector("#reset-password-match").textContent, "비밀번호가 일치합니다.");
+  } finally { await view.close(); }
+});
+
+test("reset success clears passwords, shows re-login action and never logs in automatically", async () => {
+  clearResetLinkToken(); const raw = "T".repeat(43);
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${raw}`, handle: url =>
+    url.endsWith("/validate") || url.endsWith("/confirm") ? new Response(null, { status: 204 }) : null });
+  try {
+    await fill("password", "NewPass123!"); await fill("passwordConfirmation", "NewPass123!"); await submit();
+    const confirmation = view.requests.find(({ url }) => url.endsWith("/confirm"));
+    assert.deepEqual(JSON.parse(confirmation.options.body), { token: raw, password: "NewPass123!", passwordConfirmation: "NewPass123!" });
+    assert.ok(confirmation.options.headers.get("X-CSRF-Token"));
+    assert.equal(document.querySelector('[role="status"]').textContent, "비밀번호가 변경되었습니다.새로운 비밀번호로 로그인해 주세요.");
+    assert.equal(document.querySelector('.reset-card a[href="/login.html"]').textContent, "로그인하러 가기");
+    assert.equal(document.querySelectorAll("input").length, 0);
+    assert.equal(view.requests.some(({ url }) => url === "/api/auth/login"), false);
+    assert.deepEqual(view.redirects, []);
+  } finally { await view.close(); }
+});
+
+test("reset confirm prevents consecutive submissions and shows loading", async () => {
+  clearResetLinkToken(); let finish;
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${"U".repeat(43)}`, handle: url => {
+    if (url.endsWith("/validate")) return new Response(null, { status: 204 });
+    if (url.endsWith("/confirm")) return new Promise(resolve => { finish = resolve; });
+    return null;
+  } });
+  try {
+    await fill("password", "NewPass123!"); await fill("passwordConfirmation", "NewPass123!");
+    await act(async () => {
+      const form = document.querySelector("form");
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(view.requests.filter(({ url }) => url.endsWith("/confirm")).length, 1);
+    assert.equal(document.querySelector(".auth-submit").textContent, "변경 중...");
+    assert.ok(document.querySelector(".auth-submit").disabled);
+    await act(async () => finish(new Response(null, { status: 204 })));
+    assert.match(document.body.textContent, /비밀번호가 변경되었습니다/);
+  } finally { await view.close(); }
+});
+
+for (const [code, message] of [["PASSWORD_RESET_EXPIRED", "재설정 링크가 만료되었습니다. 비밀번호 찾기에서 새 링크를 요청해 주세요."],
+  ["PASSWORD_RESET_INVALID", "재설정 링크를 사용할 수 없습니다. 비밀번호 찾기에서 새 링크를 요청해 주세요."],
+  ["PASSWORD_RESET_REUSED", "재설정 링크를 사용할 수 없습니다. 비밀번호 찾기에서 새 링크를 요청해 주세요."]]) {
+  test(`reset invalid link ${code} hides password inputs and provides recovery`, async () => {
+    clearResetLinkToken();
+    const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${"V".repeat(43)}`, handle: url =>
+      url.endsWith("/validate") ? response({ code, message }, 400) : null });
+    try {
+      assert.equal(document.querySelector('[role="alert"]').textContent, message);
+      assert.equal(document.querySelectorAll("input").length, 0);
+      assert.ok(document.querySelector('a[href="/forgot-password.html"]'));
+      assert.equal(view.requests.some(({ url }) => url.endsWith("/confirm")), false);
+    } finally { await view.close(); }
+  });
+}
+
+test("token that expires during editing cannot submit and preserves the expiration explanation", async () => {
+  clearResetLinkToken();
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${"W".repeat(43)}`, handle: url => {
+    if (url.endsWith("/validate")) return new Response(null, { status: 204 });
+    if (url.endsWith("/confirm")) return response({ code: "PASSWORD_RESET_EXPIRED", message: "재설정 링크가 만료되었습니다." }, 400);
+    return null;
+  } });
+  try {
+    await fill("password", "NewPass123!"); await fill("passwordConfirmation", "NewPass123!"); await submit();
+    assert.equal(document.querySelector('[role="alert"]').textContent, "재설정 링크가 만료되었습니다.");
+    assert.equal(document.querySelectorAll("input").length, 0);
+    assert.ok(document.querySelector('a[href="/forgot-password.html"]'));
+  } finally { await view.close(); }
+});
+
+test("missing reset token shows recovery without sending validation or mutation", async () => {
+  clearResetLinkToken();
+  const view = await mount({ Component: PasswordResetPage, path: "/password-reset.html" });
+  try {
+    assert.match(document.querySelector('[role="alert"]').textContent, /새 링크를 요청/);
+    assert.equal(view.requests.some(({ url }) => url.includes("/password-reset/")), false);
+  } finally { await view.close(); }
+});
+
+test("reset HTML removes fragment before bundle loading and uses no-referrer with responsive viewport", async () => {
+  const html = await readFile(resolve("password-reset.html"), "utf8");
+  assert.match(html, /name="referrer" content="no-referrer"/);
+  assert.match(html, /name="viewport" content="width=device-width, initial-scale=1.0"/);
+  assert.ok(html.indexOf("history.replaceState") < html.indexOf('src="/src/main.jsx"'));
+  const css = await readFile(resolve("src/styles/onboarding.css"), "utf8");
+  assert.match(css, /@media \(max-width: 480px\)[\s\S]*\.reset-card/);
+});
+
+test("opening another reset link in the same browser tab validates it and clears the previous success", async () => {
+  clearResetLinkToken();
+  const view = await mount({ Component: PasswordResetPage, path: `/password-reset.html#token=${"X".repeat(43)}`, handle: url => {
+    if (url.endsWith("/validate") || url.endsWith("/confirm")) return new Response(null, { status: 204 });
+    return null;
+  } });
+  try {
+    await fill("password", "NewPass123!"); await fill("passwordConfirmation", "NewPass123!"); await submit();
+    assert.match(document.body.textContent, /비밀번호가 변경되었습니다/);
+    await act(async () => {
+      window.history.replaceState(null, "", `/password-reset.html#token=${"Y".repeat(43)}`);
+      window.dispatchEvent(new window.Event("hashchange"));
+    });
+    assert.equal(window.location.hash, "");
+    assert.equal(document.querySelector('[name="password"]').value, "");
+    const validation = view.requests.filter(({ url }) => url.endsWith("/validate")).at(-1);
+    assert.deepEqual(JSON.parse(validation.options.body), { token: "Y".repeat(43) });
+    assert.equal(document.querySelector(".auth-success"), null);
   } finally { await view.close(); }
 });

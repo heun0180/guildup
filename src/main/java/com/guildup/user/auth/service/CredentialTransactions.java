@@ -15,17 +15,23 @@ import org.springframework.transaction.annotation.Transactional;
 public class CredentialTransactions {
     private final UserRepository users;
     private final UserCredentialRepository credentials;
+    private final com.guildup.user.verification.EmailVerificationService verification;
 
-    public CredentialTransactions(UserRepository users, UserCredentialRepository credentials) {
+    public CredentialTransactions(UserRepository users, UserCredentialRepository credentials,
+                                  com.guildup.user.verification.EmailVerificationService verification) {
         this.users = users;
         this.credentials = credentials;
+        this.verification = verification;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public User register(String email, String passwordHash, String nickname) {
         if (credentials.existsByEmail(email)) throw duplicateEmail();
         User user = users.save(new User(nickname));
-        credentials.saveAndFlush(new UserCredential(user, email, passwordHash));
+        var credential = new UserCredential(user, email, passwordHash);
+        credential.requireEmailVerification();
+        credentials.saveAndFlush(credential);
+        verification.issueInitial(credential);
         return user;
     }
 
@@ -35,7 +41,8 @@ public class CredentialTransactions {
                 new AuthException(HttpStatus.UNAUTHORIZED, "LOGIN_REQUIRED", "로그인이 필요합니다."));
         if (credentials.existsByUserId(userId)) throw credentialAlreadyAdded();
         if (credentials.existsByEmail(email)) throw duplicateEmail();
-        credentials.saveAndFlush(new UserCredential(user, email, passwordHash));
+        var credential = credentials.saveAndFlush(new UserCredential(user, email, passwordHash));
+        verification.issueInitial(credential);
         return user;
     }
 

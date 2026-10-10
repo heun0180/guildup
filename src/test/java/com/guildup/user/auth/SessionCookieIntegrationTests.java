@@ -36,6 +36,8 @@ class SessionCookieIntegrationTests {
     @MockitoBean DiscordBot bot;
     @MockitoBean DiscordLoginService login;
     @org.springframework.beans.factory.annotation.Autowired com.guildup.user.repository.UserRepository users;
+    @org.springframework.beans.factory.annotation.Autowired com.guildup.user.repository.UserCredentialRepository credentials;
+    @org.springframework.beans.factory.annotation.Autowired com.guildup.user.reset.PasswordResetTokenRepository resetTokens;
     final HttpClient client = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
 
     @Test
@@ -160,6 +162,35 @@ class SessionCookieIntegrationTests {
         assertThat(cookie).contains("HttpOnly", "Path=/", "SameSite=Lax");
         if (secureCookieExpected()) assertThat(cookie).contains("Secure");
         else assertThat(cookie).doesNotContain("Secure");
+    }
+
+    @Test void passwordResetRevokesRealCookiesForBothBrowsersAndRequiresNewPasswordLogin() throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String email = UUID.randomUUID() + "@example.com", oldPassword = "CookieOld123!", newPassword = "CookieNew123!";
+        var anonymous = get("/api/auth/csrf", null);
+        var signup = postJson("/api/auth/signup", sessionCookie(anonymous), json.readTree(anonymous.body()).get("token").asText(),
+                Map.of("email", email, "password", oldPassword, "passwordConfirmation", oldPassword, "nickname", "재설정 쿠키 테스트"));
+        assertThat(signup.statusCode()).isEqualTo(201); String first = sessionCookie(signup);
+        var other = get("/api/auth/csrf", null);
+        var login = postJson("/api/auth/login", sessionCookie(other), json.readTree(other.body()).get("token").asText(), Map.of("email", email, "password", oldPassword));
+        assertThat(login.statusCode()).isEqualTo(200); String second = sessionCookie(login);
+        var credential = credentials.findByEmail(email).orElseThrow();
+        String raw = com.guildup.user.reset.PasswordResetTokens.generate(); var now = java.time.Instant.now();
+        resetTokens.saveAndFlush(new com.guildup.user.reset.PasswordResetToken(credential,
+                com.guildup.user.reset.PasswordResetTokens.hash(raw), now, now.plusSeconds(1800)));
+        var resetSession = get("/api/auth/csrf", null);
+        String resetCookie = sessionCookie(resetSession), csrf = json.readTree(resetSession.body()).get("token").asText();
+        var reset = postJson("/api/auth/password-reset/confirm", resetCookie, csrf,
+                Map.of("token", raw, "password", newPassword, "passwordConfirmation", newPassword));
+        assertThat(reset.statusCode()).isEqualTo(204);
+        assertThat(get("/api/auth/me", first).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/me", second).statusCode()).isEqualTo(401);
+        assertThat(get("/api/auth/me", resetCookie).statusCode()).isEqualTo(401);
+        assertThat(postJson("/api/auth/login", resetCookie, csrf, Map.of("email", email, "password", oldPassword)).statusCode()).isEqualTo(401);
+        var fresh = postJson("/api/auth/login", resetCookie, csrf, Map.of("email", email, "password", newPassword));
+        assertThat(fresh.statusCode()).isEqualTo(200);
+        assertThat(get("/api/auth/me", sessionCookie(fresh)).statusCode()).isEqualTo(200);
+        assertThat(json.readTree(fresh.body()).get("id").asLong()).isEqualTo(credential.getUser().getId());
     }
 
     private HttpResponse<String> get(String path, String cookie) throws Exception {

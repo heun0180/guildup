@@ -44,6 +44,14 @@ public class User {
     @Column(name = "withdrawn_at")
     private Instant withdrawnAt;
 
+    /** 인증 변경 전 세션과 재설정 링크를 모든 서버에서 거부하는 영속 버전. */
+    @Column(name = "authentication_version", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private long authenticationVersion;
+
+    public long getAuthenticationVersion() { return authenticationVersion; }
+    public void advanceAuthenticationVersion() { authenticationVersion = Math.incrementExact(authenticationVersion); }
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

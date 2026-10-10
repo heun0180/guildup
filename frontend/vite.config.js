@@ -7,6 +7,8 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
+        emailVerification: fileURLToPath(new URL("./email-verification.html", import.meta.url)),
+        passwordReset: fileURLToPath(new URL("./password-reset.html", import.meta.url)),
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         rankings: fileURLToPath(new URL("./rankings.html", import.meta.url)),
         killCompetitions: fileURLToPath(new URL("./kill-competitions.html", import.meta.url)),

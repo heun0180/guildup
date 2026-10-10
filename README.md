@@ -84,7 +84,7 @@ flowchart LR
     Services --> DiscordREST[Discord OAuth / REST API]
     Services --> JDA[JDA Gateway / Bot]
     Services --> PUBG[PUBG JSON:API / Telemetry]
-    Services --> SMTP[Gmail SMTP]
+    Services --> SMTP[SMTP 서버]
 ```
 
 대표적인 실제 호출 경로는 다음과 같다.
@@ -369,7 +369,7 @@ guildup-backend/
 - PostgreSQL
 - Discord Application/Bot과 OAuth redirect URI
 - PUBG API key
-- 문의 메일을 사용할 경우 Gmail SMTP 계정과 앱 비밀번호
+- 문의/인증 메일을 사용할 경우 SMTP 서버 접속 정보와 공식 발신 주소 사용 권한
 
 ### 데이터베이스 생성
 
@@ -404,8 +404,12 @@ export DISCORD_CLIENT_SECRET=...
 export DISCORD_REDIRECT_URI=http://localhost:5173/api/discord/oauth/callback
 export DISCORD_BOT_TOKEN=...
 export PUBG_API_KEY=...
+export MAIL_HOST=...
+export MAIL_PORT=587
 export MAIL_USERNAME=...
 export MAIL_PASSWORD=...
+export MAIL_FROM=noreply@guild-up.com
+export MAIL_FROM_NAME=GuildUp
 
 ./mvnw spring-boot:run
 ```
@@ -427,6 +431,12 @@ npm run dev
 이메일 로그인 공격 방어 정책, 신규 환경변수, Nginx 신뢰 설정, 수동 SQL과 검증 결과는
 [로그인 보안 1단계 보고서](LOGIN_SECURITY_READINESS.md)를 참고한다. 운영 배포 전 전달 헤더 설정을 확인해야 한다.
 
+이메일 인증 2단계 구현, 기존 미인증/Discord 계정 보호, 수동 DB 변경, SMTP 및 단계적 적용 설정은 [이메일 인증 배포 보고서](EMAIL_VERIFICATION_READINESS.md)를 참고한다. 기본값은 신규 계정 기능 제한 비활성화이며, 실제 HTTPS 인증 URL과 SMTP 설정을 운영자가 별도로 확인해야 한다.
+
+비밀번호 찾기·재설정 3단계의 API, 인증 버전 기반 전체 세션 차단, 메일 예산, 수동 SQL과 테스트 결과는 [비밀번호 재설정 배포 보고서](PASSWORD_RESET_READINESS.md)를 참고한다. 재설정 메일은 기본/prod 비활성화이며, local 프로필은 수동 테스트를 위해 활성화한다. `PASSWORD_RESET_MAIL_ENABLED=false`로 로컬 발송을 차단할 수 있다. 운영자가 `add_password_reset.sql`과 React `dist/` 반영, 민감 페이지 응답 헤더, 실제 `PASSWORD_RESET_URL`을 확인한 뒤 `PASSWORD_RESET_MAIL_ENABLED=true`로 활성화한다. 기존 Resend SMTP 설정을 공유한다.
+
+문의/인증 메일은 `MAIL_*` 환경변수로 설정한 공통 SMTP를 공유하며 공식 발신 주소 기본값은 `noreply@guild-up.com`이다. 표시 이름은 `MAIL_FROM_NAME`을 함께 사용한다. 문의 알림 수신처는 기존 `heun0180@gmail.com`을 유지한다. 설정 구분, Reply-To, 회귀 테스트 및 전환 확인 후 기존 Gmail 앱 비밀번호의 운영자 직접 폐기는 [SMTP 설정 안내](SMTP_MIGRATION.md)를 참고한다.
+
 실제 값은 커밋하거나 README에 기록하지 않는다. 저장소에는 `.env.example`이 없다.
 
 | 변수 | 필수 시점 | 용도 |
@@ -436,8 +446,15 @@ npm run dev
 | `DISCORD_REDIRECT_URI` | 커뮤니티 Discord 연결 | Discord OAuth callback URI |
 | `DISCORD_BOT_TOKEN` | 백엔드 시작 | JDA Bot 로그인 |
 | `PUBG_API_KEY` | PUBG 기능 호출 | PUBG API Bearer key |
-| `MAIL_USERNAME` | 문의 메일 발송 | SMTP 발신 계정 |
-| `MAIL_PASSWORD` | 문의 메일 발송 | Gmail 앱 비밀번호 |
+| `MAIL_HOST` | 문의/인증 메일 발송 | SMTP 호스트. 기본 `localhost`; 실제 발송 서버를 지정 |
+| `MAIL_PORT` | 선택 | SMTP 포트. 기본 `587` |
+| `MAIL_USERNAME` | 문의/인증 메일 발송 | SMTP 인증 사용자명. 공식 From과 별개 |
+| `MAIL_PASSWORD` | 문의/인증 메일 발송 | SMTP 인증 비밀번호/API key. 특정 업체의 키 변수에 의존하지 않음 |
+| `MAIL_FROM` | 선택 | 공통 발신 이메일 주소. 기본 `noreply@guild-up.com` |
+| `MAIL_FROM_NAME` | 선택 | 공통 발신 표시 이름. 기본 `GuildUp`; 빈 값은 이름 생략 |
+| `FEEDBACK_MAIL_TO` | 선택 | 문의/건의 알림 수신처. 기본 `heun0180@gmail.com` 유지 |
+| `MAIL_REPLY_TO` | 회신이 필요한 메일 | 실제 수신 가능한 회신 주소. 기본 미설정 |
+| `EMAIL_VERIFICATION_URL` | 운영 인증 메일 발송 | 실제 프론트엔드 HTTPS 인증 화면 주소 |
 | `SPRING_DATASOURCE_URL` | DB override | PostgreSQL JDBC URL |
 | `SPRING_DATASOURCE_USERNAME` | DB override | PostgreSQL 사용자 |
 | `SPRING_DATASOURCE_PASSWORD` | DB override | PostgreSQL 비밀번호 |
@@ -452,6 +469,7 @@ npm run dev
 | `SESSION_COOKIE_SECURE` | HTTPS 운영 배포 | 세션 쿠키 Secure 플래그. 기본 로컬 환경은 `false`, `prod` profile은 `true` |
 
 Spring Boot relaxed binding으로 `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT` 등 표준 property override도 사용할 수 있다.
+공통 설정은 기존 `MAIL_*` 환경변수로 통일한다. 같은 항목의 `SPRING_MAIL_*`, `APP_MAIL_FROM`, `APP_MAIL_FROM_NAME`, JVM/실행 인수가 함께 있으면 Spring 설정 우선순위에 따라 덮어쓸 수 있으므로 중복 설정을 피한다. `RESEND_API_KEY`, `EMAIL_VERIFICATION_FROM`은 사용하지 않는다. local/prod 프로필에는 별도 SMTP/From override가 없다.
 
 세션 인증은 Discord 로그인 성공 시 Servlet `changeSessionId()`로 ID를 교체하며 기존 세션 속성을 유지한다.
 동일 출처의 상태 변경 API는 로그인 세션과 `X-CSRF-Token` 헤더가 필요하다. `GET /api/auth/csrf`에서

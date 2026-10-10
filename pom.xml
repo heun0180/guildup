@@ -91,6 +91,9 @@
                     <systemPropertyVariables>
                         <!-- Existing flow tests assert persisted events synchronously. Async isolation has dedicated tests. -->
                         <monitoring.events.async>false</monitoring.events.async>
+                        <!-- Never deliver real SMTP mail in the test suite. Dedicated tests mock mail. -->
+                        <auth.email-verification.mail-enabled>false</auth.email-verification.mail-enabled>
+                        <auth.password-reset.mail-enabled>false</auth.password-reset.mail-enabled>
                     </systemPropertyVariables>
                     <!-- Java 21 환경에서 Mockito의 동적 self-attach에 의존하지 않는다. -->
                     <argLine>-javaagent:"${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar"</argLine>

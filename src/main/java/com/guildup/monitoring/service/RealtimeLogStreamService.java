@@ -22,6 +22,7 @@ public class RealtimeLogStreamService {
     private static final long STREAM_MILLIS = 60_000;
     private final RealtimeLogBuffer buffer;
     private final DeveloperAccessService access;
+    private final com.guildup.user.auth.service.AuthSessionService sessions;
     // Fixed slots + no queue: stalled clients can never create an unbounded backlog of send tasks.
     private final ThreadPoolExecutor senders = new ThreadPoolExecutor(MAX_CONNECTIONS, MAX_CONNECTIONS,
             0, TimeUnit.MILLISECONDS, new SynchronousQueue<>(), runnable -> {
@@ -31,9 +32,11 @@ public class RealtimeLogStreamService {
             }, new ThreadPoolExecutor.AbortPolicy());
     private final Map<SseEmitter, AtomicBoolean> emitters = new ConcurrentHashMap<>();
 
-    public RealtimeLogStreamService(RealtimeLogBuffer buffer, DeveloperAccessService access) {
+    public RealtimeLogStreamService(RealtimeLogBuffer buffer, DeveloperAccessService access,
+                                   com.guildup.user.auth.service.AuthSessionService sessions) {
         this.buffer = buffer;
         this.access = access;
+        this.sessions = sessions;
     }
 
     public SseEmitter open(HttpSession session, String lastId, java.util.function.BooleanSupplier responseCommitted) {
@@ -43,6 +46,8 @@ public class RealtimeLogStreamService {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인 후 이용해 주세요.");
         }
         access.requireSystemAdmin(userId); // Defense in depth in addition to DeveloperAccessInterceptor.
+        if (!sessions.isSessionCurrent(session, userId))
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인 후 이용해 주세요.");
         SseEmitter emitter = createEmitter();
         AtomicBoolean active = new AtomicBoolean(true);
         Runnable remove = () -> { active.set(false); emitters.remove(emitter); };
@@ -71,6 +76,8 @@ public class RealtimeLogStreamService {
             while (active.get() && elapsed(started) < STREAM_MILLIS) {
                 // Logout ends delivery immediately; role changes are checked every heartbeat.
                 if (!sessionStillValid(session, userId)) break;
+                // Password reset on another instance revokes already-open streams on the next 250ms poll.
+                if (!sessions.isSessionCurrent(session, userId)) break;
                 // The ready frame is the only pre-initialization send. Otherwise Spring's
                 // earlySendAttempts collection could bypass the bounded application buffer.
                 if (!responseCommitted.getAsBoolean()) { Thread.sleep(250); continue; }

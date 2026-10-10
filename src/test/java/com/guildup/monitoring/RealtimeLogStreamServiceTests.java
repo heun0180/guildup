@@ -11,8 +11,13 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RealtimeLogStreamServiceTests {
+    private com.guildup.user.auth.service.AuthSessionService sessions() {
+        var sessions = mock(com.guildup.user.auth.service.AuthSessionService.class);
+        when(sessions.isSessionCurrent(any(), anyLong())).thenReturn(true);
+        return sessions;
+    }
     @Test void sessionInvalidatedBetweenInterceptorAndOpenRemainsUnauthorized() {
-        var service = new RealtimeLogStreamService(new RealtimeLogBuffer(1000), mock(DeveloperAccessService.class));
+        var service = new RealtimeLogStreamService(new RealtimeLogBuffer(1000), mock(DeveloperAccessService.class), sessions());
         var session = new MockHttpSession(); session.invalidate();
         try {
             assertThatThrownBy(() -> service.open(session, null, () -> false))
@@ -24,7 +29,7 @@ class RealtimeLogStreamServiceTests {
 
     @Test void limitsConnectionsAndReleasesClosedSessions() throws Exception {
         var access = mock(DeveloperAccessService.class);
-        var service = new RealtimeLogStreamService(new RealtimeLogBuffer(1000), access);
+        var service = new RealtimeLogStreamService(new RealtimeLogBuffer(1000), access, sessions());
         var session = new MockHttpSession(); session.setAttribute(CurrentUserSession.USER_ID, 7L);
         try {
             for (int i = 0; i < 4; i++) service.open(session, null, () -> false);
@@ -41,7 +46,7 @@ class RealtimeLogStreamServiceTests {
 
     @Test void uninitializedResponseCannotAccumulateUnboundedEarlySends() throws Exception {
         var buffer = new RealtimeLogBuffer(1000);
-        var service = new RealtimeLogStreamService(buffer, mock(DeveloperAccessService.class));
+        var service = new RealtimeLogStreamService(buffer, mock(DeveloperAccessService.class), sessions());
         var session = new MockHttpSession(); session.setAttribute(CurrentUserSession.USER_ID, 7L);
         try {
             var emitter = service.open(session, null, () -> false);
@@ -70,7 +75,7 @@ class RealtimeLogStreamServiceTests {
             @Override public void complete() { completes.incrementAndGet(); }
         };
         var buffer = new RealtimeLogBuffer(1000); buffer.append(logEvent(1));
-        var service = new RealtimeLogStreamService(buffer, mock(DeveloperAccessService.class)) {
+        var service = new RealtimeLogStreamService(buffer, mock(DeveloperAccessService.class), sessions()) {
             @Override protected org.springframework.web.servlet.mvc.method.annotation.SseEmitter createEmitter() { return emitter; }
         };
         var session = new MockHttpSession(); session.setAttribute(CurrentUserSession.USER_ID, 7L);
@@ -89,5 +94,19 @@ class RealtimeLogStreamServiceTests {
                 ch.qos.logback.classic.Level.INFO, "matchId=" + number, null, null);
         event.setMDCPropertyMap(java.util.Map.of());
         return event;
+    }
+
+    @Test void authenticationVersionChangeEndsAlreadyOpenStreamEvenIfRemoteSessionWasNotPhysicallyInvalidated() throws Exception {
+        var sessions = sessions(); var current = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(sessions.isSessionCurrent(any(), anyLong())).thenAnswer(call -> current.get());
+        var service = new RealtimeLogStreamService(new RealtimeLogBuffer(1000), mock(DeveloperAccessService.class), sessions);
+        var session = new MockHttpSession(); session.setAttribute(CurrentUserSession.USER_ID, 7L);
+        try {
+            service.open(session, null, () -> false); assertThat(service.connectionCount()).isEqualTo(1);
+            current.set(false);
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(3);
+            while (service.connectionCount() != 0 && System.nanoTime() < deadline) Thread.sleep(20);
+            assertThat(session.isInvalid()).isFalse(); assertThat(service.connectionCount()).isZero();
+        } finally { service.close(); }
     }
 }

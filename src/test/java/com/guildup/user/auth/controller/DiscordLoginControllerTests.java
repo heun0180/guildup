@@ -28,6 +28,12 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 
 class DiscordLoginControllerTests {
+    private void activeAuthenticationState(Long id) {
+        var state = mock(UserRepository.AuthenticationState.class);
+        when(state.getStatus()).thenReturn(com.guildup.user.domain.UserStatus.ACTIVE);
+        when(state.getVersion()).thenReturn(0L);
+        when(users.authenticationState(id)).thenReturn(Optional.of(state));
+    }
 
     private final DiscordOAuthProperties discordOAuthProperties =
             mock(DiscordOAuthProperties.class);
@@ -72,6 +78,7 @@ class DiscordLoginControllerTests {
         when(user.getId()).thenReturn(10L);
         when(user.isActive()).thenReturn(true);
         when(users.findById(10L)).thenReturn(Optional.of(user));
+        activeAuthenticationState(10L);
 
         when(discordLoginService.getDiscordUser(
                 "authorization-code",
@@ -187,6 +194,7 @@ class DiscordLoginControllerTests {
 
     @Test
     void returnsCurrentLoginUser() throws Exception {
+        activeAuthenticationState(10L);
         MockHttpSession session = new MockHttpSession();
 
         session.setAttribute("LOGIN_USER_ID", 10L);
@@ -238,7 +246,7 @@ class DiscordLoginControllerTests {
                 )
                 .andExpect(status().isUnauthorized());
 
-        verify(users).findById(999L);
+        verify(users).authenticationState(999L);
     }
 
     @Test

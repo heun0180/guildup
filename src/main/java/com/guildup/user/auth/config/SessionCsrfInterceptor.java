@@ -22,6 +22,7 @@ public class SessionCsrfInterceptor implements HandlerInterceptor {
         // 실제 매핑된 Handler를 기준으로 보호한다. 인코딩/세미콜론 경로로 우회할 수 없다.
         boolean publicAuthentication = com.guildup.user.auth.controller.AuthController.class.isAssignableFrom(method.getBeanType())
                 && PUBLIC_AUTH_MUTATIONS.contains(method.getMethod().getName());
+        publicAuthentication |= com.guildup.user.reset.PasswordResetController.class.isAssignableFrom(method.getBeanType());
         // 회원가입/로그인 CSRF도 보호한다. 다른 익명 API의 기존 401 정책은 유지한다.
         try {
             if (!publicAuthentication && (session == null

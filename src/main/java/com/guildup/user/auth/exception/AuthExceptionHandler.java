@@ -8,6 +8,13 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 @org.springframework.core.annotation.Order(0)
 public class AuthExceptionHandler {
+    @ExceptionHandler(com.guildup.user.verification.EmailVerificationRateLimitedException.class)
+    public ResponseEntity<AuthErrorResponse> verificationLimited(com.guildup.user.verification.EmailVerificationRateLimitedException exception) {
+        return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())
+                .header("Retry-After", Long.toString(exception.getRetryAfter()))
+                .body(new AuthErrorResponse(exception.getCode(), exception.getMessage()));
+    }
+
     @ExceptionHandler(LoginRateLimitedException.class)
     public ResponseEntity<AuthErrorResponse> limited(LoginRateLimitedException exception) {
         return ResponseEntity.status(exception.getStatus()).cacheControl(CacheControl.noStore())

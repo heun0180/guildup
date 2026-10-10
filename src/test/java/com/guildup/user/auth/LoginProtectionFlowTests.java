@@ -57,6 +57,8 @@ class LoginProtectionFlowTests {
     @MockitoSpyBean PasswordEncoder encoder;
     @MockitoBean JDA jda;
     @MockitoBean DiscordBot bot;
+    // This suite measures login attack events; verification mail is covered independently.
+    @MockitoBean com.guildup.user.verification.EmailVerificationMailService verificationMail;
     final ObjectMapper json = new ObjectMapper();
     static final String PASSWORD = "GuildUp123!", WRONG = "WrongPass123!";
     String email;

@@ -8,6 +8,7 @@ import CredentialFields from "../components/CredentialFields.jsx";
 import AccountWithdrawalPanel from "../components/AccountWithdrawalPanel.jsx";
 import AccountProfilePanel from "../components/AccountProfilePanel.jsx";
 import Avatar from "../components/Avatar.jsx";
+import EmailVerificationPanel from "../components/EmailVerificationPanel.jsx";
 import { credentialError } from "../authValidation.js";
 
 const oauthMessages = {
@@ -49,7 +50,7 @@ export default function AccountSettingsPage() {
       setValues({ email: "", password: "", passwordConfirmation: "" });
       setAdding(false);
       setAccount(await api("/api/auth/account"));
-      setSuccess("이메일 로그인을 추가했습니다. 현재 계정과 커뮤니티 기록은 그대로 유지됩니다.");
+      setSuccess("이메일 로그인을 추가했습니다. 현재 계정과 커뮤니티 기록은 그대로 유지됩니다. 아래에서 인증 메일 발송 상태를 확인해 주세요.");
     } catch (error) { if (!redirectToLogin(error)) setMessage(error.message); }
     finally { setBusy(false); }
   }
@@ -89,6 +90,7 @@ export default function AccountSettingsPage() {
       {message && <p className="message" role="alert">{message}</p>}
       {success && <p className="auth-success" role="status">{success}</p>}
       {account && <>
+        {account.emailServiceRestricted && <p className="message" role="status">커뮤니티를 이용하려면 이메일 인증을 완료해 주세요.</p>}
         <AccountProfilePanel discordConnected={account.discordConnected} onSaved={(profile) => {
           setAccount((current) => ({ ...current, user: { ...current.user, nickname: profile.nickname } }));
         }} />
@@ -98,9 +100,10 @@ export default function AccountSettingsPage() {
           <div className="account-method-heading"><h3 id="account-email-title">이메일 로그인</h3>
             <span className="role-badge">{account.email ? "등록됨" : "등록되지 않음"}</span></div>
           {account.email ? <><dl className="account-details"><div><dt>이메일</dt><dd className="account-email">{account.email}</dd></div>
-            <div><dt>인증 상태</dt><dd>{account.emailVerified ? "인증됨" : "미인증"}</dd></div>
+            <div><dt>인증 상태</dt><dd>{account.emailVerified ? "인증 완료" : "인증 필요"}</dd></div>
             <div><dt>비밀번호</dt><dd aria-label="비밀번호가 설정되어 있습니다">••••••••</dd></div></dl>
-            <p className="auth-hint">{account.emailVerified ? "인증된 이메일입니다." : "이메일 소유 인증은 아직 제공되지 않습니다. 현재 이메일과 비밀번호로 로그인할 수 있습니다."}</p>
+            <p className="auth-hint">{account.emailVerified ? "인증된 이메일입니다." : "안전한 계정 이용을 위해 이메일 인증을 완료해 주세요. 현재 이메일과 비밀번호로 로그인할 수 있습니다."}</p>
+            {!account.emailVerified && <EmailVerificationPanel initialStatus={account.emailVerification} onVerified={() => setAccount((current) => ({ ...current, emailVerified: true }))} />}
             <p className="auth-hint">비밀번호 변경 기능은 추후 제공됩니다.</p></>
             : <><p>현재 계정에 이메일과 비밀번호를 추가합니다. 새 계정을 만들지 않습니다.</p>
               {!adding && <button type="button" disabled={busy} onClick={() => setAdding(true)}>이메일 로그인 추가</button>}

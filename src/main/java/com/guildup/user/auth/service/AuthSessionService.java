@@ -12,6 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 /** 이메일/Discord 로그인과 로그인 수단 추가가 공유하는 유일한 세션 인증 처리다. */
 @Service
 public class AuthSessionService implements jakarta.servlet.http.HttpSessionListener {
+    public static final String AUTHENTICATION_VERSION = "LOGIN_AUTHENTICATION_VERSION";
     private final UserRepository users;
     private final java.util.concurrent.ConcurrentMap<Long, java.util.Set<HttpSession>> activeSessions = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -20,11 +21,14 @@ public class AuthSessionService implements jakarta.servlet.http.HttpSessionListe
     public void authenticate(HttpServletRequest request, User user) {
         requireActive(user);
         // Re-read after the login transaction: withdrawal may have committed in between.
-        requireActive(users.findById(user.getId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED)));
+        var state = users.authenticationState(user.getId()).orElseThrow(AuthSessionService::expired);
+        if (state.getStatus() != com.guildup.user.domain.UserStatus.ACTIVE
+                || state.getVersion() != user.getAuthenticationVersion()) throw expired();
         HttpSession session = request.getSession();
         synchronized (session) {
             request.changeSessionId();
             session.setAttribute(CurrentUserSession.USER_ID, user.getId());
+            session.setAttribute(AUTHENTICATION_VERSION, state.getVersion());
             activeSessions.computeIfAbsent(user.getId(), ignored -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(session);
             session.removeAttribute(DiscordAuthAttempt.ATTRIBUTE);
             session.removeAttribute(WithdrawalVerification.ATTRIBUTE);
@@ -34,8 +38,40 @@ public class AuthSessionService implements jakarta.servlet.http.HttpSessionListe
 
     @Transactional(readOnly = true)
     public User requireUser(HttpSession session) {
-        return users.findById(CurrentUserSession.requireUserId(session)).filter(User::isActive).orElseThrow(() ->
-                new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Login user does not exist"));
+        Long id = CurrentUserSession.requireUserId(session);
+        if (!isSessionCurrent(session, id)) throw expired();
+        return users.findById(id).filter(User::isActive).orElseThrow(AuthSessionService::expired);
+    }
+
+    /** Long-lived SSE delivery also checks the DB version without loading an entity on every poll. */
+    @Transactional(readOnly = true)
+    public boolean isSessionCurrent(HttpSession session, Long id) {
+        Object version;
+        try {
+            if (!id.equals(CurrentUserSession.requireUserId(session))) return false;
+            version = session.getAttribute(AUTHENTICATION_VERSION);
+        } catch (ResponseStatusException | IllegalStateException invalidated) { return false; }
+        var state = users.authenticationState(id).orElse(null);
+        if (state == null) return false;
+        // 배포 전 세션은 버전 0으로만 인정한다. 첫 인증 변경 이후에는 모두 거부한다.
+        long sessionVersion = version instanceof Long value ? value : 0;
+        return state.getStatus() == com.guildup.user.domain.UserStatus.ACTIVE && sessionVersion == state.getVersion();
+    }
+
+    private static ResponseStatusException expired() {
+        return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "로그인 정보가 변경되었습니다. 다시 로그인해 주세요.");
+    }
+
+    /** 새 비밀번호로 이미 재로그인한 세션은 보존한다. 다른 서버의 세션은 requireUser가 거부한다. */
+    public void revokeBeforeVersion(Long userId, long version) {
+        var sessions = activeSessions.get(userId);
+        if (sessions == null) return;
+        for (var session : sessions) {
+            try {
+                Object stored = session.getAttribute(AUTHENTICATION_VERSION);
+                if ((stored instanceof Long value ? value : 0) < version) session.invalidate();
+            } catch (IllegalStateException ignored) { /* Concurrent logout. */ }
+        }
     }
 
     public static User requireActive(User user) {

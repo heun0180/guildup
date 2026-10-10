@@ -32,6 +32,11 @@ public class UserCredential {
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified;
 
+    /** 기존 계정은 false를 유지한다. 이번 기능 이후 이메일 신규 가입에만 설정한다. */
+    @Column(name = "verification_required", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("false")
+    private boolean verificationRequired;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -44,7 +49,6 @@ public class UserCredential {
         this.user = user;
         this.email = normalizedEmail;
         this.passwordHash = passwordHash;
-        // 인증 메일을 보내고 소유를 확인하는 기능이 생기기 전까지 항상 false다.
         this.emailVerified = false;
     }
 
@@ -52,7 +56,15 @@ public class UserCredential {
     public User getUser() { return user; }
     public String getEmail() { return email; }
     public String getPasswordHash() { return passwordHash; }
+    /** 호출자는 users 행을 먼저 잠근다. 모든 비밀번호 변경은 인증 버전도 회전한다. */
+    public void changePasswordHash(String encoded) {
+        passwordHash = encoded;
+        user.advanceAuthenticationVersion();
+    }
     public boolean isEmailVerified() { return emailVerified; }
+    public boolean isVerificationRequired() { return verificationRequired; }
+    public void requireEmailVerification() { verificationRequired = true; }
+    public void verifyEmail() { emailVerified = true; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
 
